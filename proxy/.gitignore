@@ -3,6 +3,7 @@
 *.dll
 *.so
 *.dylib
+proxy
 # Test binary, built with `go test -c`
 *.test
 
