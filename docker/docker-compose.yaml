@@ -1,0 +1,50 @@
+version: "3"
+services:
+  httpbin:
+    image: kennethreitz/httpbin
+    expose:
+      - 8888
+    ports:
+      - "8888:8888"
+    networks:
+      - java-ratelimit-network
+
+  rust-proxy:
+      image: kennethreitz/httpbin
+      expose:
+        - 9950
+      ports:
+        - "9950:9950"
+      networks:
+        - java-ratelimit-network
+      
+  envoy-proxy:
+    image: envoyproxy/envoy:v1.23-latest
+    entrypoint: "/usr/local/bin/envoy"
+    command:
+      - "--config-path /etc/envoy/envoy.yaml"
+      - "--service-node proxy"
+      - "--service-cluster proxy"
+      - "--concurrency 1"
+      - "--mode serve"
+      - "--log-level debug"
+    volumes:
+      # - ./bootstrap-ads.yaml:/etc/envoy/envoy.yaml
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    expose:
+      - "8888"
+      - "8001"
+      - "10000"
+      - "8887"
+      - "8889"
+      - "9901"
+    ports:
+      - "8888:8888"
+      - "8001:8001"
+      - "10000:10000"
+      - "8887:8887"
+      - "8889:8889"
+      - "9901:9901"
+networks:
+  java-ratelimit-network:
+    driver: bridge
