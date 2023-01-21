@@ -1,4 +1,4 @@
-FROM alpine:latest
-COPY ratelimit/target/ratelimit-1.0.jar /etc/axway-ratelimit/ratelimit.jar
-RUN chmod go+r /etc/axway-ratelimit/ratelimit.jar
-ENTRYPOINT ["java","-Xloggc:/tmp/gc.log","-XX:+UseG1GC","-jar","/etc/axway-ratelimit/ratelimit.jar"]
+FROM ubuntu:latest
+COPY rust-proxy/rust-proxy /etc/rust-proxy
+RUN chmod go+r /etc/rust-proxy
+CMD ["/etc/rust-proxy","--listener","127.0.0.1:9550","--server-addr","localhost:8888"]

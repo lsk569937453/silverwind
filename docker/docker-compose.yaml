@@ -1,20 +1,20 @@
 version: "3"
 services:
   httpbin:
-    image: kennethreitz/httpbin
+    image: strm/helloworld-http
     expose:
       - 8888
     ports:
-      - "8888:8888"
+      - "8888:80"
     networks:
       - java-ratelimit-network
 
   rust-proxy:
-      image: kennethreitz/httpbin
+      image: lsk569937453/rust-proxy:v1
       expose:
-        - 9950
+        - 9550
       ports:
-        - "9950:9950"
+        - "9550:9550"
       networks:
         - java-ratelimit-network
       
@@ -32,14 +32,12 @@ services:
       # - ./bootstrap-ads.yaml:/etc/envoy/envoy.yaml
       - ./envoy.yaml:/etc/envoy/envoy.yaml
     expose:
-      - "8888"
       - "8001"
       - "10000"
       - "8887"
       - "8889"
       - "9901"
     ports:
-      - "8888:8888"
       - "8001:8001"
       - "10000:10000"
       - "8887:8887"
