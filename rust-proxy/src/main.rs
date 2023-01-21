@@ -1,78 +1,20 @@
 #![warn(rust_2018_idioms)]
 
-use bb8::Pool;
+mod pool;
+
+use futures::FutureExt;
 use tokio::io;
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 
-use async_trait::async_trait;
-use futures::FutureExt;
-use log::{debug, error, info, log_enabled, Level};
+use backtrace::Backtrace;
+use bb8::Pool;
+use futures::future;
+use log::{debug, error, info, Level};
+use pool::TcpConnectionManager;
 use std::env;
 use std::error::Error;
 use std::fmt;
-use std::task::Poll;
-use backtrace::Backtrace;
-
-#[derive(Debug)]
-pub struct MyError {
-    details: String,
-}
-
-impl MyError {
-    fn new(msg: &str) -> MyError {
-        MyError {
-            details: msg.to_string(),
-        }
-    }
-}
-
-impl fmt::Display for MyError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.details)
-    }
-}
-
-impl Error for MyError {
-    fn description(&self) -> &str {
-        &self.details
-    }
-}
-#[derive(Clone, Debug)]
-pub struct TcpConnectionManager {
-    backendUrl: String,
-}
-
-impl TcpConnectionManager {
-    /// Create a new `RedisConnectionManager`.
-    /// See `redis::Client::open` for a description of the parameter types.
-    pub fn new(info: String) -> Result<TcpConnectionManager, MyError> {
-        Ok(TcpConnectionManager { backendUrl: info })
-    }
-}
-
-#[async_trait]
-impl bb8::ManageConnection for TcpConnectionManager {
-    type Connection = TcpStream;
-    type Error = MyError;
-
-    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        match TcpStream::connect(self.backendUrl.clone()).await {
-            Ok(tcpStream) => Ok(tcpStream),
-            Err(err) => Err(MyError::new(err.to_string().as_str())),
-        }
-    }
-
-    async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        let mut b1 = [0; 1];
-        conn.peek(&mut b1).await;
-        Ok(())
-    }
-
-    fn has_broken(&self, _: &mut Self::Connection) -> bool {
-        false
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -91,15 +33,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     info!("Proxying to: {}", server_addr);
 
     let manager = TcpConnectionManager::new(server_addr).unwrap();
-    let pool = bb8::Pool::builder().build(manager).await.unwrap();
+    let pool = bb8::Pool::builder()
+        .max_size(3)
+        .build(manager)
+        .await
+        .unwrap();
 
     let listener = TcpListener::bind(listen_addr).await?;
 
     while let Ok((inbound, _)) = listener.accept().await {
-        let transfer = transfer(inbound,pool.clone()).map(|r| {
+        let transfer = transfer(inbound, pool.clone()).map(|r| {
             if let Err(e) = r {
                 let bt = Backtrace::new();
-                error!("Failed to transfer; error={},stack is:{:?}", e,bt);
+                error!("Failed to transfer; error={},stack is:{:?}", e, bt);
             }
         });
 
@@ -109,23 +55,42 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn transfer(mut inbound: TcpStream,pool:Pool<TcpConnectionManager>) -> Result<(), Box<dyn Error>> {
+async fn transfer(
+    mut inbound: TcpStream,
+    pool: Pool<TcpConnectionManager>,
+) -> Result<(), Box<dyn Error>> {
     // let mut outbound = TcpStream::connect(proxy_addr).await?;
-    let mut outbound=pool.get().await.unwrap();
+    debug!("before get");
+    let mut outbound = pool.get().await.unwrap();
+    debug!("after get");
+
     let (mut ri, mut wi) = inbound.split();
     let (mut ro, mut wo) = outbound.split();
 
     let client_to_server = async {
-        io::copy(&mut ri, &mut wo).await?;
-        wo.shutdown().await
+        match io::copy(&mut ri, &mut wo).await{
+            Ok(len)=>{info!("client_to_server,copy data:{}",len)},
+            Err(_)=>{info!("errr")},
+        }
+        debug!("close  wo");
+        let a = future::ok::<i32, pool::MyError>(1);
+        a.await
+        //   wo.shutdown().await
     };
 
     let server_to_client = async {
-        io::copy(&mut ro, &mut wi).await?;
-        wi.shutdown().await
+        match io::copy(&mut ro, &mut wi).await{
+            Ok(len)=>{info!("server_to_client,copy data:{}",len)},
+            Err(_)=>{info!("errr")},
+        }
+        debug!("close  wi");
+        //  wi.shutdown().await;
+        let a = future::ok::<i32, pool::MyError>(1);
+        a.await
     };
 
     tokio::try_join!(client_to_server, server_to_client)?;
+    debug!("try_join over");
 
     Ok(())
 }
