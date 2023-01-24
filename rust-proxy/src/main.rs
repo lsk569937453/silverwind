@@ -3,7 +3,7 @@
 mod pool;
 
 use futures::FutureExt;
-use tokio::io;
+use tokio::io::{self, AsyncReadExt};
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -15,6 +15,11 @@ use pool::TcpConnectionManager;
 use std::env;
 use std::error::Error;
 use std::fmt;
+use futures::StreamExt;
+use tokio_util::codec::{BytesCodec, Decoder};
+use tokio_util::codec::{ Encoder, Framed};
+use std::io::BufReader;
+use std::io::{Write, BufRead};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -62,35 +67,45 @@ async fn transfer(
     // let mut outbound = TcpStream::connect(proxy_addr).await?;
     debug!("before get");
     let mut outbound = pool.get().await.unwrap();
+
     debug!("after get");
 
-    let (mut ri, mut wi) = inbound.split();
-    let (mut ro, mut wo) = outbound.split();
 
-    let client_to_server = async {
-        match io::copy(&mut ri, &mut wo).await{
-            Ok(len)=>{info!("client_to_server,copy data:{}",len)},
-            Err(_)=>{info!("errr")},
+    let mut framed = BytesCodec::new().framed(&mut inbound);
+    debug!("after get");
+
+    let message=framed.next().await.unwrap().unwrap();
+    debug!("framed next end");
+
+    outbound.write_all( &message[..]).await;
+    debug!("outbound write all");
+
+
+    let mut reader = BufReader::new( outbound.into_std().unwrap());
+
+    loop {
+        let mut response = String::new();
+
+        let result = reader.read_line(&mut response);
+        match result {
+            Ok(data) => {
+                println!("{}", response);
+            }
+            Err(e) => {
+                println!("error reading: {}", e);
+                break;
+            }
         }
-        debug!("close  wo");
-        let a = future::ok::<i32, pool::MyError>(1);
-        a.await
-        //   wo.shutdown().await
-    };
+    }
 
-    let server_to_client = async {
-        match io::copy(&mut ro, &mut wi).await{
-            Ok(len)=>{info!("server_to_client,copy data:{}",len)},
-            Err(_)=>{info!("errr")},
-        }
-        debug!("close  wi");
-        //  wi.shutdown().await;
-        let a = future::ok::<i32, pool::MyError>(1);
-        a.await
-    };
 
-    tokio::try_join!(client_to_server, server_to_client)?;
-    debug!("try_join over");
+    // let mut framed2 = BytesCodec::new().framed(&mut outbound);
+
+    // let mut secondBuffer=framed2.next().await.unwrap().unwrap();
+
+    // inbound.write_all(&secondBuffer[..]).await;
+    debug!("inbound write_all");
 
     Ok(())
+
 }

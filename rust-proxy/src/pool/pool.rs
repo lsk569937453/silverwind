@@ -50,7 +50,10 @@ impl bb8::ManageConnection for TcpConnectionManager {
         debug!("start connect");
         return match TcpStream::connect(self.backendUrl.clone()).await {
             Ok(tcpStream) => Ok(tcpStream),
-            Err(err) => Err(MyError::new(err.to_string().as_str())),
+            Err(err) => 
+            {
+                error!("connect error,error is{}",err);
+                Err(MyError::new(err.to_string().as_str()))},
         };
     }
 
