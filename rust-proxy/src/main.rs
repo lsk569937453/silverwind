@@ -1,111 +1,115 @@
-#![warn(rust_2018_idioms)]
+#![deny(warnings)]
 
-mod pool;
+use std::convert::Infallible;
+use std::net::SocketAddr;
 
-use futures::FutureExt;
-use tokio::io::{self, AsyncReadExt};
-use tokio::io::AsyncWriteExt;
-use tokio::net::{TcpListener, TcpStream};
-
-use backtrace::Backtrace;
-use bb8::Pool;
-use futures::future;
-use log::{debug, error, info, Level};
-use pool::TcpConnectionManager;
+use hyper::service::{make_service_fn, service_fn};
+use hyper::upgrade::Upgraded;
+use hyper::{Body, Client, Method, Request, Response, Server};
 use std::env;
-use std::error::Error;
-use std::fmt;
-use futures::StreamExt;
-use tokio_util::codec::{BytesCodec, Decoder};
-use tokio_util::codec::{ Encoder, Framed};
-use std::io::BufReader;
-use std::io::{Write, BufRead};
 
+use tokio::net::TcpStream;
+#[macro_use]
+extern crate log;
+type HttpClient = Client<hyper::client::HttpConnector>;
+
+// To try this example:
+// 1. cargo run --example http_proxy
+// 2. config http_proxy in command line
+//    $ export http_proxy=http://127.0.0.1:8100
+//    $ export https_proxy=http://127.0.0.1:8100
+// 3. send requests
+//    $ curl -i https://www.some_domain.com/
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() {
     env::set_var("RUST_LOG", "debug");
 
     env_logger::init();
+    let addr = SocketAddr::from(([127, 0, 0, 1], 8100));
 
-    let listen_addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8081".to_string());
-    let server_addr = env::args()
-        .nth(2)
-        .unwrap_or_else(|| "httpbin.org:80".to_string());
+    let client = Client::builder()
+        .http1_title_case_headers(true)
+        .http1_preserve_header_case(true)
+        .build_http();
 
-    info!("Listening on: {}", listen_addr);
-    info!("Proxying to: {}", server_addr);
+    let make_service = make_service_fn(move |_| {
+        let client = client.clone();
+        async move { Ok::<_, Infallible>(service_fn(move |req| proxy(client.clone(), req))) }
+    });
 
-    let manager = TcpConnectionManager::new(server_addr).unwrap();
-    let pool = bb8::Pool::builder()
-        .max_size(3)
-        .build(manager)
-        .await
-        .unwrap();
+    let server = Server::bind(&addr)
+        .http1_preserve_header_case(true)
+        .http1_title_case_headers(true)
+        .serve(make_service);
 
-    let listener = TcpListener::bind(listen_addr).await?;
+    info!("Listening on http://{}", addr);
 
-    while let Ok((inbound, _)) = listener.accept().await {
-        let transfer = transfer(inbound, pool.clone()).map(|r| {
-            if let Err(e) = r {
-                let bt = Backtrace::new();
-                error!("Failed to transfer; error={},stack is:{:?}", e, bt);
-            }
-        });
-
-        tokio::spawn(transfer);
+    if let Err(e) = server.await {
+        error!("server error: {}", e);
     }
-
-    Ok(())
 }
 
-async fn transfer(
-    mut inbound: TcpStream,
-    pool: Pool<TcpConnectionManager>,
-) -> Result<(), Box<dyn Error>> {
-    // let mut outbound = TcpStream::connect(proxy_addr).await?;
-    debug!("before get");
-    let mut outbound = pool.get().await.unwrap();
+async fn proxy(client: HttpClient, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    info!("req: {:?}", req);
 
-    debug!("after get");
+    if Method::CONNECT == req.method() {
+        // Received an HTTP request like:
+        // ```
+        // CONNECT www.domain.com:443 HTTP/1.1
+        // Host: www.domain.com:443
+        // Proxy-Connection: Keep-Alive
+        // ```
+        //
+        // When HTTP method is CONNECT we should return an empty body
+        // then we can eventually upgrade the connection and talk a new protocol.
+        //
+        // Note: only after client received an empty body with STATUS_OK can the
+        // connection be upgraded, so we can't return a response inside
+        // `on_upgrade` future.
+        if let Some(addr) = host_addr(req.uri()) {
+            tokio::task::spawn(async move {
+                match hyper::upgrade::on(req).await {
+                    Ok(upgraded) => {
+                        if let Err(e) = tunnel(upgraded, addr).await {
+                            error!("server io error: {}", e);
+                        };
+                    }
+                    Err(e) => error!("upgrade error: {}", e),
+                }
+            });
 
+            Ok(Response::new(Body::empty()))
+        } else {
+            info!("CONNECT host is not socket addr: {:?}", req.uri());
+            let mut resp = Response::new(Body::from("CONNECT must be to a socket address"));
+            *resp.status_mut() = http::StatusCode::BAD_REQUEST;
 
-    let mut framed = BytesCodec::new().framed(&mut inbound);
-    debug!("after get");
-
-    let message=framed.next().await.unwrap().unwrap();
-    debug!("framed next end");
-
-    outbound.write_all( &message[..]).await;
-    debug!("outbound write all");
-
-
-    let mut reader = BufReader::new( outbound.into_std().unwrap());
-
-    loop {
-        let mut response = String::new();
-
-        let result = reader.read_line(&mut response);
-        match result {
-            Ok(data) => {
-                println!("{}", response);
-            }
-            Err(e) => {
-                println!("error reading: {}", e);
-                break;
-            }
+            Ok(resp)
         }
+    } else {
+        client.request(req).await
     }
+}
 
+fn host_addr(uri: &http::Uri) -> Option<String> {
+    uri.authority().and_then(|auth| Some(auth.to_string()))
+}
 
-    // let mut framed2 = BytesCodec::new().framed(&mut outbound);
+// Create a TCP connection to host:port, build a tunnel between the connection and
+// the upgraded connection
+async fn tunnel(mut upgraded: Upgraded, addr: String) -> std::io::Result<()> {
+    // Connect to remote server
+    let mut server = TcpStream::connect(addr).await?;
 
-    // let mut secondBuffer=framed2.next().await.unwrap().unwrap();
+    // Proxying data
+    let (from_client, from_server) =
+        tokio::io::copy_bidirectional(&mut upgraded, &mut server).await?;
 
-    // inbound.write_all(&secondBuffer[..]).await;
-    debug!("inbound write_all");
+    // Print message when done
+    info!(
+        "client wrote {} bytes and received {} bytes",
+        from_client, from_server
+    );
 
     Ok(())
-
 }
