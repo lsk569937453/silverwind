@@ -33,8 +33,8 @@ static_resources:
               - endpoint:
                   address:
                     socket_address:
-                      address: host.docker.internal 
-                      port_value: 8888
+                      address: httpbin.org
+                      port_value: 80
   listeners:
     - name: listener_1
       address:

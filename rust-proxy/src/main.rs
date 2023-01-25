@@ -25,7 +25,7 @@ async fn main() {
     env::set_var("RUST_LOG", "debug");
 
     env_logger::init();
-    let addr = SocketAddr::from(([127, 0, 0, 1], 8100));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 9550));
 
     let client = Client::builder()
         .http1_title_case_headers(true)
@@ -49,9 +49,13 @@ async fn main() {
     }
 }
 
-async fn proxy(client: HttpClient, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-    info!("req: {:?}", req);
+async fn proxy(client: HttpClient, mut req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+    debug!("req: {:?}", req);
+    
+    // *req.uri_mut() = "http://host.docker.internal:8888/get".parse().unwrap();
+    *req.uri_mut() = "http://httpbin.org:80/get".parse().unwrap();
 
+    
     if Method::CONNECT == req.method() {
         // Received an HTTP request like:
         // ```
