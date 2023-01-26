@@ -17,8 +17,6 @@ pub struct HttpProxy {
 }
 
 impl HttpProxy {
-    /// Create a new `RedisConnectionManager`.
-    /// See `redis::Client::open` for a description of the parameter types.
     pub async fn start(&self)  {
         let addr = SocketAddr::from(([0, 0, 0, 0], 9550));
 
