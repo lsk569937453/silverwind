@@ -34,8 +34,6 @@ pub struct TcpConnectionManager {
 }
 
 impl TcpConnectionManager {
-    /// Create a new `RedisConnectionManager`.
-    /// See `redis::Client::open` for a description of the parameter types.
     pub fn new(info: String) -> Result<TcpConnectionManager, MyError> {
         Ok(TcpConnectionManager { backendUrl: info })
     }
