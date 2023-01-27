@@ -1,4 +1,7 @@
 
+
+use crate::proxy::HttpProxy;
+
 use std::borrow::Cow;
 
 use rocket::State;
@@ -27,6 +30,7 @@ async fn new(message: Json<Message<'_>>, list: Messages<'_>) -> Value {
     list.push(message.message.to_string());
     json!({ "status": "ok", "id": id })
 }
+
 // curl -kv -X GET "http://127.0.0.1:3721/json/3"
 #[get("/<id>", format = "json")]
 async fn get(id: Id, list: Messages<'_>) -> Option<Json<Message<'_>>> {

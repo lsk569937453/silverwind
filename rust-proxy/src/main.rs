@@ -1,7 +1,10 @@
 #[macro_use] extern crate rocket;
 mod control_plane;
-use control_plane::service_controller;
+mod proxy;
+mod pool;
+mod timer;
 use std::env;
+use proxy::HttpProxy;
 #[macro_use]
 extern crate log;
 #[launch]
@@ -11,6 +14,21 @@ fn rocket() -> _ {
 
     env_logger::init();
 
+    tokio::spawn(async move{
+        startProxy().await;
+    });
+    tokio::spawn(async move{
+        timer::startSyncTask().await;
+    });
+    
     rocket::build()
-    .attach(service_controller::stage())
+    .attach(control_plane::stage())
+}
+pub async fn startProxy(){
+    let inBound:String=String::from("Hello, world!");
+    let outBound:String=String::from("Hello, world!");
+
+    let mut httpProxy=HttpProxy{inBound:inBound,outBound:outBound};
+    
+    httpProxy.start().await;
 }
