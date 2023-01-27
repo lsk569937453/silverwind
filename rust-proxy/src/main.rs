@@ -1,19 +1,16 @@
-mod proxy;
-mod pool;
+#[macro_use] extern crate rocket;
+mod control_plane;
+use control_plane::service_controller;
 use std::env;
-use proxy::HttpProxy;
 #[macro_use]
 extern crate log;
-#[tokio::main]
-async fn main(){
+#[launch]
+fn rocket() -> _ {
     env::set_var("RUST_LOG", "debug");
+    env::set_var("ROCKET_PORT","3721");
 
     env_logger::init();
 
-    let inBound:String=String::from("Hello, world!");
-    let outBound:String=String::from("Hello, world!");
-
-    let mut httpProxy=HttpProxy{inBound:inBound,outBound:outBound};
-    httpProxy.start().await;
-    
+    rocket::build()
+    .attach(service_controller::stage())
 }
