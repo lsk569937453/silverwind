@@ -22,3 +22,10 @@ http-body-util = { version = "0.1.0-rc.2"}
 hyper = { version = "0.14",  features = ["full"] }
 http = "0.2"
 rocket =  { version = "0.5.0-rc.2", features = ["json"] }
+oas3 = "0.2.1"
+
+diesel = { version = "2.0.0", features = ["r2d2","postgres"] }
+dotenvy = "0.15"
+
+lazy_static = "1.4.0"
+derive_builder = "0.12.0"

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use log::{debug, error, info, Level};
+use log::{debug, error};
 use std::error::Error;
 use std::fmt;
 use tokio::net::TcpStream;
@@ -30,12 +30,12 @@ impl Error for MyError {
 }
 #[derive(Clone, Debug)]
 pub struct TcpConnectionManager {
-    backendUrl: String,
+    backend_url: String,
 }
 
 impl TcpConnectionManager {
     pub fn new(info: String) -> Result<TcpConnectionManager, MyError> {
-        Ok(TcpConnectionManager { backendUrl: info })
+        Ok(TcpConnectionManager { backend_url: info })
     }
 }
 
@@ -46,8 +46,8 @@ impl bb8::ManageConnection for TcpConnectionManager {
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         debug!("start connect");
-        return match TcpStream::connect(self.backendUrl.clone()).await {
-            Ok(tcpStream) => Ok(tcpStream),
+        return match TcpStream::connect(self.backend_url.clone()).await {
+            Ok(tcp_stream) => Ok(tcp_stream),
             Err(err) => 
             {
                 error!("connect error,error is{}",err);

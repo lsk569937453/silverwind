@@ -1,4 +1,3 @@
-use crate::pool::MyError;
 use hyper::upgrade::Upgraded;
 use hyper::{Body, Client, Method, Request, Response, Server};
 // use pool::MyError;
@@ -12,8 +11,8 @@ type HttpClient = Client<hyper::client::HttpConnector>;
 
 #[derive(Clone, Debug)]
 pub struct HttpProxy {
-    pub inBound: String,
-    pub outBound: String,
+    pub in_bound: String,
+    pub out_bound: String,
 }
 
 impl HttpProxy {

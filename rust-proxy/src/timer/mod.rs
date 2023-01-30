@@ -1,2 +1,2 @@
 pub mod timer;
-pub use timer::startSyncTask;
+pub use timer::start_sync_task;

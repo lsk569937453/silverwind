@@ -2,4 +2,4 @@
 rustflags = [
 "-C", "link-arg=-undefined",
 "-C", "link-arg=dynamic_lookup",
-]
+'-L /opt/homebrew/opt/libpq/lib -L /opt/homebrew/lib']
