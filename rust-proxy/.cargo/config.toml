@@ -3,3 +3,14 @@ rustflags = [
 "-C", "link-arg=-undefined",
 "-C", "link-arg=dynamic_lookup",
 '-L /opt/homebrew/opt/libpq/lib -L /opt/homebrew/lib']
+
+
+[target.stable-x86_64-pc-windows-msvc]
+rustflags = [
+"-C", "link-arg=-undefined",
+"-C", "link-arg=dynamic_lookup",
+'-L C:\\Program Files\\PostgreSQL\\15\\lib']
+
+# [target.stable-x86_64-pc-windows-msvc]
+# rustc-link-search = ["C:\\Program Files\\PostgreSQL\\15\\lib"]
+# rustc-link-lib = ["libpq"]
