@@ -45,12 +45,12 @@ impl HttpProxy {
 async fn proxy(client: HttpClient, mut req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     debug!("req: {:?}", req);
 
-    // *req.uri_mut() = "http://host.docker.internal:8888/get".parse().unwrap();
-    *req.uri_mut() = "http://httpbin.org:80/get".parse().unwrap();
+     *req.uri_mut() = "http://localhost:9888/upload".parse().unwrap();
+    //*req.uri_mut() = "http://httpbin.org:80/get".parse().unwrap();
 
     if Method::CONNECT == req.method() {
         // Received an HTTP request like:
-        // ```
+        // ```  
         // CONNECT www.domain.com:443 HTTP/1.1
         // Host: www.domain.com:443
         // Proxy-Connection: Keep-Alive
