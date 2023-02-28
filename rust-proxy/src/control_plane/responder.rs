@@ -1,11 +1,8 @@
 use crate::vojo::vojo::BaseResponse;
-use diesel::result::Error as DieselError;
 use rocket::http::ContentType;
 use rocket::http::Status;
 use rocket::request::Request;
 use rocket::response::{self, Responder, Response};
-use rocket::serde::json::{json, Json, Value};
-use std::error::Error;
 
 use std::io::Cursor;
 // #[derive(Serialize)]
@@ -30,13 +27,20 @@ impl ApiError {
             _ => Status::BadRequest,
         }
     }
+    fn to_string(&self) -> &String {
+        match self {
+            ApiError::Internal(s) => s,
+            ApiError::NotFound(s) => s,
+            ApiError::BadRequest(s) => s,
+        }
+    }
 }
 impl<'r> Responder<'r, 'static> for ApiError {
     fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
         // serialize struct into json string
         let err_response = serde_json::to_string(&BaseResponse {
-            response_code: 0,
-            response_object: "ss",
+            response_code: -1,
+            response_object: self.to_string(),
         })
         .unwrap();
 

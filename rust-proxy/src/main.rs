@@ -20,7 +20,8 @@ fn rocket() -> _ {
     env::set_var("ROCKET_PORT", "3721");
     env::set_var(
         "DATABASE_URL",
-        "postgresql://axway:axway-password@127.0.0.1:6543/yyproxy",
+        // "postgresql://axway:axway-password@127.0.0.1:6543/yyproxy",
+        "mysql://axway:axway-password@127.0.0.1:3306/yyproxy",
     );
 
     env_logger::init();

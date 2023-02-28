@@ -26,7 +26,7 @@ http = "0.2"
 rocket =  { version = "0.5.0-rc.2", features = ["json"] }
 oas3 = "0.2.1"
 
-diesel = { version = "2.0.0", features = ["r2d2","postgres"] }
+diesel = { version = "2.0.0", features = ["r2d2","mysql"] }
 dotenvy = "0.15"
 
 lazy_static = "1.4.0"

@@ -1,28 +1,17 @@
-use crate::pool;
 use crate::vojo::vojo::BaseResponse;
 
 use crate::dao::insert_tuple_batch_with_default;
 use crate::pool::pgpool::{self, DbConnection};
-use anyhow::Error;
-use diesel::r2d2;
-use diesel::r2d2::ConnectionManager;
-use diesel::result::Error as DieselError;
-use diesel::PgConnection;
-use rocket::http::ContentType;
-use rocket::http::Status;
-use rocket::request::Request;
-use rocket::response::{self, Responder, Response};
+
 use rocket::serde::json::{json, Json, Value};
 use rocket::serde::{Deserialize, Serialize};
 use rocket::tokio::sync::Mutex;
 use rocket::State;
 use std::borrow::Cow;
-use std::io::Cursor;
 
 use super::responder::ApiError;
 // The type to represent the ID of a message.
 type Id = usize;
-pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 // We're going to store all of the messages here. No need for a DB.
 type MessageList = Mutex<Vec<String>>;
@@ -46,7 +35,7 @@ async fn new(
 
     let mut connection: DbConnection = match pgpool::get_connection() {
         Ok(conn) => conn,
-        Err(err) => return Err(ApiError::BadRequest(err.to_string())),
+        Err(err) => return Err(ApiError::Internal(err.to_string())),
     };
     let insert_resut = insert_tuple_batch_with_default(&mut connection);
     let base_response = match insert_resut {

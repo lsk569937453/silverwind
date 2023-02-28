@@ -1,12 +1,9 @@
-
 #[cfg(test)]
 use diesel::debug_query;
 use diesel::insert_into;
 #[cfg(test)]
-use diesel::pg::Pg;
+use diesel::mysql::Mysql;
 use diesel::prelude::*;
-use std::error::Error;
-use std::time::SystemTime;
 mod schema {
     diesel::table! {
         users {
@@ -19,9 +16,7 @@ mod schema {
     }
 }
 
-use schema::users;
-
-pub fn insert_tuple_batch_with_default(conn: &mut PgConnection) -> QueryResult<usize> {
+pub fn insert_tuple_batch_with_default(conn: &mut MysqlConnection) -> QueryResult<usize> {
     use schema::users::dsl::*;
 
     insert_into(users)

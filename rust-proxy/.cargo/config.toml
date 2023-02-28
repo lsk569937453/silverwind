@@ -9,7 +9,7 @@ rustflags = [
 rustflags = [
 "-C", "link-arg=-undefined",
 "-C", "link-arg=dynamic_lookup",
-'-L C:\\Program Files\\PostgreSQL\\15\\lib']
+'-L C:\\Program Files\\MySQL\\MySQL-Connector-C-6.1\\lib\\vs14']
 
 # [target.stable-x86_64-pc-windows-msvc]
 # rustc-link-search = ["C:\\Program Files\\PostgreSQL\\15\\lib"]

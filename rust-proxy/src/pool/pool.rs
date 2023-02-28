@@ -59,7 +59,7 @@ impl bb8::ManageConnection for TcpConnectionManager {
         debug!("peek start");
         conn.peek(&mut b1).await;
         debug!("peek successfully");
-        return Ok(());
+        Ok(())
     }
 
     fn has_broken(&self, conn: &mut Self::Connection) -> bool {
