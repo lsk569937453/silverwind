@@ -1,4 +1,4 @@
-pub mod pool;
 pub mod pgpool;
-pub use pool::TcpConnectionManager;
+pub mod pool;
 pub use pool::MyError;
+pub use pool::TcpConnectionManager;

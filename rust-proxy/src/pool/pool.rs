@@ -3,7 +3,6 @@ use log::{debug, error};
 use std::error::Error;
 use std::fmt;
 use tokio::net::TcpStream;
-
 #[derive(Debug)]
 pub struct MyError {
     details: String,
@@ -48,10 +47,10 @@ impl bb8::ManageConnection for TcpConnectionManager {
         debug!("start connect");
         return match TcpStream::connect(self.backend_url.clone()).await {
             Ok(tcp_stream) => Ok(tcp_stream),
-            Err(err) => 
-            {
-                error!("connect error,error is{}",err);
-                Err(MyError::new(err.to_string().as_str()))},
+            Err(err) => {
+                error!("connect error,error is{}", err);
+                Err(MyError::new(err.to_string().as_str()))
+            }
         };
     }
 
@@ -63,8 +62,8 @@ impl bb8::ManageConnection for TcpConnectionManager {
         return Ok(());
     }
 
-     fn has_broken(&self, conn: &mut Self::Connection) -> bool{
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
         debug!("has_broken start");
-       return false;
+        return false;
     }
 }
