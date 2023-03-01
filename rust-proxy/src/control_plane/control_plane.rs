@@ -32,6 +32,7 @@ async fn new(
     // let mut list = list.lock().await;
     // let id = list.len();
     // list.push(message.message.to_string());
+    info!("new start");
 
     let mut connection: DbConnection = match pgpool::get_connection() {
         Ok(conn) => conn,

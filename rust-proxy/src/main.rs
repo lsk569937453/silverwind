@@ -12,6 +12,8 @@ mod timer;
 mod vojo;
 use proxy::HttpProxy;
 use std::env;
+use futures::executor::block_on;
+
 #[macro_use]
 extern crate log;
 #[launch]
@@ -27,11 +29,10 @@ fn rocket() -> _ {
 
     env_logger::init();
 
-    tokio::spawn(async move {
-        start_proxy().await;
-    });
-    tokio::spawn(async move { pool::pgpool::schedule_task_connection_pool().await });
+    tokio::task::spawn(async{start_proxy().await});
+    std::thread::spawn(move||{pool::pgpool::schedule_task_connection_pool();});
 
+   
     rocket::build().attach(control_plane::stage())
 }
 pub async fn start_proxy() {
