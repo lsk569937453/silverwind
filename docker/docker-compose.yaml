@@ -1,7 +1,7 @@
 version: "3"
 services:
   httpbin:
-    image: strm/helloworld-http
+    image: kennethreitz/httpbin
     expose:
       - 8888
     ports:

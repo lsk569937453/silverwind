@@ -1,9 +1,8 @@
 use async_trait::async_trait;
-use log::{debug, error, info, Level};
+use log::{debug, error};
 use std::error::Error;
 use std::fmt;
 use tokio::net::TcpStream;
-
 #[derive(Debug)]
 pub struct MyError {
     details: String,
@@ -30,14 +29,12 @@ impl Error for MyError {
 }
 #[derive(Clone, Debug)]
 pub struct TcpConnectionManager {
-    backendUrl: String,
+    backend_url: String,
 }
 
 impl TcpConnectionManager {
-    /// Create a new `RedisConnectionManager`.
-    /// See `redis::Client::open` for a description of the parameter types.
     pub fn new(info: String) -> Result<TcpConnectionManager, MyError> {
-        Ok(TcpConnectionManager { backendUrl: info })
+        Ok(TcpConnectionManager { backend_url: info })
     }
 }
 
@@ -48,9 +45,12 @@ impl bb8::ManageConnection for TcpConnectionManager {
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
         debug!("start connect");
-        return match TcpStream::connect(self.backendUrl.clone()).await {
-            Ok(tcpStream) => Ok(tcpStream),
-            Err(err) => Err(MyError::new(err.to_string().as_str())),
+        return match TcpStream::connect(self.backend_url.clone()).await {
+            Ok(tcp_stream) => Ok(tcp_stream),
+            Err(err) => {
+                error!("connect error,error is{}", err);
+                Err(MyError::new(err.to_string().as_str()))
+            }
         };
     }
 
@@ -59,11 +59,11 @@ impl bb8::ManageConnection for TcpConnectionManager {
         debug!("peek start");
         conn.peek(&mut b1).await;
         debug!("peek successfully");
-        return Ok(());
+        Ok(())
     }
 
-     fn has_broken(&self, conn: &mut Self::Connection) -> bool{
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
         debug!("has_broken start");
-       return false;
+        return false;
     }
 }
