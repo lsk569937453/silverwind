@@ -3,6 +3,7 @@ extern crate rocket;
 #[macro_use]
 extern crate anyhow;
 extern crate derive_builder;
+mod configuration_service;
 mod control_plane;
 mod dao;
 mod pool;

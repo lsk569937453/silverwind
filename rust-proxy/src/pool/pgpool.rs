@@ -12,10 +12,6 @@ use std::sync::Mutex;
 
 use tokio::time;
 
-use std::sync::RwLock;
-
-use super::pool;
-
 #[derive(Debug, Clone)]
 pub struct ConnectionPool {
     pub pool: Option<Pool>,
@@ -102,7 +98,6 @@ fn create_connection_pool() -> Result<Mutex<ConnectionPool>, anyhow::Error> {
                 .max_size(10)
                 .build(manager);
         });
-        info!("pool is error ");
         if pool.is_err() || pool.as_mut().unwrap().is_err() {
             if pool.is_err() {
                 error!("panic when creating the pool")
@@ -120,7 +115,7 @@ fn create_connection_pool() -> Result<Mutex<ConnectionPool>, anyhow::Error> {
 pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
     let connection_pool = match CONNECTION_POOL.lock() {
         Ok(pool) => pool.to_owned(),
-        Err(e) => return Err(anyhow!("s")),
+        Err(e) => return Err(anyhow!(e.to_string())),
     };
     if connection_pool.pool.is_none() {
         return Err(anyhow!("the connection pool is not ready"));
@@ -135,5 +130,23 @@ pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
     match result {
         Ok(conn) => Ok(conn),
         Err(err) => return Err(anyhow!(err.to_string())),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // fn run_test<T>(test: T) -> ()
+    // where
+    //     T: FnOnce() -> () + panic::UnwindSafe,
+    // {
+    //     setup();
+    //     let result = panic::catch_unwind(|| test());
+    //     teardown();
+    //     assert!(result.is_ok())
+    // }
+    #[test]
+    fn test_get_connection_fail() {
+        let result_connection = get_connection();
+        assert_eq!(result_connection.is_err(), true);
     }
 }

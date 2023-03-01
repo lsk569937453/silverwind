@@ -1,0 +1,14 @@
+version: '3.6'
+services: 
+   mysql:
+    image: mysql:5.6
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: axway
+      MYSQL_DATABASE: yyproxy
+      MYSQL_USER: axway
+      MYSQL_PASSWORD: axway-password
+    healthcheck:
+      test:  mysql --user=root --password=axway -e 'Design your own check script ' 
+

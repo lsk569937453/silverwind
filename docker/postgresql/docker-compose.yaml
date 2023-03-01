@@ -1,0 +1,15 @@
+version: '3.6'
+services: 
+    postgres:
+        image: postgres
+        restart: always
+        environment: 
+            - DATABASE_HOST=127.0.0.1
+            - POSTGRES_USER=axway
+            - POSTGRES_PASSWORD=axway-password
+            - POSTGRES_DB=yyproxy  
+
+        ports: 
+            - "6543:5432"
+        volumes: 
+            - ./docker_postgres_init.sql:/docker-entrypoint-initdb.d/docker_postgres_init.sql

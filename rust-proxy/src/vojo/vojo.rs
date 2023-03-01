@@ -1,5 +1,4 @@
 use rocket::serde::{Deserialize, Serialize};
-use std::any::Any;
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct BaseResponse<T> {
