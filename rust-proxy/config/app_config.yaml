@@ -1,0 +1,6 @@
+- listen_port: 336
+  routes:
+  - matcher:
+      prefix: ss
+      prefix_rewrite: ssss
+    route_cluster: /

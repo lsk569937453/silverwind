@@ -1,90 +1,90 @@
+use http::StatusCode;
 use hyper::upgrade::Upgraded;
-use hyper::{Body, Client, Method, Request, Response, Server};
+use hyper::{Body, Client, Request, Response, Server};
 // use pool::MyError;
+use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
+use crate::vojo::app_config::ApiService;
+use hyper::service::{make_service_fn, service_fn};
+use regex::Regex;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
-
-use hyper::service::{make_service_fn, service_fn};
-
+use tokio::sync::mpsc;
 type HttpClient = Client<hyper::client::HttpConnector>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct HttpProxy {
-    pub in_bound: String,
-    pub out_bound: String,
+    pub port: i32,
+    pub channel: mpsc::Receiver<()>,
 }
 
 impl HttpProxy {
-    pub async fn start(&self)  {
-        let addr = SocketAddr::from(([0, 0, 0, 0], 9550));
-
+    pub async fn start(&mut self) {
+        let port_clone = self.port.clone();
+        let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Client::builder()
             .http1_title_case_headers(true)
             .http1_preserve_header_case(true)
             .build_http();
-
         let make_service = make_service_fn(move |_| {
             let client = client.clone();
-            async move { Ok::<_, Infallible>(service_fn(move |req| proxy(client.clone(), req))) }
+            async move {
+                Ok::<_, Infallible>(service_fn(move |req| {
+                    proxy(port_clone.clone(), client.clone(), req)
+                }))
+            }
         });
-
         let server = Server::bind(&addr)
             .http1_preserve_header_case(true)
             .http1_title_case_headers(true)
             .serve(make_service);
-
         info!("Listening on http://{}", addr);
+        // if let Err(e) = server.await {
+        //     error!("server error: {}", e);
+        // }
+        let proxy = &mut self.channel;
 
-        if let Err(e) = server.await {
-            error!("server error: {}", e);
+        let graceful = server.with_graceful_shutdown(async move {
+            proxy.recv().await;
+        });
+
+        // Await the `server` receiving the signal...
+        if let Err(e) = graceful.await {
+            info!("server has receive error: {}", e);
         }
-       
     }
 }
-async fn proxy(client: HttpClient, mut req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn proxy(
+    port: i32,
+    client: HttpClient,
+    mut req: Request<Body>,
+) -> Result<Response<Body>, hyper::Error> {
     debug!("req: {:?}", req);
 
-     *req.uri_mut() = "http://localhost:9888/upload".parse().unwrap();
-    //*req.uri_mut() = "http://httpbin.org:80/get".parse().unwrap();
+    let backend_path = req.uri().path();
+    let config = GLOBAL_CONFIG_MAPPING.get(&port).unwrap().clone();
 
-    if Method::CONNECT == req.method() {
-        // Received an HTTP request like:
-        // ```  
-        // CONNECT www.domain.com:443 HTTP/1.1
-        // Host: www.domain.com:443
-        // Proxy-Connection: Keep-Alive
-        // ```
-        //
-        // When HTTP method is CONNECT we should return an empty body
-        // then we can eventually upgrade the connection and talk a new protocol.
-        //
-        // Note: only after client received an empty body with STATUS_OK can the
-        // connection be upgraded, so we can't return a response inside
-        // `on_upgrade` future.
-        if let Some(addr) = host_addr(req.uri()) {
-            tokio::task::spawn(async move {
-                match hyper::upgrade::on(req).await {
-                    Ok(upgraded) => {
-                        if let Err(e) = tunnel(upgraded, addr).await {
-                            error!("server io error: {}", e);
-                        };
-                    }
-                    Err(e) => error!("upgrade error: {}", e),
-                }
-            });
+    for item in config.routes {
+        let match_prefix = item.matcher.prefix;
+        let re = Regex::new(match_prefix.as_str()).unwrap();
+        let match_res = re.captures(backend_path);
+        if match_res.is_some() {
+            let together = format!("{}{}", item.route_cluster, match_prefix.clone());
+            *req.uri_mut() = together.parse().unwrap();
 
-            Ok(Response::new(Body::empty()))
-        } else {
-            info!("CONNECT host is not socket addr: {:?}", req.uri());
-            let mut resp = Response::new(Body::from("CONNECT must be to a socket address"));
-            *resp.status_mut() = http::StatusCode::BAD_REQUEST;
-
-            Ok(resp)
+            debug!("trigger now");
+            return client.request(req).await;
         }
-    } else {
-        client.request(req).await
     }
+    Ok(Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::from(
+            r#"{
+            "response_code": -1,
+            "response_object": "the path could not find in the Proxy!"
+        }"#,
+        ))
+        .unwrap())
 }
 
 fn host_addr(uri: &http::Uri) -> Option<String> {
@@ -108,4 +108,20 @@ async fn tunnel(mut upgraded: Upgraded, addr: String) -> std::io::Result<()> {
     );
 
     Ok(())
+}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_output_serde() {
+        let re = Regex::new("/v1/proxy").unwrap();
+        let caps1 = re.captures("/v1/proxy");
+        let caps2 = re.captures("/v1/proxy/api");
+        let caps3 = re.captures("/v1/proxy/api?test=1");
+        let caps4 = re.captures("/v1/prox");
+        assert_eq!(caps1.is_some(), true);
+        assert_eq!(caps2.is_some(), true);
+        assert_eq!(caps3.is_some(), true);
+        assert_eq!(caps4.is_some(), false);
+    }
 }

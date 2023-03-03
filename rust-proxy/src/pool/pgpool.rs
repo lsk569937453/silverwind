@@ -6,12 +6,9 @@ use lazy_static::lazy_static;
 use std::env;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<MysqlConnection>>;
 pub type Pool = r2d2::Pool<ConnectionManager<MysqlConnection>>;
-use std::sync::Arc;
 use std::panic;
-use std::sync::{Mutex,RwLock};
+use std::sync::RwLock;
 use std::thread::sleep;
-
-use tokio::time;
 
 #[derive(Debug, Clone)]
 pub struct ConnectionPool {
@@ -19,7 +16,7 @@ pub struct ConnectionPool {
 }
 lazy_static! {
     pub static ref CONNECTION_POOL: RwLock<ConnectionPool> =
-    RwLock::new(ConnectionPool { pool: None });
+        RwLock::new(ConnectionPool { pool: None });
 }
 impl ConnectionPool {
     fn get(&mut self) -> Result<DbConnection, r2d2::PoolError> {
@@ -27,24 +24,17 @@ impl ConnectionPool {
     }
 }
 
-pub  fn schedule_task_connection_pool() {
-   loop{
-        match connect_with_database() {
+pub fn schedule_task_connection_pool() {
+    loop {
+        let result_panic = panic::catch_unwind(|| match connect_with_database() {
             Ok(()) => debug!("check database status is ok"),
             Err(err) => error!("connect_with_database is error,the error is :{}", err),
+        });
+        if result_panic.is_err() {
+            error!("caught panic!");
         }
         sleep(std::time::Duration::from_secs(5));
-    };
-    
-
-    // let mut interval = time::interval(time::Duration::from_secs(5));
-    // loop {
-    //     match connect_with_database() {
-    //         Ok(()) => debug!("check database status is ok"),
-    //         Err(err) => error!("connect_with_database is error,the error is :{}", err),
-    //     }
-    //     interval.tick().await;
-    // }
+    }
 }
 fn connect_with_database() -> Result<(), anyhow::Error> {
     let connection_pool = match CONNECTION_POOL.read() {
@@ -54,7 +44,7 @@ fn connect_with_database() -> Result<(), anyhow::Error> {
             return Err(anyhow!(err.to_string()));
         }
     };
-    
+
     let option_connection_pool = connection_pool.pool;
     if option_connection_pool.is_none() {
         return create_connection();
@@ -124,13 +114,12 @@ fn create_connection_pool() -> Result<RwLock<ConnectionPool>, anyhow::Error> {
     }
 }
 pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
-
     info!("get_connection start");
-    let result_connection_pool=CONNECTION_POOL.read();
+    let result_connection_pool = CONNECTION_POOL.read();
 
-    let connection_pool=match result_connection_pool{
-        Ok(pool)=>pool,
-        Err(err)=>return Err(anyhow!(err.to_string())),
+    let connection_pool = match result_connection_pool {
+        Ok(pool) => pool,
+        Err(err) => return Err(anyhow!(err.to_string())),
     };
     if connection_pool.pool.is_none() {
         return Err(anyhow!("the connection pool is not ready"));

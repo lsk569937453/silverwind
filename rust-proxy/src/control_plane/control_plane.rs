@@ -9,6 +9,7 @@ use rocket::tokio::sync::Mutex;
 use rocket::State;
 use std::borrow::Cow;
 
+use super::app_config_controller;
 use super::responder::ApiError;
 // The type to represent the ID of a message.
 type Id = usize;
@@ -73,9 +74,14 @@ fn not_found() -> Value {
 }
 
 pub fn stage() -> rocket::fairing::AdHoc {
+    let routes = [
+        routes![new, get],
+        app_config_controller::get_app_config_controllers(),
+    ]
+    .concat();
     rocket::fairing::AdHoc::on_ignite("JSON", |rocket| async {
         rocket
-            .mount("/", routes![new, get])
+            .mount("/", routes)
             .register("/", catchers![not_found])
             .manage(MessageList::new(vec![]))
     })
