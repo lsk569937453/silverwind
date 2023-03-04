@@ -1,6 +1,6 @@
-- listen_port: 336
+- listen_port: 3360
   routes:
   - matcher:
-      prefix: ss
+      prefix: /v1/test
       prefix_rewrite: ssss
-    route_cluster: /
+    route_cluster: http://192.0.2.3:8860

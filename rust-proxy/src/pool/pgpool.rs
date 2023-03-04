@@ -37,21 +37,23 @@ pub fn schedule_task_connection_pool() {
     }
 }
 fn connect_with_database() -> Result<(), anyhow::Error> {
-    let connection_pool = match CONNECTION_POOL.read() {
-        Ok(pool) => pool.to_owned(),
+    let rw_connection_pool = match CONNECTION_POOL.read() {
+        Ok(pool) => pool,
         Err(err) => {
             error!("error is {}", err);
             return Err(anyhow!(err.to_string()));
         }
     };
 
-    let option_connection_pool = connection_pool.pool;
+    let option_connection_pool = rw_connection_pool.to_owned().pool;
     if option_connection_pool.is_none() {
+        drop(rw_connection_pool);
         return create_connection();
     }
     let pool = option_connection_pool.unwrap();
     let state = pool.clone().state();
     if state.connections == 0 {
+        drop(rw_connection_pool);
         return create_connection();
     }
 

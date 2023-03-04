@@ -10,9 +10,9 @@ mod pool;
 mod proxy;
 mod timer;
 mod vojo;
-use proxy::HttpProxy;
 use std::env;
 mod constants;
+use tokio::runtime::Handle;
 #[macro_use]
 extern crate log;
 #[launch]
@@ -26,7 +26,12 @@ fn rocket() -> _ {
     );
 
     env_logger::init();
-    configuration_service::app_config_servive::init();
+    tokio::task::block_in_place(move || {
+        Handle::current().block_on(async {
+            configuration_service::app_config_servive::init().await;
+        })
+    });
+
     std::thread::spawn(move || {
         pool::pgpool::schedule_task_connection_pool();
     });
