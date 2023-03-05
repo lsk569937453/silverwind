@@ -1,5 +1,4 @@
 use crate::vojo::app_config::Route;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[derive(Clone)]

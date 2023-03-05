@@ -1,31 +1,53 @@
 use http::StatusCode;
+use hyper::client::HttpConnector;
 use hyper::upgrade::Upgraded;
 use hyper::{Body, Client, Request, Response, Server};
 // use pool::MyError;
 use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
-use crate::vojo::app_config::ApiService;
 use hyper::service::{make_service_fn, service_fn};
+use hyper_tls::HttpsConnector;
 use regex::Regex;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-type HttpClient = Client<hyper::client::HttpConnector>;
 
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
     pub channel: mpsc::Receiver<()>,
 }
+#[derive(Clone)]
+pub struct Clients {
+    pub http_client: Client<HttpConnector>,
+    pub https_client: hyper::Client<hyper_tls::HttpsConnector<HttpConnector>>,
+}
+impl Clients {
+    fn new() -> Clients {
+        let http_client = Client::builder()
+            .http1_title_case_headers(true)
+            .http1_preserve_header_case(true)
+            .build_http();
+        let https = HttpsConnector::new();
+        let https_client = Client::builder().build::<_, hyper::Body>(https);
+        return Clients {
+            http_client: http_client,
+            https_client: https_client,
+        };
+    }
+    async fn request_http(&self, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+        return self.http_client.request(req).await;
+    }
+    async fn request_https(&self, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+        return self.https_client.request(req).await;
+    }
+}
 
 impl HttpProxy {
     pub async fn start(&mut self) {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
-        let client = Client::builder()
-            .http1_title_case_headers(true)
-            .http1_preserve_header_case(true)
-            .build_http();
+        let client = Clients::new();
         let make_service = make_service_fn(move |_| {
             let client = client.clone();
             async move {
@@ -39,13 +61,11 @@ impl HttpProxy {
             .http1_title_case_headers(true)
             .serve(make_service);
         info!("Listening on http://{}", addr);
-        // if let Err(e) = server.await {
-        //     error!("server error: {}", e);
-        // }
-        let proxy = &mut self.channel;
+
+        let reveiver = &mut self.channel;
 
         let graceful = server.with_graceful_shutdown(async move {
-            proxy.recv().await;
+            reveiver.recv().await;
         });
 
         // Await the `server` receiving the signal...
@@ -56,7 +76,7 @@ impl HttpProxy {
 }
 async fn proxy(
     port: i32,
-    client: HttpClient,
+    client: Clients,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
     debug!("req: {:?}", req);
@@ -69,11 +89,13 @@ async fn proxy(
         let re = Regex::new(match_prefix.as_str()).unwrap();
         let match_res = re.captures(backend_path);
         if match_res.is_some() {
-            let together = format!("{}{}", item.route_cluster, match_prefix.clone());
-            *req.uri_mut() = together.parse().unwrap();
-
-            debug!("trigger now");
-            return client.request(req).await;
+            let request_path = format!("{}{}", item.route_cluster, match_prefix.clone());
+            *req.uri_mut() = request_path.parse().unwrap();
+            if request_path.contains("https") {
+                return client.request_https(req).await;
+            } else {
+                return client.request_http(req).await;
+            }
         }
     }
     Ok(Response::builder()
