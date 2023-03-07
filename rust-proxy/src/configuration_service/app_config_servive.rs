@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 lazy_static! {
     pub static ref GLOBAL_APP_CONFIG: RwLock<AppConfig> = RwLock::new(Default::default());
-    pub static ref GLOBAL_CONFIG_MAPPING: DashMap<i32, ApiServiceManager> = Default::default();
+    pub static ref GLOBAL_CONFIG_MAPPING: DashMap<String, ApiServiceManager> = Default::default();
 }
 
 pub async fn init() {
@@ -50,14 +50,23 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
 
     let new_item_hash = api_services
         .iter()
-        .map(|s| (s.listen_port.clone(), s.service_config.clone()))
-        .collect::<HashMap<i32, ServiceConfig>>();
+        .map(|s| {
+            (
+                format!(
+                    "{}-{}",
+                    s.listen_port.clone(),
+                    s.service_config.server_type.to_string()
+                ),
+                s.service_config.clone(),
+            )
+        })
+        .collect::<HashMap<String, ServiceConfig>>();
 
     let difference_ports = GLOBAL_CONFIG_MAPPING
         .iter()
-        .map(|s| *s.key())
+        .map(|s| s.key().clone())
         .filter(|item| !new_item_hash.contains_key(item))
-        .collect::<Vec<i32>>();
+        .collect::<Vec<String>>();
     debug!("the len of different is {}", difference_ports.len());
     //delete the old mapping
     for item in difference_ports {
@@ -86,18 +95,28 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
                     sender: sender,
                 },
             );
+            let item_list: Vec<&str> = key.split("-").collect();
+            let port_str = item_list.first().unwrap();
+            let port: i32 = port_str.parse().unwrap();
+
             tokio::task::spawn(async move {
-                start_proxy(key.clone(), receiver, value.server_type).await
+                start_proxy(port.clone(), receiver, value.server_type, key.clone()).await
             });
         }
     }
 
     Ok(())
 }
-pub async fn start_proxy(port: i32, channel: mpsc::Receiver<()>, server_type: ServerType) {
+pub async fn start_proxy(
+    port: i32,
+    channel: mpsc::Receiver<()>,
+    server_type: ServerType,
+    mapping_key: String,
+) {
     let mut http_proxy = HttpProxy {
         port: port,
         channel: channel,
+        mapping_key: mapping_key,
     };
     if server_type == ServerType::HTTP {
         http_proxy.start_http_server().await;

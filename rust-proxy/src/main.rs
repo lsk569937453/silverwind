@@ -19,6 +19,11 @@ extern crate log;
 fn rocket() -> _ {
     env::set_var("RUST_BACKTRACE", "1");
     env::set_var("RUST_LOG", "debug");
+    env::set_var(
+        "DATABASE_URL",
+        "mysql://axway:axway-password@127.0.0.1:3306/yyproxy",
+    );
+
     env_logger::init();
     tokio::task::block_in_place(move || {
         Handle::current().block_on(async {

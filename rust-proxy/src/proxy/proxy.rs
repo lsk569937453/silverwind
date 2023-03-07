@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 pub struct HttpProxy {
     pub port: i32,
     pub channel: mpsc::Receiver<()>,
+    pub mapping_key: String,
 }
 #[derive(Clone)]
 pub struct Clients {
@@ -63,11 +64,14 @@ impl HttpProxy {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
+        let mapping_key_clone1 = self.mapping_key.clone();
         let make_service = make_service_fn(move |_| {
             let client = client.clone();
+            let mapping_key2 = mapping_key_clone1.clone();
+
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy(port_clone.clone(), client.clone(), req)
+                    proxy(client.clone(), req, mapping_key2.clone())
                 }))
             }
         });
@@ -91,34 +95,34 @@ impl HttpProxy {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
+        let mapping_key_clone1 = self.mapping_key.clone();
+
         let make_service = make_service_fn(move |_| {
             let client = client.clone();
+            let mapping_key2 = mapping_key_clone1.clone();
+
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy(port_clone.clone(), client.clone(), req)
+                    proxy(client.clone(), req, mapping_key2.clone())
                 }))
             }
         });
-        let current_dir = env::current_dir()
+        let mapping_key3 = self.mapping_key.clone();
+        let service_config = GLOBAL_CONFIG_MAPPING
+            .get(&mapping_key3)
             .unwrap()
-            .join("config")
-            .join("cacert.pem");
-        let f = File::open(current_dir).unwrap();
-        let mut cer_reader = BufReader::new(f);
+            .service_config
+            .clone();
+        let pem_str = service_config.cert_str.unwrap();
+        let key_str = service_config.key_str.unwrap();
+        let mut cer_reader = BufReader::new(pem_str.as_bytes());
         let certs = rustls_pemfile::certs(&mut cer_reader)
             .unwrap()
             .iter()
             .map(|s| rustls::Certificate((*s).clone()))
             .collect();
 
-        let current_dir1 = env::current_dir()
-            .unwrap()
-            .join("config")
-            .join("privkey.pem");
-        let data = std::fs::read_to_string(current_dir1).unwrap();
-
-        println!("{}", data.clone());
-        let doc = pkcs8::PrivateKeyDocument::from_pem(&data).unwrap();
+        let doc = pkcs8::PrivateKeyDocument::from_pem(&key_str).unwrap();
         let key_der = rustls::PrivateKey(doc.as_ref().to_owned());
 
         let tls_cfg = {
@@ -145,14 +149,14 @@ impl HttpProxy {
     }
 }
 async fn proxy(
-    port: i32,
     client: Clients,
     mut req: Request<Body>,
+    mapping_key: String,
 ) -> Result<Response<Body>, hyper::Error> {
     debug!("req: {:?}", req);
 
     let backend_path = req.uri().path();
-    let api_service_manager = GLOBAL_CONFIG_MAPPING.get(&port).unwrap().clone();
+    let api_service_manager = GLOBAL_CONFIG_MAPPING.get(&mapping_key).unwrap().clone();
 
     for item in api_service_manager.service_config.routes {
         let match_prefix = item.matcher.prefix;
@@ -181,6 +185,8 @@ async fn proxy(
 
 mod tests {
     use super::*;
+    use std::io::{BufReader, Read};
+
     #[test]
     fn test_output_serde() {
         let re = Regex::new("/v1/proxy").unwrap();
@@ -201,6 +207,10 @@ mod tests {
             .join("cacert.pem");
         let f = File::open(current_dir).unwrap();
         let mut reader = BufReader::new(f);
+
+        let mut str = String::new();
+        reader.read_to_string(&mut str);
+        println!("input: {:?}", str);
         let certs = rustls_pemfile::certs(&mut reader);
         assert_eq!(certs.is_err(), false);
         assert_eq!(certs.unwrap().len(), 1);
@@ -213,7 +223,7 @@ mod tests {
             .join("privkey.pem");
         let data = std::fs::read_to_string(current_dir).unwrap();
 
-        println!("{}", data.clone());
+        println!("input: {:?}", data);
         let result_doc = pkcs8::PrivateKeyDocument::from_pem(&data);
         assert_eq!(result_doc.is_ok(), true);
         rustls::PrivateKey(result_doc.unwrap().as_ref().to_owned());

@@ -10,7 +10,7 @@ pub struct Route {
     pub matcher: Matcher,
     pub route_cluster: String,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, strum_macros::Display)]
 pub enum ServerType {
     #[default]
     HTTP,
@@ -19,6 +19,8 @@ pub enum ServerType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServiceConfig {
     pub server_type: ServerType,
+    pub cert_str: Option<String>,
+    pub key_str: Option<String>,
     pub routes: Vec<Route>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -65,6 +67,8 @@ mod tests {
             service_config: ServiceConfig {
                 routes: vec![route],
                 server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
             },
         };
         let t = vec![api_service];

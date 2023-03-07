@@ -1,4 +1,3 @@
-use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceConfig;
 use tokio::sync::mpsc;
 
