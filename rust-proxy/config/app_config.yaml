@@ -1,6 +1,8 @@
 - listen_port: 3360
-  routes:
-  - matcher:
-      prefix: /v1/test
-      prefix_rewrite: ssss
-    route_cluster: http://192.0.2.3:8860
+  service_config:
+    server_type: HTTP
+    routes:
+    - matcher:
+        prefix: /v1/test
+        prefix_rewrite: ssss
+      route_cluster: http://192.0.2.3:8860

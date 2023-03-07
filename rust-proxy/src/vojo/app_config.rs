@@ -11,9 +11,20 @@ pub struct Route {
     pub route_cluster: String,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub enum ServerType {
+    #[default]
+    HTTP,
+    HTTPS,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServiceConfig {
+    pub server_type: ServerType,
+    pub routes: Vec<Route>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ApiService {
     pub listen_port: i32,
-    pub routes: Vec<Route>,
+    pub service_config: ServiceConfig,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct StaticConifg {
@@ -51,7 +62,10 @@ mod tests {
         };
         let api_service = ApiService {
             listen_port: 4486,
-            routes: vec![route],
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+            },
         };
         let t = vec![api_service];
         let yaml = serde_yaml::to_string(&t).unwrap();

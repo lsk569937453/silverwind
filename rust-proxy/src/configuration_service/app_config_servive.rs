@@ -1,7 +1,8 @@
 use crate::constants;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
-use crate::vojo::app_config::{ApiService, AppConfig, Route};
+use crate::vojo::app_config::ServiceConfig;
+use crate::vojo::app_config::{ApiService, AppConfig, ServerType};
 use dashmap::DashMap;
 use futures::FutureExt;
 use lazy_static::lazy_static;
@@ -10,8 +11,7 @@ use std::env;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-use tokio::time::sleep; // 0.3.5
-
+use tokio::time::sleep;
 lazy_static! {
     pub static ref GLOBAL_APP_CONFIG: RwLock<AppConfig> = RwLock::new(Default::default());
     pub static ref GLOBAL_CONFIG_MAPPING: DashMap<i32, ApiServiceManager> = Default::default();
@@ -50,8 +50,8 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
 
     let new_item_hash = api_services
         .iter()
-        .map(|s| (s.listen_port.clone(), s.routes.clone()))
-        .collect::<HashMap<i32, Vec<Route>>>();
+        .map(|s| (s.listen_port.clone(), s.service_config.clone()))
+        .collect::<HashMap<i32, ServiceConfig>>();
 
     let difference_ports = GLOBAL_CONFIG_MAPPING
         .iter()
@@ -74,7 +74,7 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         //update
         if GLOBAL_CONFIG_MAPPING.contains_key(&key) {
             let mut ref_value = GLOBAL_CONFIG_MAPPING.get(&key).unwrap().clone();
-            ref_value.routes = Vec::from(value);
+            ref_value.service_config = value.clone();
             GLOBAL_CONFIG_MAPPING.insert(key.clone(), ref_value);
             //add
         } else {
@@ -82,22 +82,28 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
             GLOBAL_CONFIG_MAPPING.insert(
                 key.clone(),
                 ApiServiceManager {
-                    routes: Vec::from(value.clone()),
+                    service_config: value.clone(),
                     sender: sender,
                 },
             );
-            tokio::task::spawn(async move { start_proxy(key.clone(), receiver).await });
+            tokio::task::spawn(async move {
+                start_proxy(key.clone(), receiver, value.server_type).await
+            });
         }
     }
 
     Ok(())
 }
-pub async fn start_proxy(port: i32, channel: mpsc::Receiver<()>) {
+pub async fn start_proxy(port: i32, channel: mpsc::Receiver<()>, server_type: ServerType) {
     let mut http_proxy = HttpProxy {
         port: port,
         channel: channel,
     };
-    http_proxy.start().await;
+    if server_type == ServerType::HTTP {
+        http_proxy.start_http_server().await;
+    } else {
+        http_proxy.start_https_server().await;
+    }
 }
 async fn init_static_config() {
     let database_url_result = env::var("DATABASE_URL");
@@ -244,7 +250,7 @@ mod tests {
             assert_eq!(api_services.len(), 1);
             let api_service = api_services.first().cloned().unwrap();
             assert_eq!(api_service.listen_port, 3360);
-            let api_service_routes = api_service.routes.first().cloned().unwrap();
+            let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
             assert_eq!(api_service_routes.matcher.prefix, "/v1/test");
             assert_eq!(api_service_routes.matcher.prefix_rewrite, "ssss");
             assert_eq!(api_service_routes.route_cluster, "http://192.0.2.3:8860");
@@ -288,7 +294,7 @@ mod tests {
                 .collect::<Vec<ApiServiceManager>>();
             assert_eq!(api_service_manager_list.len(), 1);
             let api_service_manager = api_service_manager_list.first().unwrap();
-            let routes = api_service_manager.routes.first().unwrap();
+            let routes = api_service_manager.service_config.routes.first().unwrap();
             assert_eq!(routes.matcher.prefix, "/v1/test");
         });
     }

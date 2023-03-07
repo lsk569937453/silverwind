@@ -1,14 +1,19 @@
+use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
+use crate::proxy::tls_stream::TlsAcceptor;
 use http::StatusCode;
 use hyper::client::HttpConnector;
+use hyper::server::conn::AddrIncoming;
+use hyper::service::{make_service_fn, service_fn};
 use hyper::upgrade::Upgraded;
 use hyper::{Body, Client, Request, Response, Server};
-// use pool::MyError;
-use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
-use hyper::service::{make_service_fn, service_fn};
-use hyper_tls::HttpsConnector;
+use hyper_rustls::ConfigBuilderExt;
 use regex::Regex;
 use std::convert::Infallible;
+use std::env;
+use std::fs::File;
+use std::io::BufReader;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
@@ -20,7 +25,7 @@ pub struct HttpProxy {
 #[derive(Clone)]
 pub struct Clients {
     pub http_client: Client<HttpConnector>,
-    pub https_client: hyper::Client<hyper_tls::HttpsConnector<HttpConnector>>,
+    pub https_client: Client<hyper_rustls::HttpsConnector<HttpConnector>>,
 }
 impl Clients {
     fn new() -> Clients {
@@ -28,7 +33,17 @@ impl Clients {
             .http1_title_case_headers(true)
             .http1_preserve_header_case(true)
             .build_http();
-        let https = HttpsConnector::new();
+
+        let tls = rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_native_roots()
+            .with_no_client_auth();
+
+        let https = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(tls)
+            .https_or_http()
+            .enable_http1()
+            .build();
         let https_client = Client::builder().build::<_, hyper::Body>(https);
         return Clients {
             http_client: http_client,
@@ -44,7 +59,7 @@ impl Clients {
 }
 
 impl HttpProxy {
-    pub async fn start(&mut self) {
+    pub async fn start_http_server(&mut self) {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
@@ -56,6 +71,7 @@ impl HttpProxy {
                 }))
             }
         });
+
         let server = Server::bind(&addr)
             .http1_preserve_header_case(true)
             .http1_title_case_headers(true)
@@ -67,8 +83,62 @@ impl HttpProxy {
         let graceful = server.with_graceful_shutdown(async move {
             reveiver.recv().await;
         });
+        if let Err(e) = graceful.await {
+            info!("server has receive error: {}", e);
+        }
+    }
+    pub async fn start_https_server(&mut self) {
+        let port_clone = self.port.clone();
+        let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
+        let client = Clients::new();
+        let make_service = make_service_fn(move |_| {
+            let client = client.clone();
+            async move {
+                Ok::<_, Infallible>(service_fn(move |req| {
+                    proxy(port_clone.clone(), client.clone(), req)
+                }))
+            }
+        });
+        let current_dir = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("cacert.pem");
+        let f = File::open(current_dir).unwrap();
+        let mut cer_reader = BufReader::new(f);
+        let certs = rustls_pemfile::certs(&mut cer_reader)
+            .unwrap()
+            .iter()
+            .map(|s| rustls::Certificate((*s).clone()))
+            .collect();
 
-        // Await the `server` receiving the signal...
+        let current_dir1 = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let data = std::fs::read_to_string(current_dir1).unwrap();
+
+        println!("{}", data.clone());
+        let doc = pkcs8::PrivateKeyDocument::from_pem(&data).unwrap();
+        let key_der = rustls::PrivateKey(doc.as_ref().to_owned());
+
+        let tls_cfg = {
+            let cfg = rustls::ServerConfig::builder()
+                .with_safe_defaults()
+                .with_no_client_auth()
+                .with_single_cert(certs, key_der)
+                .unwrap();
+            Arc::new(cfg)
+        };
+        let incoming = AddrIncoming::bind(&addr).unwrap();
+        let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(make_service);
+        info!("Listening on https://{}", addr);
+
+        let reveiver = &mut self.channel;
+
+        let graceful = server.with_graceful_shutdown(async move {
+            reveiver.recv().await;
+        });
+
         if let Err(e) = graceful.await {
             info!("server has receive error: {}", e);
         }
@@ -82,9 +152,9 @@ async fn proxy(
     debug!("req: {:?}", req);
 
     let backend_path = req.uri().path();
-    let config = GLOBAL_CONFIG_MAPPING.get(&port).unwrap().clone();
+    let api_service_manager = GLOBAL_CONFIG_MAPPING.get(&port).unwrap().clone();
 
-    for item in config.routes {
+    for item in api_service_manager.service_config.routes {
         let match_prefix = item.matcher.prefix;
         let re = Regex::new(match_prefix.as_str()).unwrap();
         let match_res = re.captures(backend_path);
@@ -109,31 +179,8 @@ async fn proxy(
         .unwrap())
 }
 
-fn host_addr(uri: &http::Uri) -> Option<String> {
-    uri.authority().and_then(|auth| Some(auth.to_string()))
-}
-
-// Create a TCP connection to host:port, build a tunnel between the connection and
-// the upgraded connection
-async fn tunnel(mut upgraded: Upgraded, addr: String) -> std::io::Result<()> {
-    // Connect to remote server
-    let mut server = TcpStream::connect(addr).await?;
-
-    // Proxying data
-    let (from_client, from_server) =
-        tokio::io::copy_bidirectional(&mut upgraded, &mut server).await?;
-
-    // Print message when done
-    info!(
-        "client wrote {} bytes and received {} bytes",
-        from_client, from_server
-    );
-
-    Ok(())
-}
 mod tests {
     use super::*;
-
     #[test]
     fn test_output_serde() {
         let re = Regex::new("/v1/proxy").unwrap();
@@ -145,5 +192,30 @@ mod tests {
         assert_eq!(caps2.is_some(), true);
         assert_eq!(caps3.is_some(), true);
         assert_eq!(caps4.is_some(), false);
+    }
+    #[test]
+    fn test_certificate() {
+        let current_dir = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("cacert.pem");
+        let f = File::open(current_dir).unwrap();
+        let mut reader = BufReader::new(f);
+        let certs = rustls_pemfile::certs(&mut reader);
+        assert_eq!(certs.is_err(), false);
+        assert_eq!(certs.unwrap().len(), 1);
+    }
+    #[test]
+    fn test_private_key() {
+        let current_dir = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let data = std::fs::read_to_string(current_dir).unwrap();
+
+        println!("{}", data.clone());
+        let result_doc = pkcs8::PrivateKeyDocument::from_pem(&data);
+        assert_eq!(result_doc.is_ok(), true);
+        rustls::PrivateKey(result_doc.unwrap().as_ref().to_owned());
     }
 }
