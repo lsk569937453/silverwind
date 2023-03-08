@@ -12,6 +12,7 @@ mod timer;
 mod vojo;
 use std::env;
 mod constants;
+use proxy::tcp_proxy::TcpProxy;
 use tokio::runtime::Handle;
 #[macro_use]
 extern crate log;

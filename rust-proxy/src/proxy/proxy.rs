@@ -1,5 +1,5 @@
 use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
-use crate::proxy::tls_stream::TlsAcceptor;
+use crate::proxy::tls_acceptor::TlsAcceptor;
 use http::StatusCode;
 use hyper::client::HttpConnector;
 use hyper::server::conn::AddrIncoming;

@@ -11,14 +11,15 @@ pub struct Route {
     pub route_cluster: String,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, strum_macros::Display)]
-pub enum ServerType {
+pub enum ServiceType {
     #[default]
     HTTP,
     HTTPS,
+    TCP,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServiceConfig {
-    pub server_type: ServerType,
+    pub server_type: ServiceType,
     pub cert_str: Option<String>,
     pub key_str: Option<String>,
     pub routes: Vec<Route>,

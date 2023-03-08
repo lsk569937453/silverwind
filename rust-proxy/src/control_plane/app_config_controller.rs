@@ -2,7 +2,7 @@ use super::responder::ApiError;
 use crate::configuration_service::app_config_servive::GLOBAL_APP_CONFIG;
 use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::AppConfig;
-use crate::vojo::app_config::ServerType;
+use crate::vojo::app_config::ServiceType;
 use crate::vojo::vojo::BaseResponse;
 use rocket::route::Route;
 use rocket::serde::json::Json;
@@ -23,7 +23,7 @@ async fn set_app_config(
 
     let validata_result = api_services
         .iter()
-        .filter(|s| s.service_config.server_type == ServerType::HTTPS)
+        .filter(|s| s.service_config.server_type == ServiceType::HTTPS)
         .map(|s| {
             return validate_tls_config(
                 s.service_config.cert_str.clone(),

@@ -1,8 +1,9 @@
 use crate::constants;
+use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
-use crate::vojo::app_config::{ApiService, AppConfig, ServerType};
+use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
 use dashmap::DashMap;
 use futures::FutureExt;
 use lazy_static::lazy_static;
@@ -110,18 +111,30 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
 pub async fn start_proxy(
     port: i32,
     channel: mpsc::Receiver<()>,
-    server_type: ServerType,
+    server_type: ServiceType,
     mapping_key: String,
 ) {
-    let mut http_proxy = HttpProxy {
-        port: port,
-        channel: channel,
-        mapping_key: mapping_key,
-    };
-    if server_type == ServerType::HTTP {
+    if server_type == ServiceType::HTTP {
+        let mut http_proxy = HttpProxy {
+            port: port,
+            channel: channel,
+            mapping_key: mapping_key.clone(),
+        };
         http_proxy.start_http_server().await;
-    } else {
+    } else if server_type == ServiceType::HTTPS {
+        let mut http_proxy = HttpProxy {
+            port: port,
+            channel: channel,
+            mapping_key: mapping_key.clone(),
+        };
         http_proxy.start_https_server().await;
+    } else {
+        let mut tcp_proxy = TcpProxy {
+            listen_port: port,
+            mapping_key: mapping_key,
+            channel: channel,
+        };
+        tcp_proxy.start_proxy().await
     }
 }
 async fn init_static_config() {
