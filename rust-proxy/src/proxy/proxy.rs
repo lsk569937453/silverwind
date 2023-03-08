@@ -4,17 +4,13 @@ use http::StatusCode;
 use hyper::client::HttpConnector;
 use hyper::server::conn::AddrIncoming;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::upgrade::Upgraded;
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use regex::Regex;
 use std::convert::Infallible;
-use std::env;
-use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 #[derive(Debug)]
@@ -177,16 +173,18 @@ async fn proxy(
         .body(Body::from(
             r#"{
             "response_code": -1,
-            "response_object": "the path could not find in the Proxy!"
+            "response_object": "The route could not be found in the Proxy!"
         }"#,
         ))
         .unwrap())
 }
-
+#[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
+    use regex::Regex;
+    use std::env;
+    use std::fs::File;
     use std::io::{BufReader, Read};
-
     #[test]
     fn test_output_serde() {
         let re = Regex::new("/v1/proxy").unwrap();
@@ -209,7 +207,8 @@ mod tests {
         let mut reader = BufReader::new(f);
 
         let mut str = String::new();
-        reader.read_to_string(&mut str);
+        let result = reader.read_to_string(&mut str);
+        assert_eq!(result.is_ok(), true);
         println!("input: {:?}", str);
         let certs = rustls_pemfile::certs(&mut reader);
         assert_eq!(certs.is_err(), false);

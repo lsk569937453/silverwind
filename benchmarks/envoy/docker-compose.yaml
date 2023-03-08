@@ -1,0 +1,8 @@
+version: '2.4'
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.22.8
+    ports:
+      - "8050:8050"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml

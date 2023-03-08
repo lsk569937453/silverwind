@@ -1,4 +1,5 @@
 use crate::constants;
+use crate::pool::db_connection_pool;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
@@ -21,7 +22,7 @@ lazy_static! {
 pub async fn init() {
     init_static_config().await;
     match init_app_service_config().await {
-        Ok(_) => info!("init app service config successfully!"),
+        Ok(_) => info!("Initialize app service config successfully!"),
         Err(err) => error!("{}", err.to_string()),
     }
     tokio::task::spawn_blocking(move || {
@@ -36,7 +37,7 @@ async fn sync_mapping_from_global_app_config() {
             .catch_unwind()
             .await;
         if async_result.is_err() {
-            error!("caught panic!");
+            error!("sync_mapping_from_global_app_config catch panic successfully!");
         }
         sleep(std::time::Duration::from_secs(5)).await;
     }
@@ -68,7 +69,7 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         .map(|s| s.key().clone())
         .filter(|item| !new_item_hash.contains_key(item))
         .collect::<Vec<String>>();
-    debug!("the len of different is {}", difference_ports.len());
+    debug!("The len of different ports is {}", difference_ports.len());
     //delete the old mapping
     for item in difference_ports {
         let key = item.clone();
@@ -147,9 +148,12 @@ async fn init_static_config() {
 
     if database_url_result.is_ok() {
         (*global_app_config).static_config.database_url = Some(database_url_result.unwrap());
+        std::thread::spawn(move || {
+            db_connection_pool::schedule_task_connection_pool();
+        });
     }
 
-    let mut api_port = String::new();
+    let api_port;
     if api_port_result.is_ok() {
         api_port = api_port_result.clone().unwrap();
     } else {

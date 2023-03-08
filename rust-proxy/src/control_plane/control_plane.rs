@@ -1,7 +1,7 @@
 use crate::vojo::vojo::BaseResponse;
 
 use crate::dao::insert_tuple_batch_with_default;
-use crate::pool::pgpool::{self, DbConnection};
+use crate::pool::db_connection_pool::{self, DbConnection};
 
 use rocket::serde::json::{json, Json, Value};
 use rocket::serde::{Deserialize, Serialize};
@@ -25,17 +25,9 @@ struct Message<'r> {
     message: Cow<'r, str>,
 }
 //curl -kv -X POST "http://127.0.0.1:3721/json"  -d '{"id":3,"message":"my_password"}'    -H 'Content-Type: application/json'
-#[post("/proxy/create", format = "json", data = "<message>")]
-async fn new(
-    message: Json<Message<'_>>,
-    list: Messages<'_>,
-) -> Result<Json<BaseResponse<usize>>, ApiError> {
-    // let mut list = list.lock().await;
-    // let id = list.len();
-    // list.push(message.message.to_string());
-    info!("new start");
-
-    let mut connection: DbConnection = match pgpool::get_connection() {
+#[post("/proxy/create", format = "json", data = "<_message>")]
+async fn new(_message: Json<Message<'_>>) -> Result<Json<BaseResponse<usize>>, ApiError> {
+    let mut connection: DbConnection = match db_connection_pool::get_connection() {
         Ok(conn) => conn,
         Err(err) => return Err(ApiError::Internal(err.to_string())),
     };

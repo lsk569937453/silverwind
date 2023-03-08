@@ -1,12 +1,10 @@
-#[cfg(test)]
-use diesel::debug_query;
 use diesel::insert_into;
 #[cfg(test)]
-use diesel::mysql::Mysql;
+use diesel::mysql::MysqlConnection;
 use diesel::prelude::*;
 mod schema {
     diesel::table! {
-        users {
+        users(id) {
             id -> Integer,
             name -> Text,
             hair_color -> Nullable<Text>,

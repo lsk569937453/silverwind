@@ -19,7 +19,7 @@ lazy_static! {
         RwLock::new(ConnectionPool { pool: None });
 }
 impl ConnectionPool {
-    fn get(&mut self) -> Result<DbConnection, r2d2::PoolError> {
+    fn _get(&mut self) -> Result<DbConnection, r2d2::PoolError> {
         self.pool.clone().unwrap().get()
     }
 }

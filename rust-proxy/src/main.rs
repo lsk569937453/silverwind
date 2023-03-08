@@ -8,11 +8,9 @@ mod control_plane;
 mod dao;
 mod pool;
 mod proxy;
-mod timer;
 mod vojo;
 use std::env;
 mod constants;
-use proxy::tcp_proxy::TcpProxy;
 use tokio::runtime::Handle;
 #[macro_use]
 extern crate log;
@@ -20,20 +18,11 @@ extern crate log;
 fn rocket() -> _ {
     env::set_var("RUST_BACKTRACE", "1");
     env::set_var("RUST_LOG", "debug");
-    env::set_var(
-        "DATABASE_URL",
-        "mysql://axway:axway-password@127.0.0.1:3306/yyproxy",
-    );
-
     env_logger::init();
     tokio::task::block_in_place(move || {
         Handle::current().block_on(async {
             configuration_service::app_config_servive::init().await;
         })
-    });
-
-    std::thread::spawn(move || {
-        pool::pgpool::schedule_task_connection_pool();
     });
 
     rocket::build().attach(control_plane::stage())

@@ -20,12 +20,6 @@ impl TcpProxy {
         let listener = TcpListener::bind(listen_addr).await.unwrap();
 
         let reveiver = &mut self.channel;
-        // tokio::spawn(async {
-        //     reveiver.recv().await;
-
-        //     drop(listener);
-        // });
-
         loop {
             let accept_future = listener.accept();
             tokio::select! {
@@ -39,19 +33,11 @@ impl TcpProxy {
                     tokio::spawn(transfer);
                 }
                },
-               receiver=reveiver.recv()=>{
+               _=reveiver.recv()=>{
                 info!("close the socket!");
                 return ;
                }
             };
-            // let Ok((inbound, _)) = listener.accept().await;
-            // let transfer = transfer(inbound, mapping_key_clone.clone()).map(|r| {
-            //     if let Err(e) = r {
-            //         println!("Failed to transfer; error={}", e);
-            //     }
-            // });
-
-            // tokio::spawn(transfer);
         }
     }
 }
@@ -81,7 +67,7 @@ async fn transfer(mut inbound: TcpStream, mapping_key: String) -> Result<(), any
     let result = tokio::try_join!(client_to_server, server_to_client);
 
     if result.is_err() {
-        error!("Join error!");
+        error!("Copy stream error!");
     }
 
     Ok(())
@@ -89,7 +75,7 @@ async fn transfer(mut inbound: TcpStream, mapping_key: String) -> Result<(), any
 fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
     let option_value = GLOBAL_CONFIG_MAPPING.get(&mapping_key.clone());
     if option_value.is_none() {
-        return Err(anyhow!("can not get apiservice from global_mapping"));
+        return Err(anyhow!("Can not get apiservice from global_mapping"));
     }
     let service_config = &option_value.unwrap().service_config.routes.clone();
     let service_config_clone = service_config.clone();

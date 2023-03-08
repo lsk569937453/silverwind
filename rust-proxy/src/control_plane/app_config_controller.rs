@@ -50,18 +50,18 @@ fn validate_tls_config(
     key_pem_option: Option<String>,
 ) -> Result<(), anyhow::Error> {
     if cert_pem_option.is_none() || key_pem_option.is_none() {
-        return Err(anyhow!("cert or key is none"));
+        return Err(anyhow!("Cert or key is none"));
     }
     let cert_pem = cert_pem_option.unwrap();
     let mut cer_reader = std::io::BufReader::new(cert_pem.as_bytes());
     let result_certs = rustls_pemfile::certs(&mut cer_reader);
     if result_certs.is_err() || result_certs.unwrap().len() == 0 {
-        return Err(anyhow!("can not parse the certs pem."));
+        return Err(anyhow!("Can not parse the certs pem."));
     }
     let key_pem = key_pem_option.unwrap();
     let key_pem_result = pkcs8::PrivateKeyDocument::from_pem(key_pem.as_str());
     if key_pem_result.is_err() {
-        return Err(anyhow!("can not parse the key pem."));
+        return Err(anyhow!("Can not parse the key pem."));
     }
     Ok(())
 }

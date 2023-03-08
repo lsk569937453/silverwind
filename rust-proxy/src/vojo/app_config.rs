@@ -41,19 +41,11 @@ pub struct AppConfig {
     pub static_config: StaticConifg,
     pub api_service_config: Vec<ApiService>,
 }
+#[cfg(test)]
 mod tests {
-    use crate::vojo::app_config;
 
     use super::*;
-    // fn run_test<T>(test: T) -> ()
-    // where
-    //     T: FnOnce() -> () + panic::UnwindSafe,
-    // {
-    //     setup();
-    //     let result = panic::catch_unwind(|| test());
-    //     teardown();
-    //     assert!(result.is_ok())
-    // }
+
     #[test]
     fn test_output_serde() {
         let route = Route {
