@@ -1,7 +1,7 @@
 use crate::vojo::vojo::BaseResponse;
 
 use crate::dao::insert_tuple_batch_with_default;
-use crate::pool::pgpool::{self, DbConnection};
+use crate::pool::db_connection_pool::{self, DbConnection};
 
 use rocket::serde::json::{json, Json, Value};
 use rocket::serde::{Deserialize, Serialize};
@@ -9,11 +9,10 @@ use rocket::tokio::sync::Mutex;
 use rocket::State;
 use std::borrow::Cow;
 
+use super::app_config_controller;
 use super::responder::ApiError;
-// The type to represent the ID of a message.
 type Id = usize;
 
-// We're going to store all of the messages here. No need for a DB.
 type MessageList = Mutex<Vec<String>>;
 type Messages<'r> = &'r State<MessageList>;
 
@@ -23,17 +22,9 @@ struct Message<'r> {
     id: Option<Id>,
     message: Cow<'r, str>,
 }
-//curl -kv -X POST "http://127.0.0.1:3721/json"  -d '{"id":3,"message":"my_password"}'    -H 'Content-Type: application/json'
-#[post("/proxy/create", format = "json", data = "<message>")]
-async fn new(
-    message: Json<Message<'_>>,
-    list: Messages<'_>,
-) -> Result<Json<BaseResponse<usize>>, ApiError> {
-    // let mut list = list.lock().await;
-    // let id = list.len();
-    // list.push(message.message.to_string());
-
-    let mut connection: DbConnection = match pgpool::get_connection() {
+#[post("/proxy/create", format = "json", data = "<_message>")]
+async fn new(_message: Json<Message<'_>>) -> Result<Json<BaseResponse<usize>>, ApiError> {
+    let mut connection: DbConnection = match db_connection_pool::get_connection() {
         Ok(conn) => conn,
         Err(err) => return Err(ApiError::Internal(err.to_string())),
     };
@@ -52,7 +43,6 @@ async fn new(
     Ok(Json(base_response))
 }
 
-// curl -kv -X GET "http://127.0.0.1:3721/json/3"
 #[get("/<id>", format = "json")]
 async fn get(id: Id, list: Messages<'_>) -> Option<Json<Message<'_>>> {
     let list = list.lock().await;
@@ -72,9 +62,14 @@ fn not_found() -> Value {
 }
 
 pub fn stage() -> rocket::fairing::AdHoc {
+    let routes = [
+        routes![new, get],
+        app_config_controller::get_app_config_controllers(),
+    ]
+    .concat();
     rocket::fairing::AdHoc::on_ignite("JSON", |rocket| async {
         rocket
-            .mount("/", routes![new, get])
+            .mount("/", routes)
             .register("/", catchers![not_found])
             .manage(MessageList::new(vec![]))
     })

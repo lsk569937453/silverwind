@@ -6,8 +6,22 @@ import (
 	"path"
 
 	"github.com/gin-gonic/gin"
+	"github.com/unrolled/secure"
 )
 
+func TlsHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		secureMiddleware := secure.New(secure.Options{
+			SSLRedirect: true,
+			SSLHost:     ":443",
+		})
+		err := secureMiddleware.Process(c.Writer, c.Request)
+		if err != nil {
+			return
+		}
+		c.Next()
+	}
+}
 func main() {
 	router := gin.Default()
 	router.GET("/ping", func(c *gin.Context) {
@@ -15,6 +29,7 @@ func main() {
 			"message": "pong",
 		})
 	})
+
 	router.POST("/upload", func(c *gin.Context) {
 		file, _ := c.FormFile("file") // get file from form input name 'file'
 
@@ -25,5 +40,7 @@ func main() {
 
 		c.String(http.StatusOK, "file: %s", file.Filename)
 	})
-	router.Run(":9888")
+	router.Use(TlsHandler())
+	router.RunTLS(":443", "./server.pem", "./server.key")
+
 }

@@ -1,0 +1,8 @@
+---
+version: "3"
+services:
+
+  web1:
+    image: jmalloc/echo-server
+    ports:
+    - "9394:8080"

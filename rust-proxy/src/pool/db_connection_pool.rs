@@ -6,51 +6,54 @@ use lazy_static::lazy_static;
 use std::env;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<MysqlConnection>>;
 pub type Pool = r2d2::Pool<ConnectionManager<MysqlConnection>>;
-
 use std::panic;
-use std::sync::Mutex;
-
-use tokio::time;
+use std::sync::RwLock;
+use std::thread::sleep;
 
 #[derive(Debug, Clone)]
 pub struct ConnectionPool {
     pub pool: Option<Pool>,
 }
 lazy_static! {
-    pub static ref CONNECTION_POOL: Mutex<ConnectionPool> =
-        Mutex::new(ConnectionPool { pool: None });
+    pub static ref CONNECTION_POOL: RwLock<ConnectionPool> =
+        RwLock::new(ConnectionPool { pool: None });
 }
 impl ConnectionPool {
-    fn get(&mut self) -> Result<DbConnection, r2d2::PoolError> {
+    fn _get(&mut self) -> Result<DbConnection, r2d2::PoolError> {
         self.pool.clone().unwrap().get()
     }
 }
 
-pub async fn schedule_task_connection_pool() {
-    let mut interval = time::interval(time::Duration::from_secs(5));
+pub fn schedule_task_connection_pool() {
     loop {
-        match connect_with_database() {
-            Ok(()) => debug!("check database status is ok"),
-            Err(err) => error!("connect_with_database is error,the error is :{}", err),
+        let result_panic = panic::catch_unwind(|| match connect_with_database() {
+            Ok(()) => debug!("Check database status is ok"),
+            Err(err) => error!("Connect_with_database is error,the error is :{}", err),
+        });
+        if result_panic.is_err() {
+            error!("Schedule_task_connection_pool catch panic successfully!");
         }
-        interval.tick().await;
+        sleep(std::time::Duration::from_secs(5));
     }
 }
 fn connect_with_database() -> Result<(), anyhow::Error> {
-    let connection_pool = match CONNECTION_POOL.lock() {
-        Ok(pool) => pool.to_owned().clone(),
+    let rw_connection_pool = match CONNECTION_POOL.read() {
+        Ok(pool) => pool,
         Err(err) => {
-            error!("error is {}", err);
+            error!("Connect_with_database cause error,error is  {}", err);
             return Err(anyhow!(err.to_string()));
         }
     };
-    let option_connection_pool = connection_pool.pool;
+
+    let option_connection_pool = rw_connection_pool.to_owned().pool;
     if option_connection_pool.is_none() {
+        drop(rw_connection_pool);
         return create_connection();
     }
     let pool = option_connection_pool.unwrap();
     let state = pool.clone().state();
     if state.connections == 0 {
+        drop(rw_connection_pool);
         return create_connection();
     }
 
@@ -61,16 +64,16 @@ fn create_connection() -> Result<(), anyhow::Error> {
         Err(err) => return Err(anyhow!(err.to_string())),
         Ok(rw_connect_pool) => rw_connect_pool,
     };
-    let new_connection_pool = new_connection_pool.lock().unwrap().to_owned().clone();
+    let new_connection_pool = new_connection_pool.read().unwrap().to_owned().clone();
     let new_pool = new_connection_pool.pool.clone();
     if new_pool.is_none() {
-        return Err(anyhow!("new pool is empty!"));
+        return Err(anyhow!("The connection pool is empty!"));
     }
     let state = new_pool.unwrap().state();
     if state.connections == 0 {
         return Err(anyhow!("There are no connections in the pool!"));
     }
-    let mut old_lock = match CONNECTION_POOL.lock() {
+    let mut old_lock = match CONNECTION_POOL.write() {
         Ok(lock) => lock,
         Err(err) => return Err(anyhow!(err.to_string())),
     };
@@ -80,10 +83,8 @@ fn create_connection() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
-/**
- *The Pool::builder() will take a lot of the time.So I check the connection first
- */
-fn create_connection_pool() -> Result<Mutex<ConnectionPool>, anyhow::Error> {
+
+fn create_connection_pool() -> Result<RwLock<ConnectionPool>, anyhow::Error> {
     dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     info!("Database URL: {}", database_url);
@@ -100,28 +101,33 @@ fn create_connection_pool() -> Result<Mutex<ConnectionPool>, anyhow::Error> {
         });
         if pool.is_err() || pool.as_mut().unwrap().is_err() {
             if pool.is_err() {
-                error!("panic when creating the pool")
+                error!("Cause panic when creating the pool!")
             } else {
-                error!("error is {}", pool.unwrap().unwrap_err())
+                error!(
+                    "Create connection error,error is {}",
+                    pool.unwrap().unwrap_err()
+                )
             }
-            return Ok(Mutex::new(ConnectionPool { pool: None }));
+            return Ok(RwLock::new(ConnectionPool { pool: None }));
         } else {
-            return Ok(Mutex::new(ConnectionPool {
+            return Ok(RwLock::new(ConnectionPool {
                 pool: Some(pool.unwrap().unwrap()),
             }));
         }
     }
 }
 pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
-    let connection_pool = match CONNECTION_POOL.lock() {
-        Ok(pool) => pool.to_owned(),
-        Err(e) => return Err(anyhow!(e.to_string())),
+    let result_connection_pool = CONNECTION_POOL.read();
+
+    let connection_pool = match result_connection_pool {
+        Ok(pool) => pool,
+        Err(err) => return Err(anyhow!(err.to_string())),
     };
     if connection_pool.pool.is_none() {
         return Err(anyhow!("the connection pool is not ready"));
     }
 
-    let pool = connection_pool.pool.unwrap();
+    let pool = connection_pool.clone().pool.unwrap();
     let state = pool.clone().state();
     if state.connections == 0 {
         return Err(anyhow!("There are no connections in the pool."));
@@ -135,15 +141,6 @@ pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // fn run_test<T>(test: T) -> ()
-    // where
-    //     T: FnOnce() -> () + panic::UnwindSafe,
-    // {
-    //     setup();
-    //     let result = panic::catch_unwind(|| test());
-    //     teardown();
-    //     assert!(result.is_ok())
-    // }
     #[test]
     fn test_get_connection_fail() {
         let result_connection = get_connection();
