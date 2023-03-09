@@ -69,3 +69,51 @@ fn validate_tls_config(
 pub fn get_app_config_controllers() -> Vec<Route> {
     routes![get_app_config, set_app_config]
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::env;
+
+    #[test]
+    fn test_validate_tls_config_successfully() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("cacert.pem");
+        let certificate = std::fs::read_to_string(certificate_path).unwrap();
+
+        let validation_res = validate_tls_config(Some(certificate), Some(private_key));
+        assert_eq!(validation_res.is_ok(), true);
+    }
+    #[test]
+    fn test_validate_tls_config_error_with_private_key() {
+        let certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("cacert.pem");
+        let certificate = std::fs::read_to_string(certificate_path).unwrap();
+
+        let private_key = String::from("private key");
+        let validation_res = validate_tls_config(Some(certificate), Some(private_key));
+        assert_eq!(validation_res.is_err(), true);
+    }
+    #[test]
+    fn test_validate_tls_config_error_with_certificate() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+        let certificate = String::from("test");
+
+        let validation_res = validate_tls_config(Some(certificate), Some(private_key));
+        assert_eq!(validation_res.is_err(), true);
+    }
+}

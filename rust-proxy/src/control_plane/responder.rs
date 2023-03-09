@@ -5,12 +5,6 @@ use rocket::request::Request;
 use rocket::response::{self, Responder, Response};
 
 use std::io::Cursor;
-// #[derive(Serialize)]
-// pub struct ErrorResponse {
-//     message: String,
-// }
-// pub struct ApiError(anyhow::Error);
-
 #[derive(Debug, Clone)]
 pub enum ApiError {
     Internal(String),

@@ -180,11 +180,10 @@ async fn proxy(
 }
 #[cfg(test)]
 mod tests {
-    // use super::*;
     use regex::Regex;
     use std::env;
     use std::fs::File;
-    use std::io::{BufReader, Read};
+    use std::io::BufReader;
     #[test]
     fn test_output_serde() {
         let re = Regex::new("/v1/proxy").unwrap();
@@ -203,16 +202,13 @@ mod tests {
             .unwrap()
             .join("config")
             .join("cacert.pem");
-        let f = File::open(current_dir).unwrap();
-        let mut reader = BufReader::new(f);
+        let file = File::open(current_dir).unwrap();
+        let mut reader = BufReader::new(file);
+        let certs_result = rustls_pemfile::certs(&mut reader);
+        assert_eq!(certs_result.is_err(), false);
 
-        let mut str = String::new();
-        let result = reader.read_to_string(&mut str);
-        assert_eq!(result.is_ok(), true);
-        println!("input: {:?}", str);
-        let certs = rustls_pemfile::certs(&mut reader);
-        assert_eq!(certs.is_err(), false);
-        assert_eq!(certs.unwrap().len(), 1);
+        let cert = certs_result.unwrap();
+        assert_eq!(cert.len(), 1);
     }
     #[test]
     fn test_private_key() {

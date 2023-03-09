@@ -27,11 +27,11 @@ impl ConnectionPool {
 pub fn schedule_task_connection_pool() {
     loop {
         let result_panic = panic::catch_unwind(|| match connect_with_database() {
-            Ok(()) => debug!("check database status is ok"),
-            Err(err) => error!("connect_with_database is error,the error is :{}", err),
+            Ok(()) => debug!("Check database status is ok"),
+            Err(err) => error!("Connect_with_database is error,the error is :{}", err),
         });
         if result_panic.is_err() {
-            error!("caught panic!");
+            error!("Schedule_task_connection_pool catch panic successfully!");
         }
         sleep(std::time::Duration::from_secs(5));
     }
@@ -40,7 +40,7 @@ fn connect_with_database() -> Result<(), anyhow::Error> {
     let rw_connection_pool = match CONNECTION_POOL.read() {
         Ok(pool) => pool,
         Err(err) => {
-            error!("error is {}", err);
+            error!("Connect_with_database cause error,error is  {}", err);
             return Err(anyhow!(err.to_string()));
         }
     };
@@ -67,7 +67,7 @@ fn create_connection() -> Result<(), anyhow::Error> {
     let new_connection_pool = new_connection_pool.read().unwrap().to_owned().clone();
     let new_pool = new_connection_pool.pool.clone();
     if new_pool.is_none() {
-        return Err(anyhow!("new pool is empty!"));
+        return Err(anyhow!("The connection pool is empty!"));
     }
     let state = new_pool.unwrap().state();
     if state.connections == 0 {
@@ -83,9 +83,7 @@ fn create_connection() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
-/**
- *The Pool::builder() will take a lot of the time.So I check the connection first
- */
+
 fn create_connection_pool() -> Result<RwLock<ConnectionPool>, anyhow::Error> {
     dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -103,9 +101,12 @@ fn create_connection_pool() -> Result<RwLock<ConnectionPool>, anyhow::Error> {
         });
         if pool.is_err() || pool.as_mut().unwrap().is_err() {
             if pool.is_err() {
-                error!("panic when creating the pool")
+                error!("Cause panic when creating the pool!")
             } else {
-                error!("error is {}", pool.unwrap().unwrap_err())
+                error!(
+                    "Create connection error,error is {}",
+                    pool.unwrap().unwrap_err()
+                )
             }
             return Ok(RwLock::new(ConnectionPool { pool: None }));
         } else {
@@ -116,7 +117,6 @@ fn create_connection_pool() -> Result<RwLock<ConnectionPool>, anyhow::Error> {
     }
 }
 pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
-    info!("get_connection start");
     let result_connection_pool = CONNECTION_POOL.read();
 
     let connection_pool = match result_connection_pool {
@@ -141,15 +141,6 @@ pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // fn run_test<T>(test: T) -> ()
-    // where
-    //     T: FnOnce() -> () + panic::UnwindSafe,
-    // {
-    //     setup();
-    //     let result = panic::catch_unwind(|| test());
-    //     teardown();
-    //     assert!(result.is_ok())
-    // }
     #[test]
     fn test_get_connection_fail() {
         let result_connection = get_connection();
