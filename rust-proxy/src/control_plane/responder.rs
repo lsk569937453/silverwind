@@ -9,23 +9,23 @@ use std::io::Cursor;
 pub enum ApiError {
     Internal(String),
 
-    NotFound(String),
+    _NotFound(String),
 
-    BadRequest(String),
+    _BadRequest(String),
 }
 impl ApiError {
     fn get_http_status(&self) -> Status {
         match self {
             ApiError::Internal(_) => Status::InternalServerError,
-            ApiError::NotFound(_) => Status::NotFound,
+            ApiError::_NotFound(_) => Status::NotFound,
             _ => Status::BadRequest,
         }
     }
     fn to_string(&self) -> &String {
         match self {
             ApiError::Internal(s) => s,
-            ApiError::NotFound(s) => s,
-            ApiError::BadRequest(s) => s,
+            ApiError::_NotFound(s) => s,
+            ApiError::_BadRequest(s) => s,
         }
     }
 }

@@ -14,7 +14,7 @@ mod schema {
     }
 }
 
-pub fn insert_tuple_batch_with_default(conn: &mut MysqlConnection) -> QueryResult<usize> {
+pub fn _insert_tuple_batch_with_default(conn: &mut MysqlConnection) -> QueryResult<usize> {
     use schema::users::dsl::*;
 
     insert_into(users)

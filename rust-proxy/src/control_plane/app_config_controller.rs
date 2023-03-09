@@ -32,7 +32,7 @@ async fn set_app_config(
         })
         .collect::<Result<Vec<()>, anyhow::Error>>();
     if validata_result.is_err() {
-        return Err(ApiError::NotFound(String::from(
+        return Err(ApiError::Internal(String::from(
             "Parse the key string or the certificate string error!",
         )));
     }
