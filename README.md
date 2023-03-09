@@ -1,6 +1,15 @@
 # silverwind
 The silverwind is developed by the rust.It could be used as the reverse proxy or load banlancer.
-
+## Compile or Download the release
+### Compile 
+You have to install the rust first.
+```
+cd rust-proxy
+cargo build --release
+```
+You could get the release in the target/release.
+### Download the release
+Download the release from the [website](https://github.com/lsk569937453/silverwind/releases);
 ## Config Introduction
 ### Silverwind as the http proxy
 ```
