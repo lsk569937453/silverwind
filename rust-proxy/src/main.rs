@@ -14,8 +14,6 @@ use tokio::runtime::Handle;
 extern crate log;
 #[launch]
 fn rocket() -> _ {
-    env::set_var("RUST_BACKTRACE", "1");
-    env::set_var("RUST_LOG", "debug");
     env_logger::init();
     tokio::task::block_in_place(move || {
         Handle::current().block_on(async {
