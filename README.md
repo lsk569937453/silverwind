@@ -1,18 +1,68 @@
-# ReverseProxy
-ReverseProxy in Rust
+# silverwind
+The silverwind is developed by the rust.It could be used as the reverse proxy or load banlancer.
 
-## Use:
+## Config Introduction
+### Silverwind as the http proxy
+```
+- listen_port: 3360
+  service_config:
+    server_type: HTTP
+    routes:
+    - matcher:
+        prefix: /v1/test
+        prefix_rewrite: ssss
+      route_cluster: http://192.0.2.3:8860
+```
+The proxy will listen the 3360 port and forward the traffic to the http://192.0.2.3:8860.
+### Silverwind as the tcp proxy
+```
+- listen_port: 3360
+  service_config:
+    server_type: TCP
+    routes:
+    - matcher:
+        prefix: "/"
+        prefix_rewrite: ssss
+      route_cluster: localhost:3306
+```
+### Setup:
+#### Windows Startup
+```
+$env:CONFIG_FILE_PATH='D:\code\app_config.yaml'; .\rust-proxy.exe
+```
+Or you could start without the config file like following:
+```
+.\rust-proxy.exe
+```
+## Rest Api
+### Change the routes
+```
+POST /appConfig HTTP/1.1
+Host: 127.0.0.1:8870
+Content-Type: application/json
+Content-Length: 404
 
-	./ReverseProxy_[OS]_[ARCH] -h
-	
-	Usage of ReverseProxy_[OS]_[ARCH]:
-	  -l string
-	        listen on ip:port (default "0.0.0.0:8888")
-	  -r string
-	        reverse proxy addr (default "http://idea.lanyus.com:80")
-
-
-	./ReverseProxy_windows_amd64.exe -l "0.0.0.0:8081" -r "https://www.baidu.com"
-
-	Listening on 0.0.0.0:8081, forwarding to https://www.baidu.com
+[
+    {
+        "listen_port": 3360,
+        "service_config": {
+            "server_type": "TCP",
+            "routes": [
+                {
+                    "matcher": {
+                        "prefix": "/",
+                        "prefix_rewrite": "ssss"
+                    },
+                    "route_cluster": "localhost:3306"
+                }
+            ]
+        }
+    }
+]
+```
+### Get the routes
+```
+GET /appConfig HTTP/1.1
+Host: 127.0.0.1:8870
+```
 
