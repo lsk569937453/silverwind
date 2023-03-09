@@ -1,5 +1,13 @@
-# silverwind
+# Silverwind-The Next Generation High Performance Proxy
 The silverwind is developed by the rust.It could be used as the reverse proxy or load banlancer.
+## Dynamic Configuration 
+### Single Silverwind
+You could change the configuration over the rest api.And the new configuration will have effect in 5 seconds.
+### Silverwind Cluster(future)
+There are two plans here.
+* The Silverwind will poll the new config from the the other interface over the grpc/rest api.The user could implement their own api.
+* The Silverwind will poll the new config from the database(mysql/postgresql).And we will offer the web-ui for the user to change the configuration.
+
 ## Compile or Download the release
 ### Compile 
 You have to install the rust first.
@@ -9,7 +17,7 @@ cargo build --release
 ```
 You could get the release in the target/release.
 ### Download the release
-Download the release from the [website](https://github.com/lsk569937453/silverwind/releases);
+Download the release from the [website](https://github.com/lsk569937453/silverwind/releases).
 ## Config Introduction
 ### Silverwind as the http proxy
 ```
