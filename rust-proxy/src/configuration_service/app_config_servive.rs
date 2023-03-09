@@ -1,5 +1,4 @@
 use crate::constants;
-use crate::pool::db_connection_pool;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
@@ -148,9 +147,6 @@ async fn init_static_config() {
 
     if database_url_result.is_ok() {
         (*global_app_config).static_config.database_url = Some(database_url_result.unwrap());
-        std::thread::spawn(move || {
-            db_connection_pool::schedule_task_connection_pool();
-        });
     }
 
     let api_port;

@@ -5,8 +5,6 @@ extern crate anyhow;
 extern crate derive_builder;
 mod configuration_service;
 mod control_plane;
-mod dao;
-mod pool;
 mod proxy;
 mod vojo;
 use std::env;
