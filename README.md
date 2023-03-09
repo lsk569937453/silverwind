@@ -1,5 +1,5 @@
 # ReverseProxy
-ReverseProxy in golang
+ReverseProxy in Rust
 
 ## Use:
 
