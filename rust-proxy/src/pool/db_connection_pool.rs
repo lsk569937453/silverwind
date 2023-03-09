@@ -4,12 +4,11 @@ use diesel::MysqlConnection;
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use std::env;
-pub type DbConnection = r2d2::PooledConnection<ConnectionManager<MysqlConnection>>;
-pub type Pool = r2d2::Pool<ConnectionManager<MysqlConnection>>;
 use std::panic;
 use std::sync::RwLock;
 use std::thread::sleep;
-
+pub type DbConnection = r2d2::PooledConnection<ConnectionManager<MysqlConnection>>;
+pub type Pool = r2d2::Pool<ConnectionManager<MysqlConnection>>;
 #[derive(Debug, Clone)]
 pub struct ConnectionPool {
     pub pool: Option<Pool>,
@@ -116,7 +115,7 @@ fn create_connection_pool() -> Result<RwLock<ConnectionPool>, anyhow::Error> {
         }
     }
 }
-pub fn get_connection() -> Result<DbConnection, anyhow::Error> {
+pub fn _get_connection() -> Result<DbConnection, anyhow::Error> {
     let result_connection_pool = CONNECTION_POOL.read();
 
     let connection_pool = match result_connection_pool {
@@ -143,7 +142,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_get_connection_fail() {
-        let result_connection = get_connection();
+        let result_connection = _get_connection();
         assert_eq!(result_connection.is_err(), true);
     }
 }
