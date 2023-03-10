@@ -165,7 +165,7 @@ async fn proxy(
         if match_res.is_some() {
             let route_cluster = item.route_cluster.clone();
             if !route_cluster.clone().contains("http") {
-                return route_file(route_cluster, match_prefix).await;
+                return route_file(route_cluster, String::from(backend_path)).await;
             }
             let request_path = format!("{}{}", route_cluster, match_prefix.clone());
             *req.uri_mut() = request_path.parse().unwrap();
