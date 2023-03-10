@@ -8,10 +8,14 @@ use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use regex::Regex;
 use std::convert::Infallible;
+use std::env;
 use std::io::BufReader;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs::File;
 use tokio::sync::mpsc;
+use tokio_util::codec::{BytesCodec, FramedRead};
 
 #[derive(Debug)]
 pub struct HttpProxy {
@@ -159,7 +163,11 @@ async fn proxy(
         let re = Regex::new(match_prefix.as_str()).unwrap();
         let match_res = re.captures(backend_path);
         if match_res.is_some() {
-            let request_path = format!("{}{}", item.route_cluster, match_prefix.clone());
+            let route_cluster = item.route_cluster.clone();
+            if !route_cluster.clone().contains("http") {
+                return route_file(route_cluster, match_prefix).await;
+            }
+            let request_path = format!("{}{}", route_cluster, match_prefix.clone());
             *req.uri_mut() = request_path.parse().unwrap();
             if request_path.contains("https") {
                 return client.request_https(req).await;
@@ -177,6 +185,38 @@ async fn proxy(
         }"#,
         ))
         .unwrap())
+}
+async fn route_file(
+    resource_dir: String,
+    request_path: String,
+) -> Result<Response<Body>, hyper::Error> {
+    let app_dir = env::current_dir().unwrap();
+    let resource = get_file_path(resource_dir);
+    let request_file_path = get_file_path(request_path);
+    let file_name = app_dir.join(resource).join(request_file_path);
+    if let Ok(file) = File::open(file_name).await {
+        let stream = FramedRead::new(file, BytesCodec::new());
+        let body = Body::wrap_stream(stream);
+        return Ok(Response::new(body));
+    }
+
+    Ok(Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::from(
+            r#"{
+            "response_code": -1,
+            "response_object": "The file can not be found!"
+        }"#,
+        ))
+        .unwrap())
+}
+fn get_file_path(url: String) -> PathBuf {
+    let mut res = PathBuf::new();
+    url.split("/").into_iter().for_each(|s| {
+        let current_dir = res.clone();
+        res = current_dir.join(s);
+    });
+    return res;
 }
 #[cfg(test)]
 mod tests {
