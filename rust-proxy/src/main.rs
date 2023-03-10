@@ -4,11 +4,10 @@ extern crate rocket;
 extern crate anyhow;
 extern crate derive_builder;
 mod configuration_service;
+mod constants;
 mod control_plane;
 mod proxy;
 mod vojo;
-use std::env;
-mod constants;
 use tokio::runtime::Handle;
 #[macro_use]
 extern crate log;
