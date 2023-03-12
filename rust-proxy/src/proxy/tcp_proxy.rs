@@ -1,4 +1,4 @@
-use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
+use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use futures::FutureExt;
 use tokio::io;
 use tokio::io::AsyncWriteExt;
@@ -82,6 +82,6 @@ fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
     if service_config_clone.len() == 0 {
         return Err(anyhow!("The len of routes is 0"));
     }
-    let route = service_config_clone.first().unwrap().route_cluster.clone();
-    return Ok(route);
+    let mut route = service_config_clone.first().unwrap().route_cluster.clone();
+    route.get_route()
 }

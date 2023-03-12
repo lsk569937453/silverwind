@@ -1,14 +1,16 @@
+use crate::vojo::route::BaseRoute;
+use crate::vojo::route::LoadbalancerStrategy;
+use crate::vojo::route::RandomRoute;
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
     pub prefix: String,
     pub prefix_rewrite: String,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
     pub matcher: Matcher,
-    pub route_cluster: String,
+    pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, strum_macros::Display)]
 pub enum ServiceType {
@@ -17,14 +19,14 @@ pub enum ServiceType {
     HTTPS,
     TCP,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServiceConfig {
     pub server_type: ServiceType,
     pub cert_str: Option<String>,
     pub key_str: Option<String>,
     pub routes: Vec<Route>,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiService {
     pub listen_port: i32,
     pub service_config: ServiceConfig,
@@ -36,20 +38,23 @@ pub struct StaticConifg {
     pub api_port: String,
     pub config_file_path: Option<String>,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     pub static_config: StaticConifg,
     pub api_service_config: Vec<ApiService>,
 }
 #[cfg(test)]
 mod tests {
-
     use super::*;
-
     #[test]
     fn test_output_serde() {
         let route = Route {
-            route_cluster: String::from("/"),
+            route_cluster: Box::new(RandomRoute {
+                routes: vec![BaseRoute {
+                    weight: 100,
+                    endpoint: String::from("/"),
+                }],
+            }),
             matcher: Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),

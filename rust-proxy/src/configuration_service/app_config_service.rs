@@ -281,11 +281,10 @@ mod tests {
             let api_services = app_config.api_service_config.clone();
             assert_eq!(api_services.len(), 1);
             let api_service = api_services.first().cloned().unwrap();
-            assert_eq!(api_service.listen_port, 3360);
+            assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
             assert_eq!(api_service_routes.matcher.prefix, "/v1/test");
             assert_eq!(api_service_routes.matcher.prefix_rewrite, "ssss");
-            assert_eq!(api_service_routes.route_cluster, "http://192.0.2.3:8860");
         });
     }
     #[test]

@@ -44,3 +44,6 @@ rustls-pemfile = "1.0.2"
 pkcs8 = { version = "0.7", features = ["encryption", "pem", "std"] }
 strum_macros = "0.24.3"
 strum = "0.24"
+dyn-clone = "1.0.11"
+typetag = "0.2"
+rand = "0.8.5"

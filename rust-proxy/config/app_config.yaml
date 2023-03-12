@@ -1,8 +1,28 @@
-- listen_port: 3360
+- listen_port: 4486
   service_config:
     server_type: HTTP
     routes:
     - matcher:
-        prefix: /v1/test
+        prefix: /
         prefix_rewrite: ssss
-      route_cluster: http://192.0.2.3:8860
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - endpoint: /
+          weight: 100
+- listen_port: 9969
+  service_config:
+    server_type: HTTP
+    routes:
+    - matcher:
+        prefix: /
+        prefix_rewrite: ssss
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - endpoint: http://localhost:8888/
+          weight: 100
+        - endpoint: http://localhost:9999/
+          weight: 100
+        - endpoint: http://localhost:7777/
+          weight: 100

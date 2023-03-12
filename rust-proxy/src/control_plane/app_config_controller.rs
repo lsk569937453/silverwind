@@ -1,5 +1,5 @@
 use super::responder::ApiError;
-use crate::configuration_service::app_config_servive::GLOBAL_APP_CONFIG;
+use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_config::ServiceType;

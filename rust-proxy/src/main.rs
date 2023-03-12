@@ -2,6 +2,7 @@
 extern crate rocket;
 #[macro_use]
 extern crate anyhow;
+use std::env;
 extern crate derive_builder;
 mod configuration_service;
 mod constants;
@@ -13,10 +14,12 @@ use tokio::runtime::Handle;
 extern crate log;
 #[launch]
 fn rocket() -> _ {
+    env::set_var("RUST_BACKTRACE", "1");
+    env::set_var("RUST_LOG", "debug");
     env_logger::init();
     tokio::task::block_in_place(move || {
         Handle::current().block_on(async {
-            configuration_service::app_config_servive::init().await;
+            configuration_service::app_config_service::init().await;
         })
     });
 

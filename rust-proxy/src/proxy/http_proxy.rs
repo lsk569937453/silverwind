@@ -1,4 +1,4 @@
-use crate::configuration_service::app_config_servive::GLOBAL_CONFIG_MAPPING;
+use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use http::StatusCode;
 use hyper::client::HttpConnector;
@@ -7,6 +7,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use regex::Regex;
+use serde_json::json;
 use std::convert::Infallible;
 use std::env;
 use std::io::BufReader;
@@ -16,7 +17,19 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::sync::mpsc;
 use tokio_util::codec::{BytesCodec, FramedRead};
-
+#[derive(Debug)]
+struct GeneralError(anyhow::Error);
+impl std::error::Error for GeneralError {}
+impl std::fmt::Display for GeneralError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.to_string())
+    }
+}
+impl GeneralError {
+    pub fn from(err: hyper::Error) -> Self {
+        GeneralError(anyhow!(err.to_string()))
+    }
+}
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
@@ -68,14 +81,12 @@ impl HttpProxy {
         let make_service = make_service_fn(move |_| {
             let client = client.clone();
             let mapping_key2 = mapping_key_clone1.clone();
-
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy(client.clone(), req, mapping_key2.clone())
+                    proxy_adapter(client.clone(), req, mapping_key2.clone())
                 }))
             }
         });
-
         let server = Server::bind(&addr)
             .http1_preserve_header_case(true)
             .http1_title_case_headers(true)
@@ -103,7 +114,7 @@ impl HttpProxy {
 
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy(client.clone(), req, mapping_key2.clone())
+                    proxy_adapter(client.clone(), req, mapping_key2.clone())
                 }))
             }
         });
@@ -148,11 +159,30 @@ impl HttpProxy {
         }
     }
 }
+async fn proxy_adapter(
+    client: Clients,
+    req: Request<Body>,
+    mapping_key: String,
+) -> Result<Response<Body>, Infallible> {
+    match proxy(client, req, mapping_key).await {
+        Ok(r) => Ok(r),
+        Err(err) => {
+            let json_value = json!({
+                "response_code": -1,
+                "response_object": format!("{}", err.to_string())
+            });
+            Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(json_value.to_string()))
+                .unwrap())
+        }
+    }
+}
 async fn proxy(
     client: Clients,
     mut req: Request<Body>,
     mapping_key: String,
-) -> Result<Response<Body>, hyper::Error> {
+) -> Result<Response<Body>, GeneralError> {
     debug!("req: {:?}", req);
 
     let backend_path = req.uri().path();
@@ -163,16 +193,22 @@ async fn proxy(
         let re = Regex::new(match_prefix.as_str()).unwrap();
         let match_res = re.captures(backend_path);
         if match_res.is_some() {
-            let route_cluster = item.route_cluster.clone();
+            let route_cluster = match item.route_cluster.clone().get_route() {
+                Ok(r) => r,
+                Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
+            };
+
             if !route_cluster.clone().contains("http") {
-                return route_file(route_cluster, String::from(backend_path)).await;
+                return route_file(route_cluster, String::from(backend_path))
+                    .await
+                    .map_err(GeneralError::from);
             }
             let request_path = format!("{}{}", route_cluster, match_prefix.clone());
             *req.uri_mut() = request_path.parse().unwrap();
             if request_path.contains("https") {
-                return client.request_https(req).await;
+                return client.request_https(req).await.map_err(GeneralError::from);
             } else {
-                return client.request_http(req).await;
+                return client.request_http(req).await.map_err(GeneralError::from);
             }
         }
     }
