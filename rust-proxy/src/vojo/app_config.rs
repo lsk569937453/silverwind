@@ -1,6 +1,4 @@
-use crate::vojo::route::BaseRoute;
 use crate::vojo::route::LoadbalancerStrategy;
-use crate::vojo::route::RandomRoute;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
@@ -46,6 +44,8 @@ pub struct AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vojo::route::BaseRoute;
+    use crate::vojo::route::RandomRoute;
     #[test]
     fn test_output_serde() {
         let route = Route {

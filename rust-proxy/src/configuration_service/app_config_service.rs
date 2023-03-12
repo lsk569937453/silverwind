@@ -279,11 +279,11 @@ mod tests {
             assert_eq!(res.is_ok(), true);
             let app_config = GLOBAL_APP_CONFIG.read().await.clone();
             let api_services = app_config.api_service_config.clone();
-            assert_eq!(api_services.len(), 1);
+            assert_eq!(api_services.len(), 2);
             let api_service = api_services.first().cloned().unwrap();
             assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
-            assert_eq!(api_service_routes.matcher.prefix, "/v1/test");
+            assert_eq!(api_service_routes.matcher.prefix, "/");
             assert_eq!(api_service_routes.matcher.prefix_rewrite, "ssss");
         });
     }
@@ -318,15 +318,15 @@ mod tests {
             let res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
             assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
-            assert_eq!(GLOBAL_CONFIG_MAPPING.len(), 1);
+            assert_eq!(GLOBAL_CONFIG_MAPPING.len(), 2);
             let api_service_manager_list = GLOBAL_CONFIG_MAPPING
                 .iter()
                 .map(|s| s.to_owned())
                 .collect::<Vec<ApiServiceManager>>();
-            assert_eq!(api_service_manager_list.len(), 1);
+            assert_eq!(api_service_manager_list.len(), 2);
             let api_service_manager = api_service_manager_list.first().unwrap();
             let routes = api_service_manager.service_config.routes.first().unwrap();
-            assert_eq!(routes.matcher.prefix, "/v1/test");
+            assert_eq!(routes.matcher.prefix, "/");
         });
     }
 }
