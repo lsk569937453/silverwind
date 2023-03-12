@@ -31,7 +31,6 @@ impl ApiError {
 }
 impl<'r> Responder<'r, 'static> for ApiError {
     fn respond_to(self, _: &'r Request<'_>) -> response::Result<'static> {
-        // serialize struct into json string
         let err_response = serde_json::to_string(&BaseResponse {
             response_code: -1,
             response_object: self.to_string(),

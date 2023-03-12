@@ -6,17 +6,15 @@ use hyper::server::conn::AddrIncoming;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
+use hyper_staticfile::Static;
 use regex::Regex;
 use serde_json::json;
 use std::convert::Infallible;
-use std::env;
 use std::io::BufReader;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
-use tokio::fs::File;
 use tokio::sync::mpsc;
-use tokio_util::codec::{BytesCodec, FramedRead};
 #[derive(Debug)]
 struct GeneralError(anyhow::Error);
 impl std::error::Error for GeneralError {}
@@ -199,9 +197,7 @@ async fn proxy(
             };
 
             if !route_cluster.clone().contains("http") {
-                return route_file(route_cluster, String::from(backend_path))
-                    .await
-                    .map_err(GeneralError::from);
+                return route_file(route_cluster, req).await;
             }
             let request_path = format!("{}{}", route_cluster, match_prefix.clone());
             *req.uri_mut() = request_path.parse().unwrap();
@@ -224,36 +220,16 @@ async fn proxy(
 }
 async fn route_file(
     resource_dir: String,
-    request_path: String,
-) -> Result<Response<Body>, hyper::Error> {
-    let app_dir = env::current_dir().unwrap();
-    let resource = get_file_path(resource_dir);
-    let request_file_path = get_file_path(request_path);
-    let file_name = app_dir.join(resource).join(request_file_path);
-    if let Ok(file) = File::open(file_name).await {
-        let stream = FramedRead::new(file, BytesCodec::new());
-        let body = Body::wrap_stream(stream);
-        return Ok(Response::new(body));
-    }
+    req: Request<Body>,
+) -> Result<Response<Body>, GeneralError> {
+    let static_ = Static::new(Path::new(resource_dir.as_str()));
+    static_
+        .clone()
+        .serve(req)
+        .await
+        .map_err(|e| GeneralError(anyhow!(e.to_string())))
+}
 
-    Ok(Response::builder()
-        .status(StatusCode::NOT_FOUND)
-        .body(Body::from(
-            r#"{
-            "response_code": -1,
-            "response_object": "The file can not be found!"
-        }"#,
-        ))
-        .unwrap())
-}
-fn get_file_path(url: String) -> PathBuf {
-    let mut res = PathBuf::new();
-    url.split("/").into_iter().for_each(|s| {
-        let current_dir = res.clone();
-        res = current_dir.join(s);
-    });
-    return res;
-}
 #[cfg(test)]
 mod tests {
     use regex::Regex;
