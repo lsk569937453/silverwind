@@ -53,6 +53,7 @@ mod tests {
                 routes: vec![BaseRoute {
                     weight: 100,
                     endpoint: String::from("/"),
+                    try_file: None,
                 }],
             }),
             matcher: Matcher {

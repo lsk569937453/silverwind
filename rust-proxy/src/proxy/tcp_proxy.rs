@@ -83,5 +83,5 @@ fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
         return Err(anyhow!("The len of routes is 0"));
     }
     let mut route = service_config_clone.first().unwrap().route_cluster.clone();
-    route.get_route()
+    route.get_route().map(|s| s.endpoint)
 }
