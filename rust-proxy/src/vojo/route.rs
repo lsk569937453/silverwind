@@ -116,10 +116,76 @@ impl LoadbalancerStrategy for WeightRoute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn get_routes() -> Vec<BaseRoute> {
+        vec![
+            BaseRoute {
+                endpoint: String::from("http://localhost:4444"),
+                weight: 100,
+                try_file: None,
+            },
+            BaseRoute {
+                endpoint: String::from("http://localhost:5555"),
+                weight: 100,
+                try_file: None,
+            },
+            BaseRoute {
+                endpoint: String::from("http://localhost:5555"),
+                weight: 100,
+                try_file: None,
+            },
+        ]
+    }
     #[test]
     fn test_max_value() {
         let atomic = AtomicUsize::new(0);
         let old_value = atomic.fetch_add(1, Ordering::SeqCst);
         println!("{}", old_value);
+    }
+    #[test]
+    fn test_poll_route_successfully() {
+        let routes = get_routes();
+        let mut poll_rate = PollRoute {
+            current_index: Default::default(),
+            routes: routes.clone(),
+            lock: Default::default(),
+        };
+        for i in 0..100 {
+            let current_route = poll_rate.get_route().unwrap();
+            assert_eq!(current_route, routes[i % routes.len()]);
+        }
+    }
+    #[test]
+    fn test_random_route_successfully() {
+        let routes = get_routes();
+        let mut random_rate = RandomRoute {
+            routes: routes.clone(),
+        };
+        for _ in 0..100 {
+            random_rate.get_route().unwrap();
+        }
+    }
+    #[test]
+    fn test_weight_route_successfully() {
+        let routes = get_routes();
+        let mut weight_route = WeightRoute {
+            indexs: Default::default(),
+            routes: routes.clone(),
+        };
+        for _ in 0..100 {
+            let current_route = weight_route.get_route().unwrap();
+            assert_eq!(current_route, routes[0]);
+        }
+        for _ in 0..100 {
+            let current_route = weight_route.get_route().unwrap();
+            assert_eq!(current_route, routes[1]);
+        }
+        for _ in 0..100 {
+            let current_route = weight_route.get_route().unwrap();
+            assert_eq!(current_route, routes[2]);
+        }
+        for _ in 0..100 {
+            let current_route = weight_route.get_route().unwrap();
+            assert_eq!(current_route, routes[0]);
+        }
     }
 }

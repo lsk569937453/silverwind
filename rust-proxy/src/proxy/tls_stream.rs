@@ -80,3 +80,9 @@ impl AsyncWrite for TlsStream {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_max_value() {}
+}

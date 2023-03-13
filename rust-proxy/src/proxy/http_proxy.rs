@@ -2,7 +2,6 @@ use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::vojo::route::BaseRoute;
 use http::StatusCode;
-use hyper::body::HttpBody;
 use hyper::client::HttpConnector;
 use hyper::server::conn::AddrIncoming;
 use hyper::service::{make_service_fn, service_fn};
@@ -17,7 +16,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use url::{ParseError, Url};
 
 #[derive(Debug)]
 struct GeneralError(anyhow::Error);
@@ -226,7 +224,6 @@ async fn route_file(
     base_route: BaseRoute,
     req: Request<Body>,
 ) -> Result<Response<Body>, GeneralError> {
-    let host = req.uri().host().clone();
     let static_ = Static::new(Path::new(base_route.endpoint.as_str()));
     let current_res = static_.clone().serve(req).await;
     if current_res.is_ok() {
@@ -260,7 +257,6 @@ async fn route_file(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use regex::Regex;
     use std::env;
     use std::fs::File;
@@ -303,13 +299,5 @@ mod tests {
         let result_doc = pkcs8::PrivateKeyDocument::from_pem(&data);
         assert_eq!(result_doc.is_ok(), true);
         rustls::PrivateKey(result_doc.unwrap().as_ref().to_owned());
-    }
-    #[test]
-    fn test_another() {
-        let dir = Url::parse("dist/").unwrap();
-        let path = dir.join("index.html").unwrap();
-        let mut request: Request<()> = Request::default();
-        *request.uri_mut() = path.as_str().parse().unwrap();
-        assert_eq!(*request.uri(), *"/index.html");
     }
 }
