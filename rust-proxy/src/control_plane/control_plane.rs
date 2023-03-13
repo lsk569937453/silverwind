@@ -5,13 +5,11 @@ use crate::vojo::vojo::BaseResponse;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Method, Request, Response, Server, StatusCode};
 
-type GenericError = Box<dyn std::error::Error + Send + Sync>;
-type ResultX<T> = std::result::Result<T, GenericError>;
-
+use crate::proxy::http_proxy::GeneralError;
 static NOTFOUND: &[u8] = b"Not Found";
 static INTERNAL_SERVER_ERROR: &[u8] = b"Internal Server Error";
 
-async fn api_get_response() -> ResultX<Response<Body>> {
+async fn get_app_config() -> Result<Response<Body>, GeneralError> {
     let app_config = GLOBAL_APP_CONFIG.read().await;
     let data = BaseResponse {
         response_code: 0,
@@ -30,9 +28,15 @@ async fn api_get_response() -> ResultX<Response<Body>> {
     Ok(res)
 }
 
-async fn api_post_response(req: Request<Body>) -> ResultX<Response<Body>> {
-    let byte_stream = hyper::body::to_bytes(req).await?;
-    let api_services: Vec<ApiService> = serde_json::from_slice(&byte_stream).unwrap();
+async fn post_app_config(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
+    let byte_stream = match hyper::body::to_bytes(req).await {
+        Ok(r) => r,
+        Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
+    };
+    let api_services: Vec<ApiService> = match serde_json::from_slice(&byte_stream) {
+        Ok(r) => r,
+        Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
+    };
 
     let validata_result = api_services
         .iter()
@@ -58,20 +62,34 @@ async fn api_post_response(req: Request<Body>) -> ResultX<Response<Body>> {
     };
     let json_str = serde_json::to_string(&data).unwrap();
 
-    let response = Response::builder()
+    Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(json_str))?;
-    Ok(response)
+        .body(Body::from(json_str))
+        .map_err(|e| GeneralError(anyhow!(e.to_string())))
 }
-pub async fn response_examples(req: Request<Body>) -> ResultX<Response<Body>> {
-    match (req.method(), req.uri().path()) {
-        (&Method::POST, "/appConfig") => api_post_response(req).await,
-        (&Method::GET, "/appConfig") => api_get_response().await,
+pub async fn response_examples(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
+    let response_result = match (req.method(), req.uri().path()) {
+        (&Method::POST, "/appConfig") => post_app_config(req).await,
+        (&Method::GET, "/appConfig") => get_app_config().await,
         _ => Ok(Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(NOTFOUND.into())
             .unwrap()),
+    };
+    match response_result {
+        Ok(r) => Ok(r),
+        Err(err) => {
+            let error_response = BaseResponse {
+                response_code: -1,
+                response_object: err.to_string(),
+            };
+
+            Ok(Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(serde_json::to_string(&error_response).unwrap()))
+                .unwrap())
+        }
     }
 }
 fn validate_tls_config(
@@ -94,10 +112,10 @@ fn validate_tls_config(
     }
     Ok(())
 }
-pub async fn start_control_plane() -> Result<(), hyper::Error> {
-    let addr = "127.0.0.1:8870".parse().unwrap();
+pub async fn start_control_plane(port: i32) -> Result<(), hyper::Error> {
+    let addr = format!("127.0.0.1:{}", port).parse().unwrap();
     let new_service = make_service_fn(move |_| async {
-        Ok::<_, GenericError>(service_fn(move |req| response_examples(req)))
+        Ok::<_, GeneralError>(service_fn(move |req| response_examples(req)))
     });
     let server = Server::bind(&addr).serve(new_service);
     println!("Listening on http://{}", addr);
@@ -106,7 +124,72 @@ pub async fn start_control_plane() -> Result<(), hyper::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http::StatusCode;
+    use lazy_static::lazy_static;
     use std::env;
+    use tokio::runtime::{Builder, Runtime};
+    lazy_static! {
+        pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
+            .worker_threads(4)
+            .thread_name("my-custom-name")
+            .thread_stack_size(3 * 1024 * 1024)
+            .enable_all()
+            .build()
+            .unwrap();
+    }
+    #[test]
+    fn test_api_get_response_ok() {
+        TOKIO_RUNTIME.block_on(async {
+            let res = get_app_config().await.unwrap();
+            assert_eq!(res.status(), StatusCode::OK);
+        })
+    }
+    #[test]
+    fn test_api_post_response_error() {
+        TOKIO_RUNTIME.block_on(async {
+            let request = Request::builder().body(Body::from("some string")).unwrap();
+            let res = post_app_config(request).await;
+            assert_eq!(res.is_err(), true);
+        })
+    }
+    #[test]
+    fn test_api_post_response_ok() {
+        let req = r#"[
+            {
+                "listen_port": 4486,
+                "service_config": {
+                    "server_type": "HTTP",
+                    "routes": [
+                        {
+                            "matcher": {
+                                "prefix": "/get",
+                                "prefix_rewrite": "ssss"
+                            },
+                            "route_cluster": {
+                                "type": "RandomRoute",
+                                "routes": [
+                                    {
+                                        "endpoint": "http://httpbin.org/",
+                                        "weight": 100
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]"#;
+        TOKIO_RUNTIME.block_on(async {
+            let request = Request::builder().body(Body::from(req)).unwrap();
+            let res = post_app_config(request).await;
+            assert_eq!(res.is_ok(), true);
+            let response = res.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
+            assert_eq!(base_response.response_code, 0);
+        })
+    }
     #[test]
     fn test_validate_tls_config_successfully() {
         let private_key_path = env::current_dir()

@@ -20,15 +20,15 @@ fn main() {
         .enable_all()
         .build()
         .unwrap();
-
-    let start_result = rt.block_on(async {
-        configuration_service::app_config_service::init().await;
-        start_control_plane().await
-    });
+    let start_result = rt.block_on(async { start(8870).await });
     match start_result {
         Ok(_) => info!("start successfully!"),
         Err(err) => error!("{}", err.to_string()),
     }
+}
+async fn start(api_port: i32) -> Result<(), hyper::Error> {
+    configuration_service::app_config_service::init().await;
+    start_control_plane(api_port).await
 }
 #[cfg(test)]
 mod tests {
@@ -47,17 +47,27 @@ mod tests {
             .unwrap();
     }
     #[test]
-    fn test_output_serde() {
+    fn test_start_api_ok() {
         TOKIO_RUNTIME.spawn(async {
-            let res = start_control_plane().await;
+            let res = start(8870).await;
             match res {
                 Ok(_) => println!(""),
                 Err(err) => println!("{}", err.to_string()),
             }
         });
-        let ten_millis = time::Duration::from_millis(20);
-        thread::sleep(ten_millis);
+        let sleep_time = time::Duration::from_millis(100);
+        thread::sleep(sleep_time);
         let listener = TcpListener::bind("127.0.0.1:8870");
         assert_eq!(listener.is_err(), true);
+    }
+    #[test]
+    fn test_start_api_error() {
+        let _listener = TcpListener::bind("127.0.0.1:8860");
+        TOKIO_RUNTIME.spawn(async {
+            let res = start(8860).await;
+            assert_eq!(res.is_err(), true);
+        });
+        let sleep_time = time::Duration::from_millis(20);
+        thread::sleep(sleep_time);
     }
 }

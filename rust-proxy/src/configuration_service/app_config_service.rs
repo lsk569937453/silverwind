@@ -122,15 +122,23 @@ pub async fn start_proxy(
         };
         http_proxy.start_http_server().await;
     } else if server_type == ServiceType::HTTPS {
+        let key_clone = mapping_key.clone();
+        let service_config = GLOBAL_CONFIG_MAPPING
+            .get(&key_clone)
+            .unwrap()
+            .service_config
+            .clone();
+        let pem_str = service_config.cert_str.unwrap();
+        let key_str = service_config.key_str.unwrap();
         let mut http_proxy = HttpProxy {
             port: port,
             channel: channel,
             mapping_key: mapping_key.clone(),
         };
-        http_proxy.start_https_server().await;
+        http_proxy.start_https_server(pem_str, key_str).await;
     } else {
         let mut tcp_proxy = TcpProxy {
-            listen_port: port,
+            port: port,
             mapping_key: mapping_key,
             channel: channel,
         };

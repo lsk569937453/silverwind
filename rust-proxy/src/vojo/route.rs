@@ -19,7 +19,7 @@ dyn_clone::clone_trait_object!(LoadbalancerStrategy);
 impl Debug for dyn LoadbalancerStrategy {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let routes = self.get_debug().clone();
-        write!(f, "Series{{{}}}", routes)
+        write!(f, "{{{}}}", routes)
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -116,6 +116,7 @@ impl LoadbalancerStrategy for WeightRoute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vojo::app_config::ApiService;
     fn get_routes() -> Vec<BaseRoute> {
         vec![
             BaseRoute {
@@ -187,5 +188,53 @@ mod tests {
             let current_route = weight_route.get_route().unwrap();
             assert_eq!(current_route, routes[0]);
         }
+    }
+    #[test]
+    fn test_debug_trait() {
+        let weight_route: Box<dyn LoadbalancerStrategy> = Box::new(WeightRoute {
+            indexs: Default::default(),
+            routes: Default::default(),
+        });
+        assert_eq!(format!("{:?}", weight_route), "{debug}");
+    }
+    #[test]
+    fn test_serde_default_weight() {
+        let req = r#"[
+            {
+                "listen_port": 4486,
+                "service_config": {
+                    "server_type": "HTTP",
+                    "routes": [
+                        {
+                            "matcher": {
+                                "prefix": "/get",
+                                "prefix_rewrite": "ssss"
+                            },
+                            "route_cluster": {
+                                "type": "RandomRoute",
+                                "routes": [
+                                    {
+                                        "endpoint": "http://httpbin.org/"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]"#;
+        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let mut first_api_service = api_services
+            .first()
+            .unwrap()
+            .service_config
+            .routes
+            .first()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            first_api_service.route_cluster.get_route().unwrap().weight,
+            100
+        );
     }
 }

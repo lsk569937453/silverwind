@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[derive(Debug)]
-struct GeneralError(anyhow::Error);
+pub struct GeneralError(pub anyhow::Error);
 impl std::error::Error for GeneralError {}
 impl std::fmt::Display for GeneralError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -102,7 +102,7 @@ impl HttpProxy {
             info!("server has receive error: {}", e);
         }
     }
-    pub async fn start_https_server(&mut self) {
+    pub async fn start_https_server(&mut self, pem_str: String, key_str: String) {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
@@ -118,14 +118,6 @@ impl HttpProxy {
                 }))
             }
         });
-        let mapping_key3 = self.mapping_key.clone();
-        let service_config = GLOBAL_CONFIG_MAPPING
-            .get(&mapping_key3)
-            .unwrap()
-            .service_config
-            .clone();
-        let pem_str = service_config.cert_str.unwrap();
-        let key_str = service_config.key_str.unwrap();
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
         let certs = rustls_pemfile::certs(&mut cer_reader)
             .unwrap()
@@ -186,7 +178,15 @@ async fn proxy(
     debug!("req: {:?}", req);
 
     let backend_path = req.uri().path();
-    let api_service_manager = GLOBAL_CONFIG_MAPPING.get(&mapping_key).unwrap().clone();
+    let api_service_manager = match GLOBAL_CONFIG_MAPPING.get(&mapping_key) {
+        Some(r) => r.clone(),
+        None => {
+            return Err(GeneralError(anyhow!(format!(
+                "Can not find the config mapping on the key {}!",
+                mapping_key.clone()
+            ))))
+        }
+    };
 
     for item in api_service_manager.service_config.routes {
         let match_prefix = item.matcher.prefix;
@@ -257,10 +257,25 @@ async fn route_file(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::vojo::vojo::BaseResponse;
+    use lazy_static::lazy_static;
     use regex::Regex;
     use std::env;
     use std::fs::File;
     use std::io::BufReader;
+    use std::{thread, time};
+    use tokio::runtime::{Builder, Runtime};
+    lazy_static! {
+        pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
+            .worker_threads(4)
+            .thread_name("my-custom-name")
+            .thread_stack_size(3 * 1024 * 1024)
+            .max_blocking_threads(1000)
+            .enable_all()
+            .build()
+            .unwrap();
+    }
     #[test]
     fn test_output_serde() {
         let re = Regex::new("/v1/proxy").unwrap();
@@ -299,5 +314,159 @@ mod tests {
         let result_doc = pkcs8::PrivateKeyDocument::from_pem(&data);
         assert_eq!(result_doc.is_ok(), true);
         rustls::PrivateKey(result_doc.unwrap().as_ref().to_owned());
+    }
+    #[test]
+    fn test_http_client_ok() {
+        TOKIO_RUNTIME.spawn(async {
+            let (_, receiver) = tokio::sync::mpsc::channel(10);
+
+            let mut http_proxy = HttpProxy {
+                port: 9987,
+                channel: receiver,
+                mapping_key: String::from("random key"),
+            };
+            http_proxy.start_http_server().await;
+        });
+        let sleep_time = time::Duration::from_millis(100);
+        thread::sleep(sleep_time);
+        TOKIO_RUNTIME.spawn(async {
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("http://127.0.0.1:9987/get")
+                .body(Body::empty())
+                .unwrap();
+            let response_result = client.request_http(request).await;
+            assert_eq!(response_result.is_ok(), true);
+            let response = response_result.unwrap();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let base_response: BaseResponse<String> = serde_json::from_slice(&body_bytes).unwrap();
+            assert_eq!(base_response.response_code, -1);
+        });
+        let sleep_time2 = time::Duration::from_millis(100);
+        thread::sleep(sleep_time2);
+    }
+    #[test]
+    fn test_https_client_ok() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let ca_certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let ca_certificate = std::fs::read_to_string(ca_certificate_path).unwrap();
+
+        TOKIO_RUNTIME.spawn(async {
+            let (_, receiver) = tokio::sync::mpsc::channel(10);
+
+            let mut http_proxy = HttpProxy {
+                port: 4450,
+                channel: receiver,
+                mapping_key: String::from("random key"),
+            };
+            http_proxy
+                .start_https_server(ca_certificate, private_key)
+                .await;
+        });
+        let sleep_time = time::Duration::from_millis(100);
+        thread::sleep(sleep_time);
+        TOKIO_RUNTIME.spawn(async {
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("https://localhost:4450/get")
+                .body(Body::empty())
+                .unwrap();
+            let response_result = client.request_https(request).await;
+            assert_eq!(response_result.is_ok(), true);
+            let response = response_result.unwrap();
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            println!("{:?}", body_bytes);
+            let base_response: BaseResponse<String> = serde_json::from_slice(&body_bytes).unwrap();
+            assert_eq!(base_response.response_code, -1);
+        });
+        let sleep_time2 = time::Duration::from_millis(100);
+        thread::sleep(sleep_time2);
+    }
+    #[test]
+    fn test_proxy_adapter_error() {
+        TOKIO_RUNTIME.spawn(async {
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("https://localhost:4450/get")
+                .body(Body::empty())
+                .unwrap();
+            let mapping_key = String::from("test");
+            let res = proxy_adapter(client, request, mapping_key).await;
+            assert_eq!(res.is_ok(), true);
+        });
+    }
+    #[test]
+    fn test_proxy_error() {
+        TOKIO_RUNTIME.spawn(async {
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("http://localhost:4450/get")
+                .body(Body::empty())
+                .unwrap();
+            let mapping_key = String::from("test");
+            let res = proxy(client, request, mapping_key).await;
+            assert_eq!(res.is_err(), true);
+        });
+    }
+    #[test]
+    fn test_route_file_error() {
+        TOKIO_RUNTIME.spawn(async {
+            let request = Request::builder()
+                .uri("http://localhost:4450/get")
+                .body(Body::empty())
+                .unwrap();
+            let base_route = BaseRoute {
+                endpoint: String::from("not_found"),
+                weight: 10,
+                try_file: None,
+            };
+            let res = route_file(base_route, request).await;
+            assert_eq!(res.is_err(), true);
+        });
+
+        let sleep_time2 = time::Duration::from_millis(100);
+        thread::sleep(sleep_time2);
+    }
+    #[test]
+    fn test_route_file_ok() {
+        TOKIO_RUNTIME.spawn(async {
+            let request = Request::builder()
+                .uri("http://localhost:4450/app_config.yaml")
+                .body(Body::empty())
+                .unwrap();
+            let base_route = BaseRoute {
+                endpoint: String::from("config"),
+                weight: 10,
+                try_file: None,
+            };
+            let res = route_file(base_route, request).await;
+            assert_eq!(res.is_ok(), true);
+        });
+    }
+    #[test]
+    fn test_route_file_with_try_file_ok() {
+        TOKIO_RUNTIME.spawn(async {
+            let request = Request::builder()
+                .uri("http://localhost:4450/xxxxxx")
+                .body(Body::empty())
+                .unwrap();
+            let base_route = BaseRoute {
+                endpoint: String::from("config"),
+                weight: 10,
+                try_file: Some(String::from("app_config.yaml")),
+            };
+            let res = route_file(base_route, request).await;
+            assert_eq!(res.is_ok(), true);
+        });
     }
 }
