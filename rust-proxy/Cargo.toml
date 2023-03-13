@@ -23,7 +23,6 @@ http-body = "1.0.0-rc.2"
 http-body-util = { version = "0.1.0-rc.2"}
 hyper = { version = "0.14",  features = ["full"] }
 http = "0.2.9"
-rocket =  { version = "0.5.0-rc.2", features = ["json"] }
 oas3 = "0.2.1"
 
 dotenvy = "0.15"
