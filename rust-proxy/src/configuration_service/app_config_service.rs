@@ -122,15 +122,23 @@ pub async fn start_proxy(
         };
         http_proxy.start_http_server().await;
     } else if server_type == ServiceType::HTTPS {
+        let key_clone = mapping_key.clone();
+        let service_config = GLOBAL_CONFIG_MAPPING
+            .get(&key_clone)
+            .unwrap()
+            .service_config
+            .clone();
+        let pem_str = service_config.cert_str.unwrap();
+        let key_str = service_config.key_str.unwrap();
         let mut http_proxy = HttpProxy {
             port: port,
             channel: channel,
             mapping_key: mapping_key.clone(),
         };
-        http_proxy.start_https_server().await;
+        http_proxy.start_https_server(pem_str, key_str).await;
     } else {
         let mut tcp_proxy = TcpProxy {
-            listen_port: port,
+            port: port,
             mapping_key: mapping_key,
             channel: channel,
         };
@@ -194,9 +202,10 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
 mod tests {
 
     use super::*;
+    use crate::vojo::app_config::Route;
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
     use serial_test::serial;
     use tokio::runtime::{Builder, Runtime};
-
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -279,13 +288,12 @@ mod tests {
             assert_eq!(res.is_ok(), true);
             let app_config = GLOBAL_APP_CONFIG.read().await.clone();
             let api_services = app_config.api_service_config.clone();
-            assert_eq!(api_services.len(), 1);
+            assert_eq!(api_services.len(), 2);
             let api_service = api_services.first().cloned().unwrap();
-            assert_eq!(api_service.listen_port, 3360);
+            assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
-            assert_eq!(api_service_routes.matcher.prefix, "/v1/test");
+            assert_eq!(api_service_routes.matcher.prefix, "/");
             assert_eq!(api_service_routes.matcher.prefix_rewrite, "ssss");
-            assert_eq!(api_service_routes.route_cluster, "http://192.0.2.3:8860");
         });
     }
     #[test]
@@ -319,15 +327,55 @@ mod tests {
             let res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
             assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
-            assert_eq!(GLOBAL_CONFIG_MAPPING.len(), 1);
+            assert_eq!(GLOBAL_CONFIG_MAPPING.len(), 2);
             let api_service_manager_list = GLOBAL_CONFIG_MAPPING
                 .iter()
                 .map(|s| s.to_owned())
                 .collect::<Vec<ApiServiceManager>>();
-            assert_eq!(api_service_manager_list.len(), 1);
+            assert_eq!(api_service_manager_list.len(), 2);
             let api_service_manager = api_service_manager_list.first().unwrap();
             let routes = api_service_manager.service_config.routes.first().unwrap();
-            assert_eq!(routes.matcher.prefix, "/v1/test");
+            assert_eq!(routes.matcher.prefix, "/");
+        });
+    }
+    #[test]
+    #[serial("test")]
+    fn test_start_https_proxy_ok() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("cacert.pem");
+        let certificate = std::fs::read_to_string(certificate_path).unwrap();
+        let route = Box::new(RandomRoute {
+            routes: vec![BaseRoute {
+                endpoint: String::from("httpbin.org:80"),
+                weight: 100,
+                try_file: None,
+            }],
+        }) as Box<dyn LoadbalancerStrategy>;
+        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+
+        let api_service_manager = ApiServiceManager {
+            sender: sender,
+            service_config: ServiceConfig {
+                key_str: Some(private_key),
+                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                cert_str: Some(certificate),
+                routes: vec![Route {
+                    matcher: Default::default(),
+                    route_cluster: route,
+                }],
+            },
+        };
+        GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
+        TOKIO_RUNTIME.block_on(async {
+            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test"))
         });
     }
 }
