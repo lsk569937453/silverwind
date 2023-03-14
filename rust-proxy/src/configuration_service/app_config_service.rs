@@ -202,9 +202,10 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
 mod tests {
 
     use super::*;
+    use crate::vojo::app_config::Route;
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
     use serial_test::serial;
     use tokio::runtime::{Builder, Runtime};
-
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -335,6 +336,46 @@ mod tests {
             let api_service_manager = api_service_manager_list.first().unwrap();
             let routes = api_service_manager.service_config.routes.first().unwrap();
             assert_eq!(routes.matcher.prefix, "/");
+        });
+    }
+    #[test]
+    #[serial("test")]
+    fn test_start_https_proxy_ok() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("privkey.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("cacert.pem");
+        let certificate = std::fs::read_to_string(certificate_path).unwrap();
+        let route = Box::new(RandomRoute {
+            routes: vec![BaseRoute {
+                endpoint: String::from("httpbin.org:80"),
+                weight: 100,
+                try_file: None,
+            }],
+        }) as Box<dyn LoadbalancerStrategy>;
+        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+
+        let api_service_manager = ApiServiceManager {
+            sender: sender,
+            service_config: ServiceConfig {
+                key_str: Some(private_key),
+                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                cert_str: Some(certificate),
+                routes: vec![Route {
+                    matcher: Default::default(),
+                    route_cluster: route,
+                }],
+            },
+        };
+        GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
+        TOKIO_RUNTIME.block_on(async {
+            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test"))
         });
     }
 }

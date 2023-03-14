@@ -13,8 +13,6 @@ use crate::control_plane::control_plane::start_control_plane;
 use tokio::runtime;
 
 fn main() {
-    env::set_var("RUST_BACKTRACE", "1");
-    env::set_var("RUST_LOG", "debug");
     env_logger::init();
     let rt = runtime::Builder::new_multi_thread()
         .enable_all()

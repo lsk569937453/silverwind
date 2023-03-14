@@ -434,8 +434,8 @@ mod tests {
             assert_eq!(res.is_err(), true);
         });
 
-        let sleep_time2 = time::Duration::from_millis(100);
-        thread::sleep(sleep_time2);
+        let sleep_time = time::Duration::from_millis(100);
+        thread::sleep(sleep_time);
     }
     #[test]
     fn test_route_file_ok() {
@@ -468,5 +468,24 @@ mod tests {
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_ok(), true);
         });
+    }
+    #[test]
+    fn test_generate_error_ok() {
+        TOKIO_RUNTIME.spawn(async {
+            let request = hyper::Request::builder()
+                .method(hyper::Method::POST)
+                .uri("http://xxtpbin.org/xxx")
+                .header("content-type", "application/json")
+                .body(hyper::Body::from(r#"{"library":"hyper"}"#))
+                .unwrap();
+            let client = hyper::Client::new();
+            let response = client.request(request).await;
+            let err = response.unwrap_err();
+            let error_message = err.to_string().clone();
+            let general_error = GeneralError::from(err);
+            assert_eq!(error_message, general_error.to_string());
+        });
+        let sleep_time = time::Duration::from_millis(1000);
+        thread::sleep(sleep_time);
     }
 }

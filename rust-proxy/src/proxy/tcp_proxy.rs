@@ -89,9 +89,12 @@ fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::{Route, ServiceConfig};
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
     use lazy_static::lazy_static;
     use std::net::TcpListener;
-    use std::{thread, time};
+    use std::{thread, time, vec};
 
     use tokio::runtime::{Builder, Runtime};
     lazy_static! {
@@ -134,8 +137,40 @@ mod tests {
         thread::sleep(sleep_time);
     }
     #[test]
+    fn test_transfer_ok() {
+        let route = Box::new(RandomRoute {
+            routes: vec![BaseRoute {
+                endpoint: String::from("httpbin.org:80"),
+                weight: 100,
+                try_file: None,
+            }],
+        }) as Box<dyn LoadbalancerStrategy>;
+        TOKIO_RUNTIME.spawn(async {
+            let (sender, _) = tokio::sync::mpsc::channel(10);
+
+            let api_service_manager = ApiServiceManager {
+                sender: sender,
+                service_config: ServiceConfig {
+                    key_str: None,
+                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    cert_str: None,
+                    routes: vec![Route {
+                        matcher: Default::default(),
+                        route_cluster: route,
+                    }],
+                },
+            };
+            GLOBAL_CONFIG_MAPPING.insert(String::from("test123"), api_service_manager);
+            let tcp_stream = TcpStream::connect("httpbin.org:80").await.unwrap();
+            let result = transfer(tcp_stream, String::from("test123")).await;
+            assert_eq!(result.is_ok(), true);
+        });
+        let sleep_time = time::Duration::from_millis(2000);
+        thread::sleep(sleep_time);
+    }
+    #[test]
     fn test_get_route_cluster_error() {
-        let result = get_route_cluster(String::from("test"));
+        let result = get_route_cluster(String::from("testxxxx"));
         assert_eq!(result.is_err(), true);
     }
 }

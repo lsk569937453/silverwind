@@ -68,7 +68,7 @@ async fn post_app_config(req: Request<Body>) -> Result<Response<Body>, GeneralEr
         .body(Body::from(json_str))
         .map_err(|e| GeneralError(anyhow!(e.to_string())))
 }
-pub async fn response_examples(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
+pub async fn response(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
     let response_result = match (req.method(), req.uri().path()) {
         (&Method::POST, "/appConfig") => post_app_config(req).await,
         (&Method::GET, "/appConfig") => get_app_config().await,
@@ -115,7 +115,7 @@ fn validate_tls_config(
 pub async fn start_control_plane(port: i32) -> Result<(), hyper::Error> {
     let addr = format!("127.0.0.1:{}", port).parse().unwrap();
     let new_service = make_service_fn(move |_| async {
-        Ok::<_, GeneralError>(service_fn(move |req| response_examples(req)))
+        Ok::<_, GeneralError>(service_fn(move |req| response(req)))
     });
     let server = Server::bind(&addr).serve(new_service);
     println!("Listening on http://{}", addr);
@@ -124,6 +124,7 @@ pub async fn start_control_plane(port: i32) -> Result<(), hyper::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vojo::app_config::AppConfig;
     use http::StatusCode;
     use lazy_static::lazy_static;
     use std::env;
@@ -230,5 +231,75 @@ mod tests {
 
         let validation_res = validate_tls_config(Some(certificate), Some(private_key));
         assert_eq!(validation_res.is_err(), true);
+    }
+    #[test]
+    fn test_response_not_found() {
+        TOKIO_RUNTIME.block_on(async {
+            let request = Request::builder().body(Body::empty()).unwrap();
+            let res = response(request).await;
+            assert_eq!(res.is_ok(), true);
+            let response = res.unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        })
+    }
+    #[test]
+    fn test_post_response_ok() {
+        let body = r#"[
+            {
+                "listen_port": 4486,
+                "service_config": {
+                    "server_type": "HTTP",
+                    "routes": [
+                        {
+                            "matcher": {
+                                "prefix": "/get",
+                                "prefix_rewrite": "ssss"
+                            },
+                            "route_cluster": {
+                                "type": "RandomRoute",
+                                "routes": [
+                                    {
+                                        "endpoint": "http://httpbin.org/",
+                                        "weight": 100
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]"#;
+        TOKIO_RUNTIME.block_on(async {
+            let request = Request::builder()
+                .uri("http://localhost:8870/appConfig")
+                .method(Method::POST)
+                .body(Body::from(body))
+                .unwrap();
+            let res = response(request).await;
+            assert_eq!(res.is_ok(), true);
+            let response = res.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
+            assert_eq!(base_response.response_code, 0);
+        })
+    }
+    #[test]
+    fn test_get_response_ok() {
+        TOKIO_RUNTIME.block_on(async {
+            let request = Request::builder()
+                .uri("http://localhost:8870/appConfig")
+                .method(Method::GET)
+                .body(Body::empty())
+                .unwrap();
+            let res = response(request).await;
+            assert_eq!(res.is_ok(), true);
+            let response = res.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let base_response: BaseResponse<AppConfig> =
+                serde_json::from_slice(&body_bytes).unwrap();
+            assert_eq!(base_response.response_code, 0);
+        })
     }
 }
