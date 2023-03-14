@@ -21,26 +21,38 @@ Download the release from the [website](https://github.com/lsk569937453/silverwi
 ## Config Introduction
 ### Silverwind as the http proxy
 ```
-- listen_port: 3360
+- listen_port: 9969
   service_config:
     server_type: HTTP
     routes:
     - matcher:
-        prefix: /v1/test
+        prefix: /
         prefix_rewrite: ssss
-      route_cluster: http://192.0.2.3:8860
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - endpoint: http://localhost:8888/
+          weight: 100
+        - endpoint: http://localhost:9999/
+          weight: 100
+        - endpoint: http://localhost:7777/
+          weight: 100
 ```
-The proxy will listen the 3360 port and forward the traffic to the http://192.0.2.3:8860.
+The proxy will listen the 9969 port and forward the traffic to the http://localhost:8888/,http://localhost:9999/.http://localhost:7777/.
 ### Silverwind as the tcp proxy
 ```
-- listen_port: 3360
+- listen_port: 4486
   service_config:
     server_type: TCP
     routes:
     - matcher:
         prefix: "/"
         prefix_rewrite: ssss
-      route_cluster: localhost:3306
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - endpoint: httpbin.org:443
+          weight: 100
 ```
 ### Setup:
 #### Windows Startup
@@ -57,20 +69,59 @@ Or you could start without the config file like following:
 POST /appConfig HTTP/1.1
 Host: 127.0.0.1:8870
 Content-Type: application/json
-Content-Length: 404
+Content-Length: 1752
 
 [
     {
-        "listen_port": 3360,
+        "listen_port": 4486,
         "service_config": {
-            "server_type": "TCP",
+            "server_type": "HTTP",
             "routes": [
                 {
                     "matcher": {
                         "prefix": "/",
                         "prefix_rewrite": "ssss"
                     },
-                    "route_cluster": "localhost:3306"
+                    "route_cluster": {
+                        "type": "RandomRoute",
+                        "routes": [
+                            {
+                                "endpoint": "/dist",
+                                "weight": 100
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    },
+    {
+        "listen_port": 9969,
+        "service_config": {
+            "server_type": "HTTP",
+            "routes": [
+                {
+                    "matcher": {
+                        "prefix": "/",
+                        "prefix_rewrite": "ssss"
+                    },
+                    "route_cluster": {
+                        "type": "WeightRoute",
+                        "routes": [
+                            {
+                                "endpoint": "http://localhost:7777/",
+                                "weight": 100
+                            },
+                            {
+                                "endpoint": "http://localhost:8888/",
+                                "weight": 100
+                            },
+                            {
+                                "endpoint": "http://localhost:9999/",
+                                "weight": 100
+                            }
+                        ]
+                    }
                 }
             ]
         }
@@ -82,4 +133,15 @@ Content-Length: 404
 GET /appConfig HTTP/1.1
 Host: 127.0.0.1:8870
 ```
-
+## Silverwind has implemented the following functions:
+* Routing
+* Load Balancing(Poll,Random,Weight)
+* Dynamic Configuration(Rest Api)
+## Future
+* Black-and-white list
+* Grayscale publishing
+* Authentication
+* Rate limiting
+* Protocol Translation
+* Caching
+* Monitoring
