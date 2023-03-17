@@ -1,7 +1,7 @@
 # Silverwind-The Next Generation High Performance Proxy
 The silverwind is developed by the rust.It could be used as the reverse proxy or load banlancer.
 ## Benchmarks
-The benchmarks shows [here](https://github.com/lsk569937453/silverwind/blob/main/README.md).
+The benchmarks shows [here](https://github.com/lsk569937453/silverwind/blob/main/benchmarks.md).
 ## Dynamic Configuration 
 ### Single Silverwind
 You could change the configuration over the rest api.And the new configuration will have effect **in 5 seconds**.
