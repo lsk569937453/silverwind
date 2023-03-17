@@ -1,11 +1,33 @@
-version: '3'
+version: '3.9'
 
 services:
+  test:
+    image: demisto/rakyll-hey:1.0.0.44140
+    tty: true
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M
+  backend:
+    image: jmalloc/echo-server
+    ports:
+    - "9394:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M
   nginx:
-    image: nginx:latest
+    image: nginx:1.23.3
     container_name: webserver
     restart: unless-stopped
     ports:
-      - 8034:80
+      - 80:80
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M

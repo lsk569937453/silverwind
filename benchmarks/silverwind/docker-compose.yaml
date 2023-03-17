@@ -1,8 +1,9 @@
 version: '3.9'
+
 services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
-    tty: true
+    tty: true 
     deploy:
       resources:
         limits:
@@ -17,12 +18,18 @@ services:
         limits:
           cpus: "4.0"
           memory: 8192M
-  envoy:
-    image: envoyproxy/envoy:v1.22.8
+  silverwind:
+    image: lsk569937453/silverwind:0.0.1
+    pull_policy: always
+    environment:
+      CONFIG_FILE_PATH: /data/app/app_config.yaml
+      RUST_BACKTRACE: 1
+    container_name: silverwind
+    restart: unless-stopped
     ports:
-      - "8050:8050"
+      - 6667:6667
     volumes:
-      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    - ./app_config.yaml:/data/app/app_config.yaml
     deploy:
       resources:
         limits:
