@@ -2,7 +2,7 @@ version: '3.9'
 services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
-    tty: true
+    tty: true 
     deploy:
       resources:
         limits:
@@ -10,19 +10,21 @@ services:
           memory: 8192M
   backend:
     image: jmalloc/echo-server
-    ports:
-    - "9394:8080"
+    mem_limit: 8192m
     deploy:
       resources:
         limits:
           cpus: "4.0"
           memory: 8192M
-  envoy:
-    image: envoyproxy/envoy:v1.22.8
     ports:
-      - "8050:8050"
+    - "9394:8080"
+  caddy:
+    image: caddy:2.6.4
+    mem_limit: 8192m
+    ports:
+      - "8050:80"
     volumes:
-      - ./envoy.yaml:/etc/envoy/envoy.yaml
+      - ./caddyfile:/etc/caddy/Caddyfile
     deploy:
       resources:
         limits:

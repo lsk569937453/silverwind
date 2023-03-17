@@ -1,0 +1,12 @@
+- listen_port: 6667
+  service_config:
+    server_type: HTTP
+    routes:
+    - matcher:
+        prefix: /
+        prefix_rewrite: ssss
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - endpoint: http://backend:8080
+          weight: 100

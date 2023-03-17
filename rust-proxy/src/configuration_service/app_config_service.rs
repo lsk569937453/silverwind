@@ -184,6 +184,7 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
     }
     drop(rw_app_config_read);
     let file_path = config_file_path.unwrap().clone();
+    info!("the config file is in{}", file_path.clone());
     let file = match std::fs::File::open(file_path) {
         Ok(file) => file,
         Err(err) => return Err(anyhow!(err.to_string())),
