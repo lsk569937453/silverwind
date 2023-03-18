@@ -1,6 +1,5 @@
 #[macro_use]
 extern crate anyhow;
-use std::env;
 extern crate derive_builder;
 mod configuration_service;
 mod constants;

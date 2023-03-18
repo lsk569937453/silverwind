@@ -371,12 +371,13 @@ mod tests {
                 routes: vec![Route {
                     matcher: Default::default(),
                     route_cluster: route,
+                    allow_deny_list: None,
                 }],
             },
         };
         GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
-        TOKIO_RUNTIME.block_on(async {
-            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test"))
+        TOKIO_RUNTIME.spawn(async {
+            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test")).await;
         });
     }
 }

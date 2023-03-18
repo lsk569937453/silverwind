@@ -157,6 +157,7 @@ mod tests {
                     routes: vec![Route {
                         matcher: Default::default(),
                         route_cluster: route,
+                        allow_deny_list: None,
                     }],
                 },
             };

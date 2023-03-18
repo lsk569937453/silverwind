@@ -1,10 +1,10 @@
 use core::task::{Context, Poll};
 use futures_util::ready;
 use hyper::server::conn::AddrStream;
-use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::{future::Future, net::SocketAddr};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_rustls::rustls::ServerConfig;
 
@@ -22,6 +22,20 @@ impl TlsStream {
         let accept = tokio_rustls::TlsAcceptor::from(config).accept(stream);
         TlsStream {
             state: State::Handshaking(accept),
+        }
+    }
+    pub fn remote_addr(&self) -> SocketAddr {
+        match &self.state {
+            State::Handshaking(accept) => {
+                let addr_option = accept.get_ref();
+                let socket_addr = addr_option.unwrap().remote_addr();
+                return socket_addr;
+            }
+            State::Streaming(stream) => {
+                let (addr_stream, _) = stream.get_ref();
+                let socket_addr = addr_stream.remote_addr();
+                return socket_addr;
+            }
         }
     }
 }
