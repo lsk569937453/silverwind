@@ -1,4 +1,3 @@
-use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 
 use crate::constants::constants;
@@ -17,9 +16,8 @@ use hyper_staticfile::Static;
 use regex::Regex;
 use serde_json::json;
 use std::convert::Infallible;
-use std::fmt::Error;
 use std::io::BufReader;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -197,7 +195,7 @@ async fn proxy(
             ))))
         }
     };
-    let addr_string = remote_addr.to_string();
+    let addr_string = remote_addr.ip().to_string();
     for item in api_service_manager.service_config.routes {
         let match_prefix = item.clone().matcher.prefix;
         let re = Regex::new(match_prefix.as_str()).unwrap();
@@ -205,7 +203,6 @@ async fn proxy(
         if match_res.is_none() {
             continue;
         }
-
         let is_allowed = item
             .is_allowed(addr_string.clone())
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
@@ -277,14 +274,12 @@ async fn route_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
     use crate::vojo::allow_deny_ip::AllowDenyObject;
-    use crate::vojo::allow_deny_ip::AllowResult;
     use crate::vojo::allow_deny_ip::AllowType;
 
     use crate::vojo::api_service_manager::ApiServiceManager;
     use crate::vojo::app_config::ApiService;
-    use crate::vojo::app_config::AppConfig;
-
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::Route;
     use crate::vojo::app_config::ServiceConfig;
@@ -295,9 +290,9 @@ mod tests {
     use std::env;
     use std::fs::File;
     use std::io::BufReader;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::{thread, time};
     use tokio::runtime::{Builder, Runtime};
-    use uuid::Uuid;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -572,7 +567,7 @@ mod tests {
         });
     }
     #[test]
-    fn test_proxy_deny_all() {
+    fn test_proxy_deny_ip() {
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
                 routes: vec![BaseRoute {
@@ -596,8 +591,8 @@ mod tests {
                         },
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENYWALL,
-                            value: None,
+                            limit_type: AllowType::DENY,
+                            value: Some(String::from("127.0.0.1")),
                         }]),
                     }],
                 },
