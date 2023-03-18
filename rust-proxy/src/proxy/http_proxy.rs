@@ -197,7 +197,13 @@ async fn proxy(
     };
     let addr_string = remote_addr.ip().to_string();
     for item in api_service_manager.service_config.routes {
-        let match_prefix = item.clone().matcher.prefix;
+        let match_prefix = item
+            .clone()
+            .matcher
+            .ok_or("The matcher counld not be none for http")
+            .map_err(|err| GeneralError(anyhow!(err)))?
+            .prefix;
+
         let re = Regex::new(match_prefix.as_str()).unwrap();
         let match_res = re.captures(backend_path);
         if match_res.is_none() {
@@ -537,10 +543,10 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
-                        matcher: Matcher {
+                        matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
-                        },
+                        }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
                             limit_type: AllowType::ALLOWALL,
@@ -585,10 +591,10 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
-                        matcher: Matcher {
+                        matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
-                        },
+                        }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
                             limit_type: AllowType::DENY,

@@ -213,10 +213,10 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
-                        matcher: Matcher {
+                        matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
-                        },
+                        }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
                             limit_type: AllowType::DENYWALL,
@@ -256,10 +256,10 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
-                        matcher: Matcher {
+                        matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
-                        },
+                        }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
                             limit_type: AllowType::DENY,

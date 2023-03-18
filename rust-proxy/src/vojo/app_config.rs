@@ -10,7 +10,7 @@ pub struct Matcher {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
-    pub matcher: Matcher,
+    pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
@@ -91,10 +91,10 @@ mod tests {
                 }],
             }),
             allow_deny_list: None,
-            matcher: Matcher {
+            matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
-            },
+            }),
         };
         let api_service = ApiService {
             listen_port: 4486,
