@@ -1,9 +1,14 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
+
+use crate::constants::constants;
 use crate::proxy::tls_acceptor::TlsAcceptor;
+use crate::proxy::tls_stream::TlsStream;
 use crate::vojo::route::BaseRoute;
+use http::uri::InvalidUri;
 use http::StatusCode;
 use hyper::client::HttpConnector;
 use hyper::server::conn::AddrIncoming;
+use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
@@ -16,7 +21,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
 #[derive(Debug)]
 pub struct GeneralError(pub anyhow::Error);
 impl std::error::Error for GeneralError {}
@@ -78,12 +82,13 @@ impl HttpProxy {
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
-        let make_service = make_service_fn(move |_| {
+        let make_service = make_service_fn(move |socket: &AddrStream| {
             let client = client.clone();
             let mapping_key2 = mapping_key_clone1.clone();
+            let remote_addr = socket.remote_addr();
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy_adapter(client.clone(), req, mapping_key2.clone())
+                    proxy_adapter(client.clone(), req, mapping_key2.clone(), remote_addr)
                 }))
             }
         });
@@ -108,13 +113,14 @@ impl HttpProxy {
         let client = Clients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
 
-        let make_service = make_service_fn(move |_| {
+        let make_service = make_service_fn(move |socket: &TlsStream| {
             let client = client.clone();
             let mapping_key2 = mapping_key_clone1.clone();
+            let remote_addr = socket.remote_addr();
 
             async move {
                 Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy_adapter(client.clone(), req, mapping_key2.clone())
+                    proxy_adapter(client.clone(), req, mapping_key2.clone(), remote_addr)
                 }))
             }
         });
@@ -155,8 +161,9 @@ async fn proxy_adapter(
     client: Clients,
     req: Request<Body>,
     mapping_key: String,
+    remote_addr: SocketAddr,
 ) -> Result<Response<Body>, Infallible> {
-    match proxy(client, req, mapping_key).await {
+    match proxy(client, req, mapping_key, remote_addr).await {
         Ok(r) => Ok(r),
         Err(err) => {
             let json_value = json!({
@@ -174,6 +181,7 @@ async fn proxy(
     client: Clients,
     mut req: Request<Body>,
     mapping_key: String,
+    remote_addr: SocketAddr,
 ) -> Result<Response<Body>, GeneralError> {
     debug!("req: {:?}", req);
 
@@ -187,37 +195,51 @@ async fn proxy(
             ))))
         }
     };
-
+    let addr_string = remote_addr.ip().to_string();
     for item in api_service_manager.service_config.routes {
-        let match_prefix = item.matcher.prefix;
+        let match_prefix = item
+            .clone()
+            .matcher
+            .ok_or("The matcher counld not be none for http")
+            .map_err(|err| GeneralError(anyhow!(err)))?
+            .prefix;
+
         let re = Regex::new(match_prefix.as_str()).unwrap();
         let match_res = re.captures(backend_path);
-        if match_res.is_some() {
-            let route_cluster = match item.route_cluster.clone().get_route() {
-                Ok(r) => r,
-                Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
-            };
-            let endpoint = route_cluster.clone().endpoint;
-            if !endpoint.clone().contains("http") {
-                return route_file(route_cluster, req).await;
-            }
-            let request_path = format!("{}{}", endpoint, match_prefix.clone());
-            *req.uri_mut() = request_path.parse().unwrap();
-            if request_path.contains("https") {
-                return client.request_https(req).await.map_err(GeneralError::from);
-            } else {
-                return client.request_http(req).await.map_err(GeneralError::from);
-            }
+        if match_res.is_none() {
+            continue;
+        }
+        let is_allowed = item
+            .is_allowed(addr_string.clone())
+            .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
+        if !is_allowed {
+            return Ok(Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Body::from(constants::DENY_RESPONSE))
+                .unwrap());
+        }
+
+        let route_cluster = match item.route_cluster.clone().get_route() {
+            Ok(r) => r,
+            Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
+        };
+        let endpoint = route_cluster.clone().endpoint;
+        if !endpoint.clone().contains("http") {
+            return route_file(route_cluster, req).await;
+        }
+        let request_path = format!("{}{}", endpoint, match_prefix.clone());
+        *req.uri_mut() = request_path
+            .parse()
+            .map_err(|err: InvalidUri| GeneralError(anyhow!(err.to_string())))?;
+        if request_path.contains("https") {
+            return client.request_https(req).await.map_err(GeneralError::from);
+        } else {
+            return client.request_http(req).await.map_err(GeneralError::from);
         }
     }
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
-        .body(Body::from(
-            r#"{
-            "response_code": -1,
-            "response_object": "The route could not be found in the Proxy!"
-        }"#,
-        ))
+        .body(Body::from(constants::NOT_FOUND))
         .unwrap())
 }
 async fn route_file(
@@ -258,12 +280,23 @@ async fn route_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
+    use crate::vojo::allow_deny_ip::AllowDenyObject;
+    use crate::vojo::allow_deny_ip::AllowType;
+
+    use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::ApiService;
+    use crate::vojo::app_config::Matcher;
+    use crate::vojo::app_config::Route;
+    use crate::vojo::app_config::ServiceConfig;
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
     use crate::vojo::vojo::BaseResponse;
     use lazy_static::lazy_static;
     use regex::Regex;
     use std::env;
     use std::fs::File;
     use std::io::BufReader;
+    use std::net::{IpAddr, Ipv4Addr};
     use std::{thread, time};
     use tokio::runtime::{Builder, Runtime};
     lazy_static! {
@@ -401,7 +434,8 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
             let mapping_key = String::from("test");
-            let res = proxy_adapter(client, request, mapping_key).await;
+            let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let res = proxy_adapter(client, request, mapping_key, socket).await;
             assert_eq!(res.is_ok(), true);
         });
     }
@@ -414,7 +448,8 @@ mod tests {
                 .body(Body::empty())
                 .unwrap();
             let mapping_key = String::from("test");
-            let res = proxy(client, request, mapping_key).await;
+            let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let res = proxy(client, request, mapping_key, socket).await;
             assert_eq!(res.is_err(), true);
         });
     }
@@ -487,5 +522,103 @@ mod tests {
         });
         let sleep_time = time::Duration::from_millis(1000);
         thread::sleep(sleep_time);
+    }
+
+    #[test]
+    fn test_proxy_allow_all() {
+        TOKIO_RUNTIME.block_on(async {
+            let route = Box::new(RandomRoute {
+                routes: vec![BaseRoute {
+                    endpoint: String::from("httpbin.org:80"),
+                    weight: 100,
+                    try_file: None,
+                }],
+            }) as Box<dyn LoadbalancerStrategy>;
+            let (sender, _) = tokio::sync::mpsc::channel(10);
+
+            let api_service_manager = ApiServiceManager {
+                sender: sender,
+                service_config: ServiceConfig {
+                    key_str: None,
+                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    cert_str: None,
+                    routes: vec![Route {
+                        matcher: Some(Matcher {
+                            prefix: String::from("/"),
+                            prefix_rewrite: String::from("test"),
+                        }),
+                        route_cluster: route,
+                        allow_deny_list: Some(vec![AllowDenyObject {
+                            limit_type: AllowType::ALLOWALL,
+                            value: None,
+                        }]),
+                    }],
+                },
+            };
+            let mut write = GLOBAL_APP_CONFIG.write().await;
+            write.api_service_config.push(ApiService {
+                listen_port: 9998,
+                service_config: api_service_manager.service_config.clone(),
+            });
+            GLOBAL_CONFIG_MAPPING.insert(String::from("9998-HTTP"), api_service_manager);
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("http://localhost:4450/get")
+                .body(Body::empty())
+                .unwrap();
+            let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let res = proxy(client, request, String::from("9998-HTTP"), socket).await;
+            assert_eq!(res.is_err(), true);
+            assert_eq!(res.unwrap_err().to_string(), String::from("invalid format"));
+        });
+    }
+    #[test]
+    fn test_proxy_deny_ip() {
+        TOKIO_RUNTIME.block_on(async {
+            let route = Box::new(RandomRoute {
+                routes: vec![BaseRoute {
+                    endpoint: String::from("httpbin.org:80"),
+                    weight: 100,
+                    try_file: None,
+                }],
+            }) as Box<dyn LoadbalancerStrategy>;
+            let (sender, _) = tokio::sync::mpsc::channel(10);
+
+            let api_service_manager = ApiServiceManager {
+                sender: sender,
+                service_config: ServiceConfig {
+                    key_str: None,
+                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    cert_str: None,
+                    routes: vec![Route {
+                        matcher: Some(Matcher {
+                            prefix: String::from("/"),
+                            prefix_rewrite: String::from("test"),
+                        }),
+                        route_cluster: route,
+                        allow_deny_list: Some(vec![AllowDenyObject {
+                            limit_type: AllowType::DENY,
+                            value: Some(String::from("127.0.0.1")),
+                        }]),
+                    }],
+                },
+            };
+            let mut write = GLOBAL_APP_CONFIG.write().await;
+            write.api_service_config.push(ApiService {
+                listen_port: 9999,
+                service_config: api_service_manager.service_config.clone(),
+            });
+            GLOBAL_CONFIG_MAPPING.insert(String::from("9999-HTTP"), api_service_manager);
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("http://localhost:4450/get")
+                .body(Body::empty())
+                .unwrap();
+            let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let res = proxy(client, request, String::from("9999-HTTP"), socket).await;
+            assert_eq!(res.is_ok(), true);
+            let response = res.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        });
     }
 }

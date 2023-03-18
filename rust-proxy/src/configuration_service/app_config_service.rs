@@ -293,8 +293,8 @@ mod tests {
             let api_service = api_services.first().cloned().unwrap();
             assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
-            assert_eq!(api_service_routes.matcher.prefix, "/");
-            assert_eq!(api_service_routes.matcher.prefix_rewrite, "ssss");
+            assert_eq!(api_service_routes.matcher.clone().unwrap().prefix, "/");
+            assert_eq!(api_service_routes.matcher.unwrap().prefix_rewrite, "ssss");
         });
     }
     #[test]
@@ -336,7 +336,7 @@ mod tests {
             assert_eq!(api_service_manager_list.len(), 2);
             let api_service_manager = api_service_manager_list.first().unwrap();
             let routes = api_service_manager.service_config.routes.first().unwrap();
-            assert_eq!(routes.matcher.prefix, "/");
+            assert_eq!(routes.matcher.clone().unwrap().prefix, "/");
         });
     }
     #[test]
@@ -371,12 +371,13 @@ mod tests {
                 routes: vec![Route {
                     matcher: Default::default(),
                     route_cluster: route,
+                    allow_deny_list: None,
                 }],
             },
         };
         GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
-        TOKIO_RUNTIME.block_on(async {
-            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test"))
+        TOKIO_RUNTIME.spawn(async {
+            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test")).await;
         });
     }
 }
