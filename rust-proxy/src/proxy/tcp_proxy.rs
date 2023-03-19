@@ -177,6 +177,7 @@ mod tests {
                         matcher: Default::default(),
                         route_cluster: route,
                         allow_deny_list: None,
+                        authentication: None,
                     }],
                 },
             };
@@ -221,6 +222,7 @@ mod tests {
                             limit_type: AllowType::DENYWALL,
                             value: None,
                         }]),
+                        authentication: None,
                     }],
                 },
             };
@@ -263,6 +265,7 @@ mod tests {
                             limit_type: AllowType::DENY,
                             value: Some(String::from("127.0.0.1")),
                         }]),
+                        authentication: None,
                     }],
                 },
             };

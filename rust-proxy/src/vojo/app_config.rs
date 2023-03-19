@@ -1,8 +1,8 @@
+use super::allow_deny_ip::AllowResult;
 use crate::vojo::allow_deny_ip::AllowDenyObject;
+use crate::vojo::authentication::AuthenticationStrategy;
 use crate::vojo::route::LoadbalancerStrategy;
 use serde::{Deserialize, Serialize};
-
-use super::allow_deny_ip::AllowResult;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
     pub prefix: String,
@@ -12,6 +12,7 @@ pub struct Matcher {
 pub struct Route {
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
+    pub authentication: Option<Box<dyn AuthenticationStrategy>>,
     pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
 
@@ -78,6 +79,9 @@ pub struct AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vojo::authentication::ApiKeyAuth;
+    use crate::vojo::authentication::AuthenticationStrategy;
+    use crate::vojo::authentication::BasicAuth;
     use crate::vojo::route::BaseRoute;
     use crate::vojo::route::HeaderBasedRoute;
     use crate::vojo::route::HeaderRoute;
@@ -86,6 +90,7 @@ mod tests {
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
+
     #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {
@@ -100,6 +105,7 @@ mod tests {
                 }],
             }),
             allow_deny_list: None,
+            authentication: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
@@ -137,6 +143,8 @@ mod tests {
                 }],
             }),
             allow_deny_list: None,
+            authentication: None,
+
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
@@ -165,6 +173,8 @@ mod tests {
                 }],
             }),
             allow_deny_list: None,
+            authentication: None,
+
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
@@ -195,6 +205,78 @@ mod tests {
                 current_index: Default::default(),
             }),
             allow_deny_list: None,
+            authentication: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+
+    #[test]
+    fn test_serde_output_basic_auth() {
+        let basic_auth: Box<dyn AuthenticationStrategy> = Box::new(BasicAuth {
+            credentials: String::from("lsk:123456"),
+        });
+        let route = Route {
+            route_cluster: Box::new(PollRoute {
+                routes: vec![BaseRoute {
+                    endpoint: String::from("/"),
+                    try_file: None,
+                }],
+                lock: Default::default(),
+                current_index: Default::default(),
+            }),
+            allow_deny_list: None,
+            authentication: Some(basic_auth),
+
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+    #[test]
+    fn test_serde_output_api_key_auth() {
+        let api_key_auth: Box<dyn AuthenticationStrategy> = Box::new(ApiKeyAuth {
+            key: String::from("api_key"),
+            value: String::from("test"),
+        });
+        let route = Route {
+            route_cluster: Box::new(PollRoute {
+                routes: vec![BaseRoute {
+                    endpoint: String::from("/"),
+                    try_file: None,
+                }],
+                lock: Default::default(),
+                current_index: Default::default(),
+            }),
+            allow_deny_list: None,
+            authentication: Some(api_key_auth),
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
