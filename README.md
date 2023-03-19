@@ -141,8 +141,8 @@ Host: 127.0.0.1:8870
 * Dynamic Configuration(Rest Api)
 ## Future
 - [&check;] **Allow-and-Deny list**
-- [&check; ] **Grayscale publishing & A/B Testing**
-- [ ] Authentication
+- [&check;] **Grayscale publishing & A/B Testing**
+- [&check;] **Authentication**
 - [ ] Rate limiting
 - [ ] Protocol Translation
 - [ ] Caching
