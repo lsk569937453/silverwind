@@ -2,6 +2,8 @@ use super::allow_deny_ip::AllowResult;
 use crate::vojo::allow_deny_ip::AllowDenyObject;
 use crate::vojo::authentication::AuthenticationStrategy;
 use crate::vojo::route::LoadbalancerStrategy;
+use http::HeaderMap;
+use http::HeaderValue;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
@@ -17,33 +19,51 @@ pub struct Route {
 }
 
 impl Route {
-    pub fn is_allowed(&self, ip: String) -> Result<bool, anyhow::Error> {
-        if self.allow_deny_list == None || self.allow_deny_list.clone().unwrap().len() == 0 {
-            return Ok(true);
+    pub fn is_allowed(
+        &self,
+        ip: String,
+        headers_option: Option<HeaderMap<HeaderValue>>,
+    ) -> Result<bool, anyhow::Error> {
+        let mut is_allowed = ip_is_allowed(self.allow_deny_list.clone(), ip)?;
+        if headers_option.is_some() && self.authentication.is_some() {
+            is_allowed = self
+                .authentication
+                .clone()
+                .unwrap()
+                .check_authentication(headers_option.unwrap())?;
         }
-        let allow_deny_list = self.allow_deny_list.clone().unwrap();
-        let iter = allow_deny_list.iter();
+        Ok(is_allowed)
+    }
+}
+pub fn ip_is_allowed(
+    allow_deny_list: Option<Vec<AllowDenyObject>>,
+    ip: String,
+) -> Result<bool, anyhow::Error> {
+    if allow_deny_list == None || allow_deny_list.clone().unwrap().len() == 0 {
+        return Ok(true);
+    }
+    let allow_deny_list = allow_deny_list.clone().unwrap();
+    let iter = allow_deny_list.iter();
 
-        for item in iter {
-            let is_allow = item.is_allow(ip.clone());
-            match is_allow {
-                Ok(AllowResult::ALLOW) => {
-                    return Ok(true);
-                }
-                Ok(AllowResult::DENY) => {
-                    return Ok(false);
-                }
-                Ok(AllowResult::NOTMAPPING) => {
-                    break;
-                }
-                Err(err) => {
-                    return Err(anyhow!(err.to_string()));
-                }
+    for item in iter {
+        let is_allow = item.is_allow(ip.clone());
+        match is_allow {
+            Ok(AllowResult::ALLOW) => {
+                return Ok(true);
+            }
+            Ok(AllowResult::DENY) => {
+                return Ok(false);
+            }
+            Ok(AllowResult::NOTMAPPING) => {
+                break;
+            }
+            Err(err) => {
+                return Err(anyhow!(err.to_string()));
             }
         }
-
-        Ok(true)
     }
+
+    Ok(true)
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, strum_macros::Display)]
 pub enum ServiceType {

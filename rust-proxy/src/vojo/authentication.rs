@@ -3,17 +3,10 @@ use core::fmt::Debug;
 use dyn_clone::DynClone;
 use http::HeaderMap;
 use http::HeaderValue;
-use log::Level;
-use rand::prelude::*;
-use regex::Regex;
+
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use std::collections::HashSet;
 
-use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::RwLock;
 #[typetag::serde(tag = "type")]
 pub trait AuthenticationStrategy: Sync + Send + DynClone {
     fn check_authentication(
@@ -98,14 +91,7 @@ impl AuthenticationStrategy for ApiKeyAuth {
 mod tests {
     use super::*;
     use crate::vojo::app_config::ApiService;
-    use crate::vojo::route::BaseRoute;
-    use crate::vojo::route::HeaderBasedRoute;
-    use crate::vojo::route::HeaderRoute;
-    use crate::vojo::route::PollRoute;
-    use crate::vojo::route::RandomRoute;
-    use crate::vojo::route::RegexMatch;
-    use crate::vojo::route::WeightBasedRoute;
-    use crate::vojo::route::WeightRoute;
+
     #[test]
     fn test_basic_auth_error1() {
         let mut basic_auth: Box<dyn AuthenticationStrategy> = Box::new(BasicAuth {

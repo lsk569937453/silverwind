@@ -212,7 +212,7 @@ async fn proxy(
             continue;
         }
         let is_allowed = item
-            .is_allowed(addr_string.clone())
+            .is_allowed(addr_string.clone(), Some(req.headers().clone()))
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
         if !is_allowed {
             return Ok(Response::builder()
@@ -263,6 +263,7 @@ async fn proxy(
         .body(Body::from(constants::NOT_FOUND))
         .unwrap())
 }
+
 async fn route_file(
     base_route: BaseRoute,
     req: Request<Body>,

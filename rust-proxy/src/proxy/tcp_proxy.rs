@@ -81,7 +81,7 @@ fn check(mapping_key: String, remote_addr: SocketAddr) -> Result<bool, anyhow::E
         return Err(anyhow!("The len of routes is 0"));
     }
     let route = service_config_clone.first().unwrap();
-    let is_allowed = route.is_allowed(remote_addr.ip().to_string())?;
+    let is_allowed = route.is_allowed(remote_addr.ip().to_string(), None)?;
     Ok(is_allowed)
 }
 fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {

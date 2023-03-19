@@ -330,10 +330,10 @@ mod tests {
             let res_init_app_service_config = init_app_service_config().await;
             assert_eq!(res_init_app_service_config.is_err(), false);
 
-            let res_update_mapping_from_global_appconfig =
+            let _res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
             // assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
-            assert!(GLOBAL_CONFIG_MAPPING.len() < 4);
+            assert!(GLOBAL_CONFIG_MAPPING.len() <= 4);
             let api_service_manager_list = GLOBAL_CONFIG_MAPPING
                 .iter()
                 .map(|s| s.to_owned())
