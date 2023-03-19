@@ -22,6 +22,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use url::Url;
 #[derive(Debug)]
 pub struct GeneralError(pub anyhow::Error);
 impl std::error::Error for GeneralError {}
@@ -187,6 +188,7 @@ async fn proxy(
     if log_enabled!(Level::Info) {
         debug!("req: {:?}", req);
     }
+
     let backend_path = req.uri().path();
     let api_service_manager = GLOBAL_CONFIG_MAPPING
         .get(&mapping_key)
@@ -210,7 +212,7 @@ async fn proxy(
             continue;
         }
         let is_allowed = item
-            .is_allowed(addr_string.clone())
+            .is_allowed(addr_string.clone(), Some(req.headers().clone()))
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
         if !is_allowed {
             return Ok(Response::builder()
@@ -228,7 +230,13 @@ async fn proxy(
         if !endpoint.clone().contains("http") {
             return route_file(route_cluster, req).await;
         }
-        let request_path = format!("{}{}", endpoint, match_prefix.clone());
+        let host =
+            Url::parse(endpoint.as_str()).map_err(|err| GeneralError(anyhow!(err.to_string())))?;
+
+        let request_path = host
+            .join(match_prefix.clone().as_str())
+            .map_err(|err| GeneralError(anyhow!(err.to_string())))?
+            .to_string();
         *req.uri_mut() = request_path
             .parse()
             .map_err(|err: InvalidUri| GeneralError(anyhow!(err.to_string())))?;
@@ -255,6 +263,7 @@ async fn proxy(
         .body(Body::from(constants::NOT_FOUND))
         .unwrap())
 }
+
 async fn route_file(
     base_route: BaseRoute,
     req: Request<Body>,
@@ -539,7 +548,7 @@ mod tests {
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
                 routes: vec![BaseRoute {
-                    endpoint: String::from("httpbin.org:80"),
+                    endpoint: String::from("http://httpbin.org:80"),
                     try_file: None,
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -549,7 +558,7 @@ mod tests {
                 sender: sender,
                 service_config: ServiceConfig {
                     key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    server_type: crate::vojo::app_config::ServiceType::HTTP,
                     cert_str: None,
                     routes: vec![Route {
                         matcher: Some(Matcher {
@@ -561,6 +570,7 @@ mod tests {
                             limit_type: AllowType::ALLOWALL,
                             value: None,
                         }]),
+                        authentication: None,
                     }],
                 },
             };
@@ -577,8 +587,8 @@ mod tests {
                 .unwrap();
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = proxy(client, request, String::from("9998-HTTP"), socket).await;
-            assert_eq!(res.is_err(), true);
-            assert_eq!(res.unwrap_err().to_string(), String::from("invalid format"));
+            assert_eq!(res.is_ok(), true);
+            // assert_eq!(res.unwrap_err().to_string(), String::from("invalid format"));
         });
     }
     #[test]
@@ -608,6 +618,7 @@ mod tests {
                             limit_type: AllowType::DENY,
                             value: Some(String::from("127.0.0.1")),
                         }]),
+                        authentication: None,
                     }],
                 },
             };

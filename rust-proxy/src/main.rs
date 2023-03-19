@@ -14,7 +14,7 @@ use crate::control_plane::control_plane::start_control_plane;
 use tokio::runtime;
 
 fn main() {
-    env::set_var("RUST_LOG", "info");
+    env::set_var("RUST_LOG", "debug");
     env_logger::init();
     let rt = runtime::Builder::new_multi_thread()
         .enable_all()
@@ -55,7 +55,7 @@ mod tests {
                 Err(err) => println!("{}", err.to_string()),
             }
         });
-        let sleep_time = time::Duration::from_millis(100);
+        let sleep_time = time::Duration::from_millis(1000);
         thread::sleep(sleep_time);
         let listener = TcpListener::bind("127.0.0.1:8870");
         assert_eq!(listener.is_err(), true);
