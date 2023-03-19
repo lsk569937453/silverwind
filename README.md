@@ -140,8 +140,8 @@ Host: 127.0.0.1:8870
 * Load Balancing(Poll,Random,Weight)
 * Dynamic Configuration(Rest Api)
 ## Future
-- [&check;] Allow-and-Deny list
-- [ ] Grayscale publishing
+- [&check;] **Allow-and-Deny list**
+- [&check; ] **Grayscale publishing & A/B Testing**
 - [ ] Authentication
 - [ ] Rate limiting
 - [ ] Protocol Translation
