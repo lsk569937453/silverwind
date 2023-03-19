@@ -29,14 +29,11 @@ async fn get_app_config() -> Result<Response<Body>, GeneralError> {
 }
 
 async fn post_app_config(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
-    let byte_stream = match hyper::body::to_bytes(req).await {
-        Ok(r) => r,
-        Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
-    };
-    let api_services: Vec<ApiService> = match serde_json::from_slice(&byte_stream) {
-        Ok(r) => r,
-        Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
-    };
+    let byte_stream = hyper::body::to_bytes(req)
+        .await
+        .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
+    let api_services: Vec<ApiService> = serde_json::from_slice(&byte_stream)
+        .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
 
     let validata_result = api_services
         .iter()

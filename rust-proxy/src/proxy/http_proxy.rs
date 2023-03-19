@@ -13,6 +13,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use hyper_staticfile::Static;
+use log::Level;
 use regex::Regex;
 use serde_json::json;
 use std::convert::Infallible;
@@ -183,18 +184,17 @@ async fn proxy(
     mapping_key: String,
     remote_addr: SocketAddr,
 ) -> Result<Response<Body>, GeneralError> {
-    debug!("req: {:?}", req);
-
+    if log_enabled!(Level::Info) {
+        debug!("req: {:?}", req);
+    }
     let backend_path = req.uri().path();
-    let api_service_manager = match GLOBAL_CONFIG_MAPPING.get(&mapping_key) {
-        Some(r) => r.clone(),
-        None => {
-            return Err(GeneralError(anyhow!(format!(
-                "Can not find the config mapping on the key {}!",
-                mapping_key.clone()
-            ))))
-        }
-    };
+    let api_service_manager = GLOBAL_CONFIG_MAPPING
+        .get(&mapping_key)
+        .ok_or(GeneralError(anyhow!(format!(
+            "Can not find the config mapping on the key {}!",
+            mapping_key.clone()
+        ))))?
+        .clone();
     let addr_string = remote_addr.ip().to_string();
     for item in api_service_manager.service_config.routes {
         let match_prefix = item
@@ -219,10 +219,11 @@ async fn proxy(
                 .unwrap());
         }
 
-        let route_cluster = match item.route_cluster.clone().get_route() {
-            Ok(r) => r,
-            Err(err) => return Err(GeneralError(anyhow!(err.to_string()))),
-        };
+        let route_cluster = item
+            .route_cluster
+            .clone()
+            .get_route(req.headers().clone())
+            .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
         let endpoint = route_cluster.clone().endpoint;
         if !endpoint.clone().contains("http") {
             return route_file(route_cluster, req).await;
@@ -232,9 +233,21 @@ async fn proxy(
             .parse()
             .map_err(|err: InvalidUri| GeneralError(anyhow!(err.to_string())))?;
         if request_path.contains("https") {
-            return client.request_https(req).await.map_err(GeneralError::from);
+            return client.request_https(req).await.map_err(|err| {
+                GeneralError(anyhow!(
+                    "{},the dst endpoint is {}",
+                    err.to_string(),
+                    request_path.clone()
+                ))
+            });
         } else {
-            return client.request_http(req).await.map_err(GeneralError::from);
+            return client.request_http(req).await.map_err(|err| {
+                GeneralError(anyhow!(
+                    "{},the dst endpoint is {}",
+                    err.to_string(),
+                    request_path.clone()
+                ))
+            });
         }
     }
     Ok(Response::builder()
@@ -462,7 +475,6 @@ mod tests {
                 .unwrap();
             let base_route = BaseRoute {
                 endpoint: String::from("not_found"),
-                weight: 10,
                 try_file: None,
             };
             let res = route_file(base_route, request).await;
@@ -481,7 +493,6 @@ mod tests {
                 .unwrap();
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
-                weight: 10,
                 try_file: None,
             };
             let res = route_file(base_route, request).await;
@@ -497,7 +508,6 @@ mod tests {
                 .unwrap();
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
-                weight: 10,
                 try_file: Some(String::from("app_config.yaml")),
             };
             let res = route_file(base_route, request).await;
@@ -530,7 +540,6 @@ mod tests {
             let route = Box::new(RandomRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
-                    weight: 100,
                     try_file: None,
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -578,7 +587,6 @@ mod tests {
             let route = Box::new(RandomRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
-                    weight: 100,
                     try_file: None,
                 }],
             }) as Box<dyn LoadbalancerStrategy>;

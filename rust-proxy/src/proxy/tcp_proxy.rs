@@ -1,5 +1,6 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use futures::FutureExt;
+use http::HeaderMap;
 use std::net::SocketAddr;
 use tokio::io;
 use tokio::io::AsyncWriteExt;
@@ -94,7 +95,7 @@ fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
         return Err(anyhow!("The len of routes is 0"));
     }
     let mut route = service_config_clone.first().unwrap().route_cluster.clone();
-    route.get_route().map(|s| s.endpoint)
+    route.get_route(HeaderMap::new()).map(|s| s.endpoint)
 }
 
 #[cfg(test)]
@@ -160,7 +161,6 @@ mod tests {
         let route = Box::new(RandomRoute {
             routes: vec![BaseRoute {
                 endpoint: String::from("httpbin.org:80"),
-                weight: 100,
                 try_file: None,
             }],
         }) as Box<dyn LoadbalancerStrategy>;
@@ -200,7 +200,6 @@ mod tests {
             let route = Box::new(RandomRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
-                    weight: 100,
                     try_file: None,
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -243,7 +242,6 @@ mod tests {
             let route = Box::new(RandomRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
-                    weight: 100,
                     try_file: None,
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
