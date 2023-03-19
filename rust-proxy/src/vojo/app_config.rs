@@ -79,16 +79,120 @@ pub struct AppConfig {
 mod tests {
     use super::*;
     use crate::vojo::route::BaseRoute;
+    use crate::vojo::route::HeaderBasedRoute;
+    use crate::vojo::route::HeaderRoute;
+    use crate::vojo::route::PollRoute;
     use crate::vojo::route::RandomRoute;
+    use crate::vojo::route::RegexMatch;
+    use crate::vojo::route::WeightBasedRoute;
+    use crate::vojo::route::WeightRoute;
     #[test]
-    fn test_output_serde() {
+    fn test_serde_output_weight_based_route() {
+        let route = Route {
+            route_cluster: Box::new(WeightBasedRoute {
+                indexs: Default::default(),
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                    weight: 100,
+                }],
+            }),
+            allow_deny_list: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+
+    #[test]
+    fn test_serde_output_header_based_route() {
+        let route = Route {
+            route_cluster: Box::new(HeaderBasedRoute {
+                routes: vec![HeaderRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                    header_key: String::from("user-agent"),
+                    header_value_mapping_type: crate::vojo::route::HeaderValueMappingType::REGEX(
+                        RegexMatch {
+                            value: String::from("^100$"),
+                        },
+                    ),
+                }],
+            }),
+            allow_deny_list: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+    #[test]
+    fn test_serde_output_random_route() {
         let route = Route {
             route_cluster: Box::new(RandomRoute {
                 routes: vec![BaseRoute {
-                    weight: 100,
                     endpoint: String::from("/"),
                     try_file: None,
                 }],
+            }),
+            allow_deny_list: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+    #[test]
+    fn test_serde_output_poll_route() {
+        let route = Route {
+            route_cluster: Box::new(PollRoute {
+                routes: vec![BaseRoute {
+                    endpoint: String::from("/"),
+                    try_file: None,
+                }],
+                lock: Default::default(),
+                current_index: Default::default(),
             }),
             allow_deny_list: None,
             matcher: Some(Matcher {

@@ -7,6 +7,7 @@ use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
 use dashmap::DashMap;
 use futures::FutureExt;
 use lazy_static::lazy_static;
+use log::Level;
 use std::collections::HashMap;
 use std::env;
 use tokio::runtime::Handle;
@@ -68,7 +69,9 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         .map(|s| s.key().clone())
         .filter(|item| !new_item_hash.contains_key(item))
         .collect::<Vec<String>>();
-    debug!("The len of different ports is {}", difference_ports.len());
+    if log_enabled!(Level::Info) {
+        debug!("The len of different ports is {}", difference_ports.len());
+    }
     //delete the old mapping
     for item in difference_ports {
         let key = item.clone();
@@ -356,7 +359,6 @@ mod tests {
         let route = Box::new(RandomRoute {
             routes: vec![BaseRoute {
                 endpoint: String::from("httpbin.org:80"),
-                weight: 100,
                 try_file: None,
             }],
         }) as Box<dyn LoadbalancerStrategy>;
