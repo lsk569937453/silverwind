@@ -3,8 +3,11 @@ use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::constants::constants;
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::proxy::tls_stream::TlsStream;
+use crate::vojo::app_config::Route;
 use crate::vojo::route::BaseRoute;
 use http::uri::InvalidUri;
+use http::HeaderMap;
+use http::HeaderValue;
 use http::StatusCode;
 use hyper::client::HttpConnector;
 use hyper::server::conn::AddrIncoming;
@@ -571,6 +574,7 @@ mod tests {
                             value: None,
                         }]),
                         authentication: None,
+                        ratelimit: None,
                     }],
                 },
             };
@@ -619,6 +623,7 @@ mod tests {
                             value: Some(String::from("127.0.0.1")),
                         }]),
                         authentication: None,
+                        ratelimit: None,
                     }],
                 },
             };

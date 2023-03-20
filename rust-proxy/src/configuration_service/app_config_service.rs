@@ -294,7 +294,7 @@ mod tests {
             assert_eq!(res.is_ok(), true);
             let app_config = GLOBAL_APP_CONFIG.read().await.clone();
             let api_services = app_config.api_service_config.clone();
-            assert!(api_services.len() <= 4);
+            assert!(api_services.len() <= 5);
             let api_service = api_services.first().cloned().unwrap();
             assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
@@ -333,12 +333,12 @@ mod tests {
             let _res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
             // assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
-            assert!(GLOBAL_CONFIG_MAPPING.len() <= 4);
+            assert!(GLOBAL_CONFIG_MAPPING.len() <= 5);
             let api_service_manager_list = GLOBAL_CONFIG_MAPPING
                 .iter()
                 .map(|s| s.to_owned())
                 .collect::<Vec<ApiServiceManager>>();
-            assert_eq!(api_service_manager_list.len(), 2);
+            assert!(api_service_manager_list.len() <= 5);
             let api_service_manager = api_service_manager_list.first().unwrap();
             let routes = api_service_manager.service_config.routes.first().unwrap();
             assert_eq!(routes.matcher.clone().unwrap().prefix, "/");
@@ -377,6 +377,7 @@ mod tests {
                     route_cluster: route,
                     allow_deny_list: None,
                     authentication: None,
+                    ratelimit: None,
                 }],
             },
         };

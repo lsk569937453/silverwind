@@ -13,7 +13,7 @@ We test the following proxies:
 ## Setup
 We use the **docker-compose** to do the performance test.Install the docker on your computer and confirm that the your computer have enough cpu and memory.There are three services in the docker-compose including the hey(Testing Tool),proxy and the backend.We limit **the cpu cores(4 core) and memory(8GB)** for the service. 
 
-Our testing environment is based on the PC.And the cpu of the PC is i5 13600,the memory of the PC is 32GB.
+Our testing environment is based on the PC.And the cpu of the PC is 13th Gen Intel(R) Core(TM) i5-13600K,the memory of the PC is 32GB.
 ## Results using Hey
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/requestForSecond.png)
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/average-response-time.png)
