@@ -27,7 +27,6 @@ impl Debug for dyn AuthenticationStrategy {
         write!(f, "{{{}}}", routes)
     }
 }
-//Basic bHNrOjEyMzQ=
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BasicAuth {
     pub credentials: String,

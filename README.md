@@ -143,7 +143,7 @@ Host: 127.0.0.1:8870
 - [&check;] **Allow-and-Deny list**
 - [&check;] **Grayscale publishing & A/B Testing**
 - [&check;] **Authentication**
-- [ ] Rate limiting
+- [&check;] **Rate limiting**
 - [ ] Protocol Translation
 - [ ] Caching
 - [ ] Monitoring
