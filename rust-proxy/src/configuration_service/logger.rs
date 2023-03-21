@@ -1,6 +1,5 @@
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
-use log4rs::append::file::FileAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
 use log4rs::append::rolling_file::policy::compound::CompoundPolicy;
