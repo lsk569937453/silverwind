@@ -57,3 +57,4 @@ uuid = {version="1.3.0",features = [
     "macro-diagnostics"
 ]}
 base64 = "0.21.0"
+h2 = "0.3.16"

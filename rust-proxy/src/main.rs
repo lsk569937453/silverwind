@@ -8,9 +8,10 @@ mod proxy;
 mod vojo;
 #[macro_use]
 extern crate log;
-use std::env;
-
 use crate::control_plane::control_plane::start_control_plane;
+use crate::proxy::grpc_proxy::start_main;
+use crate::proxy::grpc_proxy::GrpcProxy;
+use std::env;
 use tokio::runtime;
 
 fn main() {
@@ -20,6 +21,11 @@ fn main() {
         .enable_all()
         .build()
         .unwrap();
+    rt.spawn(async {
+        // main_test().await;
+        start_main().await;
+        // start_main().await;
+    });
     let start_result = rt.block_on(async { start(8870).await });
     match start_result {
         Ok(_) => info!("start successfully!"),
