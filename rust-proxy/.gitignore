@@ -12,3 +12,4 @@ Cargo.lock
 *.pdb
 rust-proxy
 .vscode
+*log

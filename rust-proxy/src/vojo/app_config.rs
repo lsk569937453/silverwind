@@ -118,10 +118,10 @@ mod tests {
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
     use dashmap::DashMap;
-    use std::sync::atomic::{AtomicIsize, Ordering};
+    use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::SystemTime;
 
     #[test]
     fn test_serde_output_weight_based_route() {
@@ -376,7 +376,7 @@ mod tests {
     }
     #[test]
     fn test_serde_output_fixedwindow_ratelimit() {
-        let mut fixed_window_ratelimit = FixedWindowRateLimit {
+        let fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Minute,
             limit_location: LimitLocation::IP(IPBasedRatelimit {

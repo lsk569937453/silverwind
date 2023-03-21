@@ -658,15 +658,15 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        for n in 0..100 {
-            let res1 = fixed_window_ratelimit
+        for _n in 0..100 {
+            let _res1 = fixed_window_ratelimit
                 .should_limit(headermap1.clone(), String::from("192.168.0.1"));
-            let res2 = fixed_window_ratelimit
+            let _res2 = fixed_window_ratelimit
                 .should_limit(headermap1.clone(), String::from("192.168.0.2"));
-            let res3 = fixed_window_ratelimit
+            let _res3 = fixed_window_ratelimit
                 .should_limit(headermap1.clone(), String::from("192.168.0.3"));
 
-            let res4 = fixed_window_ratelimit
+            let _res4 = fixed_window_ratelimit
                 .should_limit(headermap1.clone(), String::from("192.168.0.4"));
             let sleep_time = time::Duration::from_millis(2);
             thread::sleep(sleep_time);
