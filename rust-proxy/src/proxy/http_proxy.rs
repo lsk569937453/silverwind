@@ -332,6 +332,7 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowType;
 
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::get_route_id;
     use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::Route;
@@ -586,6 +587,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::HTTP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -635,6 +637,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),

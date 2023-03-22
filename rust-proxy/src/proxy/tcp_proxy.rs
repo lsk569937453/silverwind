@@ -107,6 +107,7 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowDenyObject;
     use crate::vojo::allow_deny_ip::AllowType;
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::get_route_id;
     use crate::vojo::app_config::{Route, ServiceConfig};
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
     use lazy_static::lazy_static;
@@ -176,6 +177,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Default::default(),
                         route_cluster: route,
                         allow_deny_list: None,
@@ -216,6 +218,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -260,6 +263,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),

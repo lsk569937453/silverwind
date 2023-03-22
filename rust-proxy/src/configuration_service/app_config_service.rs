@@ -375,6 +375,7 @@ mod tests {
                 server_type: crate::vojo::app_config::ServiceType::HTTPS,
                 cert_str: Some(certificate),
                 routes: vec![Route {
+                    route_id: crate::vojo::app_config::get_route_id(),
                     matcher: Default::default(),
                     route_cluster: route,
                     allow_deny_list: None,
