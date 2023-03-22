@@ -3,11 +3,8 @@ use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::constants::constants;
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::proxy::tls_stream::TlsStream;
-use crate::vojo::app_config::Route;
 use crate::vojo::route::BaseRoute;
 use http::uri::InvalidUri;
-use http::HeaderMap;
-use http::HeaderValue;
 use http::StatusCode;
 use hyper::client::HttpConnector;
 use hyper::server::conn::AddrIncoming;
@@ -19,11 +16,13 @@ use hyper_staticfile::Static;
 use log::Level;
 use regex::Regex;
 use serde_json::json;
+use std::alloc::System;
 use std::convert::Infallible;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::mpsc;
 use url::Url;
 #[derive(Debug)]
@@ -168,7 +167,13 @@ async fn proxy_adapter(
     mapping_key: String,
     remote_addr: SocketAddr,
 ) -> Result<Response<Body>, Infallible> {
-    match proxy(client, req, mapping_key, remote_addr).await {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let path = uri.path();
+    let headers = req.headers().clone();
+    let current_time = SystemTime::now();
+
+    let res = match proxy(client, req, mapping_key, remote_addr).await {
         Ok(r) => Ok(r),
         Err(err) => {
             let json_value = json!({
@@ -180,7 +185,24 @@ async fn proxy_adapter(
                 .body(Body::from(json_value.to_string()))
                 .unwrap())
         }
+    };
+    let mut elapsed_time = 0;
+    let elapsed_time_res = current_time.elapsed();
+    if elapsed_time_res.is_ok() {
+        elapsed_time = elapsed_time_res.unwrap().as_millis();
     }
+    let status = res.as_ref().unwrap().status().as_u16();
+    let json_value: serde_json::Value = format!("{:?}", headers).into();
+    info!(target: "app",
+        "{}$${}$${}$${}$${}$${}",
+        remote_addr.to_string().clone(),
+        elapsed_time,
+        status,
+        method.to_string(),
+        path,
+        json_value.to_string()
+    );
+    return res;
 }
 async fn proxy(
     client: Clients,
@@ -188,7 +210,7 @@ async fn proxy(
     mapping_key: String,
     remote_addr: SocketAddr,
 ) -> Result<Response<Body>, GeneralError> {
-    if log_enabled!(Level::Info) {
+    if log_enabled!(Level::Debug) {
         debug!("req: {:?}", req);
     }
 
@@ -310,6 +332,7 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowType;
 
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::get_route_id;
     use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::Route;
@@ -564,6 +587,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::HTTP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -613,6 +637,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),

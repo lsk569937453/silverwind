@@ -1,3 +1,4 @@
+use crate::configuration_service::logger;
 use crate::constants;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
@@ -169,7 +170,8 @@ async fn init_static_config() {
         api_port = String::from(constants::constants::DEFAULT_API_PORT);
     }
     global_app_config.static_config.api_port = api_port.clone();
-    env::set_var("ROCKET_PORT", api_port);
+
+    logger::start_logger();
 
     if access_log_result.is_ok() {
         (*global_app_config).static_config.access_log = Some(access_log_result.unwrap());
@@ -373,6 +375,7 @@ mod tests {
                 server_type: crate::vojo::app_config::ServiceType::HTTPS,
                 cert_str: Some(certificate),
                 routes: vec![Route {
+                    route_id: crate::vojo::app_config::get_route_id(),
                     matcher: Default::default(),
                     route_cluster: route,
                     allow_deny_list: None,

@@ -5,6 +5,8 @@ use crate::vojo::rate_limit::RatelimitStrategy;
 use crate::vojo::route::LoadbalancerStrategy;
 use http::HeaderMap;
 use http::HeaderValue;
+use uuid::Uuid;
+
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
@@ -13,13 +15,18 @@ pub struct Matcher {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
+    #[serde(default = "get_route_id")]
+    pub route_id: String,
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
     pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
-
+pub fn get_route_id() -> String {
+    let id = Uuid::new_v4();
+    id.to_string()
+}
 impl Route {
     pub fn is_allowed(
         &self,
@@ -118,14 +125,15 @@ mod tests {
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
     use dashmap::DashMap;
-    use std::sync::atomic::{AtomicIsize, Ordering};
+    use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::SystemTime;
 
     #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(WeightBasedRoute {
                 indexs: Default::default(),
                 routes: vec![WeightRoute {
@@ -161,6 +169,7 @@ mod tests {
     #[test]
     fn test_serde_output_header_based_route() {
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(HeaderBasedRoute {
                 routes: vec![HeaderRoute {
                     base_route: BaseRoute {
@@ -199,6 +208,7 @@ mod tests {
     #[test]
     fn test_serde_output_random_route() {
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(RandomRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("/"),
@@ -229,6 +239,7 @@ mod tests {
     #[test]
     fn test_serde_output_poll_route() {
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("/"),
@@ -265,6 +276,7 @@ mod tests {
             credentials: String::from("lsk:123456"),
         });
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("/"),
@@ -301,6 +313,7 @@ mod tests {
             value: String::from("test"),
         });
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("/"),
@@ -345,6 +358,7 @@ mod tests {
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("/"),
@@ -376,7 +390,7 @@ mod tests {
     }
     #[test]
     fn test_serde_output_fixedwindow_ratelimit() {
-        let mut fixed_window_ratelimit = FixedWindowRateLimit {
+        let fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Minute,
             limit_location: LimitLocation::IP(IPBasedRatelimit {
@@ -387,6 +401,7 @@ mod tests {
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
         let route = Route {
+            route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
                     endpoint: String::from("/"),
@@ -398,6 +413,44 @@ mod tests {
             allow_deny_list: None,
             authentication: None,
             ratelimit: Some(ratelimit),
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+
+    #[test]
+    fn test_serde_output_allow_deny_list() {
+        let allow_object = AllowDenyObject {
+            limit_type: crate::vojo::allow_deny_ip::AllowType::ALLOW,
+            value: Some(String::from("sss")),
+        };
+        let route = Route {
+            route_id: get_route_id(),
+            route_cluster: Box::new(PollRoute {
+                routes: vec![BaseRoute {
+                    endpoint: String::from("/"),
+                    try_file: None,
+                }],
+                lock: Default::default(),
+                current_index: Default::default(),
+            }),
+            allow_deny_list: Some(vec![allow_object]),
+            authentication: None,
+            ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
