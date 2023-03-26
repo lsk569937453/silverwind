@@ -5,6 +5,7 @@ use crate::vojo::rate_limit::RatelimitStrategy;
 use crate::vojo::route::LoadbalancerStrategy;
 use http::HeaderMap;
 use http::HeaderValue;
+use regex::Regex;
 use uuid::Uuid;
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,7 @@ pub struct Matcher {
 pub struct Route {
     #[serde(default = "get_route_id")]
     pub route_id: String,
+    pub host_name: Option<String>,
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
@@ -28,6 +30,46 @@ pub fn get_route_id() -> String {
     id.to_string()
 }
 impl Route {
+    pub fn is_matched(
+        &self,
+        path: &str,
+        headers_option: Option<HeaderMap<HeaderValue>>,
+    ) -> Result<bool, anyhow::Error> {
+        let match_prefix = self
+            .clone()
+            .matcher
+            .ok_or("The matcher counld not be none for http")
+            .map_err(|err| anyhow!(err))?
+            .prefix;
+
+        let re = Regex::new(match_prefix.as_str()).unwrap();
+        let match_res = re.captures(path);
+        if match_res.is_none() {
+            return Ok(false);
+        }
+        if let Some(real_host_name) = &self.host_name {
+            if headers_option.is_none() {
+                return Ok(false);
+            }
+            let header_map = headers_option.clone().unwrap();
+            let host_option = header_map.get("Host");
+            if host_option.is_none() {
+                return Ok(false);
+            }
+            let host_result = host_option.unwrap().to_str();
+            if host_result.is_err() {
+                return Ok(false);
+            }
+            let host_name_regex = Regex::new(real_host_name.as_str()).unwrap();
+            let match_res = host_name_regex.captures(host_result.unwrap());
+            if match_res.is_none() {
+                return Ok(false);
+            } else {
+                return Ok(true);
+            }
+        }
+        Ok(true)
+    }
     pub fn is_allowed(
         &self,
         ip: String,
@@ -133,6 +175,7 @@ mod tests {
     #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(WeightBasedRoute {
                 indexs: Default::default(),
@@ -169,6 +212,7 @@ mod tests {
     #[test]
     fn test_serde_output_header_based_route() {
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(HeaderBasedRoute {
                 routes: vec![HeaderRoute {
@@ -208,6 +252,7 @@ mod tests {
     #[test]
     fn test_serde_output_random_route() {
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(RandomRoute {
                 routes: vec![BaseRoute {
@@ -239,6 +284,7 @@ mod tests {
     #[test]
     fn test_serde_output_poll_route() {
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
@@ -276,6 +322,7 @@ mod tests {
             credentials: String::from("lsk:123456"),
         });
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
@@ -313,6 +360,7 @@ mod tests {
             value: String::from("test"),
         });
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
@@ -358,6 +406,7 @@ mod tests {
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
@@ -401,6 +450,7 @@ mod tests {
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {
@@ -439,6 +489,7 @@ mod tests {
             value: Some(String::from("sss")),
         };
         let route = Route {
+            host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![BaseRoute {

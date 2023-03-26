@@ -14,9 +14,7 @@ use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use hyper_staticfile::Static;
 use log::Level;
-use regex::Regex;
 use serde_json::json;
-use std::alloc::System;
 use std::convert::Infallible;
 use std::io::BufReader;
 use std::net::SocketAddr;
@@ -34,7 +32,7 @@ impl std::fmt::Display for GeneralError {
     }
 }
 impl GeneralError {
-    pub fn from(err: hyper::Error) -> Self {
+    pub fn _from(err: hyper::Error) -> Self {
         GeneralError(anyhow!(err.to_string()))
     }
 }
@@ -225,17 +223,17 @@ async fn proxy(
     let addr_string = remote_addr.ip().to_string();
     for item in api_service_manager.service_config.routes {
         let match_prefix = item
-            .clone()
             .matcher
-            .ok_or("The matcher counld not be none for http")
-            .map_err(|err| GeneralError(anyhow!(err)))?
+            .clone()
+            .ok_or(GeneralError(anyhow!("match prefix cound not be null!")))?
             .prefix;
-
-        let re = Regex::new(match_prefix.as_str()).unwrap();
-        let match_res = re.captures(backend_path);
-        if match_res.is_none() {
+        let match_result = item
+            .is_matched(backend_path, Some(req.headers().clone()))
+            .map_err(|e| GeneralError(e))?;
+        if !match_result {
             continue;
         }
+
         let is_allowed = item
             .is_allowed(addr_string.clone(), Some(req.headers().clone()))
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
@@ -562,7 +560,7 @@ mod tests {
             let response = client.request(request).await;
             let err = response.unwrap_err();
             let error_message = err.to_string().clone();
-            let general_error = GeneralError::from(err);
+            let general_error = GeneralError::_from(err);
             assert_eq!(error_message, general_error.to_string());
         });
         let sleep_time = time::Duration::from_millis(1000);
@@ -587,6 +585,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::HTTP,
                     cert_str: None,
                     routes: vec![Route {
+                        host_name: None,
                         route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
@@ -638,6 +637,7 @@ mod tests {
                     cert_str: None,
                     routes: vec![Route {
                         route_id: get_route_id(),
+                        host_name: None,
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
