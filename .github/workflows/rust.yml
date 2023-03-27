@@ -1,39 +1,98 @@
-name: CI
-
-# This workflow run tests and build for each push
-
+name: release-binaries
 on:
-  push:
-    branches:
-      - main
-      - 'feature-**'
+  release:
+    types: [published]
 
 jobs:
-
-  test_phaser:
+  linux-x86_64:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v1
 
-      - name: Update local toolchain
-        run: |
-          rustup update
-          rustup component add clippy
-          rustup install nightly          
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
 
-      - name: Toolchain info
+      - name: Build binary
         run: |
-          cargo --version --verbose
-          rustc --version
-          cargo clippy --version          
+          cd rust-proxy
+          cargo build --release
 
-      - name: Lint
+      - name: Optimize and package binary
         run: |
-          cd phaser
-          cargo fmt -- --check
-          cargo clippy -- -D warnings                
+          cd rust-proxy/target/x86_64-unknown-linux-musl/release
+          strip rust-proxy
+          chmod +x rust-proxy
+          tar -c rust-proxy | gzip > rust-proxy.tar.gz
+      - name: Upload binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          asset_name: naru-${{ github.event.release.tag-name }}-linux-x86_64.tar.gz
+          asset_path: rust-proxy/target/x86_64-unknown-linux-musl/release/rust-proxy.tar.gz
+          upload_url: ${{ github.event.release.upload_url }}
 
-      - name: Build
+  macos-x86_64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v1
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+          use-cross: true
+
+      - name: Optimize and package binary
         run: |
-          cd phaser
-          cargo build --release    
+          cd rust-proxy/target/release
+          strip naru
+          chmod +x naru
+          mkdir dmg
+          mv naru dmg/
+          hdiutil create -fs HFS+ -srcfolder dmg -volname naru naru.dmg
+      - name: Upload binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          asset_name: naru-${{ github.event.release.tag-name }}-macos-x86_64.dmg
+          asset_path: rust-proxy/target/release/naru.dmg
+          upload_url: ${{ github.event.release.upload_url }}
+
+  windows-x86_64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v1
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          default: true
+
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release
+          use-cross: true
+
+      - name: Upload binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          asset_name: naru-${{ github.event.release.tag-name }}-windows-x86_64.exe
+          asset_path: rust-proxy/target/release/naru.exe
+          upload_url: ${{ github.event.release.upload_url }}
