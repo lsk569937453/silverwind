@@ -1,98 +1,30 @@
-name: release-binaries
+# .github/workflows/release.yml
+
 on:
   release:
-    types: [published]
+    types: [created]
 
 jobs:
-  linux-x86_64:
+  release:
+    name: release ${{ matrix.target }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-gnu
+            archive: zip
+          - target: x86_64-unknown-linux-musl
+            archive: tar.gz tar.xz tar.zst
+          - target: x86_64-apple-darwin
+            archive: zip
     steps:
-      - uses: actions/checkout@v1
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-
-      - name: Build binary
-        run: |
-          cd rust-proxy
-          cargo build --release
-
-      - name: Optimize and package binary
-        run: |
-          cd rust-proxy/target/x86_64-unknown-linux-musl/release
-          strip rust-proxy
-          chmod +x rust-proxy
-          tar -c rust-proxy | gzip > rust-proxy.tar.gz
-      - name: Upload binary
-        uses: actions/upload-release-asset@v1
+      - uses: actions/checkout@master
+      - name: Compile and release
+        uses: rust-build/rust-build.action@v1.4.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          asset_name: naru-${{ github.event.release.tag-name }}-linux-x86_64.tar.gz
-          asset_path: rust-proxy/target/x86_64-unknown-linux-musl/release/rust-proxy.tar.gz
-          upload_url: ${{ github.event.release.upload_url }}
-
-  macos-x86_64:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v1
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-
-      - name: Build binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release
-          use-cross: true
-
-      - name: Optimize and package binary
-        run: |
-          cd rust-proxy/target/release
-          strip naru
-          chmod +x naru
-          mkdir dmg
-          mv naru dmg/
-          hdiutil create -fs HFS+ -srcfolder dmg -volname naru naru.dmg
-      - name: Upload binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_name: naru-${{ github.event.release.tag-name }}-macos-x86_64.dmg
-          asset_path: rust-proxy/target/release/naru.dmg
-          upload_url: ${{ github.event.release.upload_url }}
-
-  windows-x86_64:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v1
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          default: true
-
-      - name: Build binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release
-          use-cross: true
-
-      - name: Upload binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          asset_name: naru-${{ github.event.release.tag-name }}-windows-x86_64.exe
-          asset_path: rust-proxy/target/release/naru.exe
-          upload_url: ${{ github.event.release.upload_url }}
+          RUSTTARGET: ${{ matrix.target }}
+          ARCHIVE_TYPES: ${{ matrix.archive }}
+          SRC_DIR: rust-proxy
