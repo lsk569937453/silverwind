@@ -16,6 +16,7 @@ jobs:
         with:
           RUSTTARGET: x86_64-unknown-linux-musl
           UPLOAD_MODE: none
+          SRC_DIR: rust-proxy
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
