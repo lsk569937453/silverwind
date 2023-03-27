@@ -1,10 +1,8 @@
 # .github/workflows/release.yml
 
 on:
-  push:
-    # Sequence of patterns matched against refs/heads
-    branches:    
-      - main
+  release:
+    types: [created]
 jobs:
   release:
     name: release ${{ matrix.target }}
