@@ -177,6 +177,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        host_name: None,
                         route_id: get_route_id(),
                         matcher: Default::default(),
                         route_cluster: route,
@@ -218,6 +219,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        host_name: None,
                         route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
@@ -263,6 +265,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
                     routes: vec![Route {
+                        host_name: None,
                         route_id: get_route_id(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),

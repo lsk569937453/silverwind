@@ -9,7 +9,6 @@ mod vojo;
 #[macro_use]
 extern crate log;
 use crate::control_plane::control_plane::start_control_plane;
-use std::env;
 use tokio::runtime;
 
 fn main() {
