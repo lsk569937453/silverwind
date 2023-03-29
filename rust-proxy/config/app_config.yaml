@@ -8,8 +8,9 @@
       route_cluster:
         type: RandomRoute
         routes:
-        - endpoint: /
-          weight: 100
+        - base_route:
+            endpoint: http://localhost:7777/
+            try_file: null
 - listen_port: 9969
   service_config:
     server_type: HTTP
@@ -20,9 +21,12 @@
       route_cluster:
         type: RandomRoute
         routes:
-        - endpoint: http://localhost:8888/
-          weight: 100
-        - endpoint: http://localhost:9999/
-          weight: 100
-        - endpoint: http://localhost:7777/
-          weight: 100
+        - base_route:
+            endpoint: http://localhost:8888/
+            try_file: null
+        - base_route:
+            endpoint: http://localhost:9999/
+            try_file: null
+        - base_route:
+            endpoint: http://localhost:7777/
+            try_file: null

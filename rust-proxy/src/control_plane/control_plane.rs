@@ -167,8 +167,10 @@ mod tests {
                                 "type": "RandomRoute",
                                 "routes": [
                                     {
-                                        "endpoint": "http://httpbin.org/",
-                                        "weight": 100
+                                        "base_route": {
+                                            "endpoint": "http://localhost:8000",
+                                            "try_file": null
+                                        }
                                     }
                                 ]
                             }
@@ -256,8 +258,10 @@ mod tests {
                                 "type": "RandomRoute",
                                 "routes": [
                                     {
-                                        "endpoint": "http://httpbin.org/",
-                                        "weight": 100
+                                        "base_route": {
+                                            "endpoint": "http://localhost:8000",
+                                            "try_file": null
+                                        }
                                     }
                                 ]
                             }

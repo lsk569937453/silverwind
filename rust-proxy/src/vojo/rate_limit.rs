@@ -746,8 +746,10 @@ mod tests {
                       "type": "PollRoute",
                       "routes": [
                         {
-                          "endpoint": "/",
-                          "try_file": null
+                            "base_route": {
+                                "endpoint": "http://localhost:8000",
+                                "try_file": null
+                            }
                         }
                       ]
                     }
@@ -806,8 +808,10 @@ mod tests {
                       "type": "PollRoute",
                       "routes": [
                         {
-                          "endpoint": "/",
-                          "try_file": null
+                            "base_route": {
+                                "endpoint": "http://localhost:8000",
+                                "try_file": null
+                            }
                         }
                       ]
                     }

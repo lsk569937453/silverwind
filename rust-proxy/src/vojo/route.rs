@@ -81,10 +81,6 @@ fn default_weight() -> i32 {
 pub struct HeaderBasedRoute {
     pub routes: Vec<HeaderRoute>,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct RandomRoute {
-    pub routes: Vec<BaseRoute>,
-}
 
 #[typetag::serde]
 impl LoadbalancerStrategy for HeaderBasedRoute {
@@ -141,6 +137,14 @@ impl LoadbalancerStrategy for HeaderBasedRoute {
         Ok(first)
     }
 }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RandomBaseRoute {
+    pub base_route: BaseRoute,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RandomRoute {
+    pub routes: Vec<RandomBaseRoute>,
+}
 #[typetag::serde]
 impl LoadbalancerStrategy for RandomRoute {
     fn as_any(&self) -> &dyn Any {
@@ -150,14 +154,18 @@ impl LoadbalancerStrategy for RandomRoute {
         let mut rng = thread_rng();
         let index = rng.gen_range(0..self.routes.len());
         let dst = self.routes[index].clone();
-        Ok(dst)
+        Ok(dst.base_route)
     }
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PollBaseRoute {
+    pub base_route: BaseRoute,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PollRoute {
     #[serde(skip_serializing, skip_deserializing)]
     pub current_index: Arc<AtomicUsize>,
-    pub routes: Vec<BaseRoute>,
+    pub routes: Vec<PollBaseRoute>,
     #[serde(skip_serializing, skip_deserializing)]
     pub lock: Arc<Mutex<i32>>,
 }
@@ -174,7 +182,7 @@ impl LoadbalancerStrategy for PollRoute {
         if log_enabled!(Level::Debug) {
             debug!("PollRoute current index:{}", current_index as i32);
         }
-        Ok(dst)
+        Ok(dst.base_route)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -252,6 +260,43 @@ mod tests {
             BaseRoute {
                 endpoint: String::from("http://localhost:5555"),
                 try_file: None,
+            },
+        ]
+    }
+    fn get_random_routes() -> Vec<RandomBaseRoute> {
+        vec![
+            RandomBaseRoute {
+                base_route:{BaseRoute{
+                endpoint: String::from("http://localhost:4444"),
+                try_file: None,}}
+            },
+            RandomBaseRoute {
+                base_route:{BaseRoute{
+                endpoint: String::from("http://localhost:5555"),
+                try_file: None,}}
+            },
+            RandomBaseRoute {
+                base_route:{BaseRoute{
+                endpoint: String::from("http://localhost:5555"),
+                try_file: None,}}
+            },
+        ]
+    }
+    fn get_poll_routes() -> Vec<PollBaseRoute> {
+        vec![
+            PollBaseRoute {
+                base_route:{BaseRoute{
+                endpoint: String::from("http://localhost:4444"),
+                try_file: None,}}
+            },
+            PollBaseRoute {
+                base_route:{BaseRoute{
+                endpoint: String::from("http://localhost:5555"),
+                try_file: None,}}
+            },PollBaseRoute {
+                base_route:{BaseRoute{
+                endpoint: String::from("http://localhost:5555"),
+                try_file: None,}}
             },
         ]
     }
@@ -343,7 +388,7 @@ mod tests {
     }
     #[test]
     fn test_poll_route_successfully() {
-        let routes = get_routes();
+        let routes = get_poll_routes();
         let mut poll_rate = PollRoute {
             current_index: Default::default(),
             routes: routes.clone(),
@@ -351,12 +396,12 @@ mod tests {
         };
         for i in 0..100 {
             let current_route = poll_rate.get_route(HeaderMap::new()).unwrap();
-            assert_eq!(current_route, routes[i % routes.len()]);
+            assert_eq!(current_route, routes[i % routes.len()].base_route);
         }
     }
     #[test]
     fn test_random_route_successfully() {
-        let routes = get_routes();
+        let routes = get_random_routes();
         let mut random_rate = RandomRoute {
             routes: routes.clone(),
         };
@@ -530,8 +575,10 @@ mod tests {
                       "type": "RandomRoute",
                       "routes": [
                         {
-                          "endpoint": "/",
-                          "try_file": null
+                            "base_route": {
+                                "endpoint": "/",
+                                "try_file": null
+                            }
                         }
                       ]
                     }
@@ -555,7 +602,7 @@ mod tests {
             None => panic!("&a isn't a B!"),
         };
 
-        assert_eq!(header_based_route.routes.first().unwrap().endpoint, "/");
+        assert_eq!(header_based_route.routes.first().unwrap().base_route.endpoint, "/");
     }
     #[test]
     fn test_poll_route_as_any() {
@@ -577,8 +624,10 @@ mod tests {
                       "type": "PollRoute",
                       "routes": [
                         {
-                          "endpoint": "/",
-                          "try_file": null
+                            "base_route": {
+                                "endpoint": "/",
+                                "try_file": null
+                            }
                         }
                       ]
                     }
@@ -602,7 +651,7 @@ mod tests {
             None => panic!("&a isn't a B!"),
         };
 
-        assert_eq!(header_based_route.routes.first().unwrap().endpoint, "/");
+        assert_eq!(header_based_route.routes.first().unwrap().base_route.endpoint, "/");
     }
     #[test]
     fn test_header_based_route_successfully() {

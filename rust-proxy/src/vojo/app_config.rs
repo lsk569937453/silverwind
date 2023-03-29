@@ -163,6 +163,9 @@ mod tests {
     use crate::vojo::route::HeaderRoute;
     use crate::vojo::route::PollRoute;
     use crate::vojo::route::RandomRoute;
+    use crate::vojo::route::RandomBaseRoute;
+    use crate::vojo::route::PollBaseRoute;
+
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
@@ -255,10 +258,13 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(RandomRoute {
-                routes: vec![BaseRoute {
+                routes: vec![RandomBaseRoute{base_route:BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }},RandomBaseRoute{base_route:BaseRoute {
+                    endpoint: String::from("/"),
+                    try_file: None,
+                }}],
             }),
             allow_deny_list: None,
             authentication: None,
@@ -287,10 +293,10 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![BaseRoute {
+                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }}],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -325,10 +331,10 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![BaseRoute {
+                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }}],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -363,10 +369,10 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![BaseRoute {
+                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }}],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -409,10 +415,10 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![BaseRoute {
+                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }}],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -453,10 +459,10 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![BaseRoute {
+                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }}],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -492,10 +498,10 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![BaseRoute {
+                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
                     endpoint: String::from("/"),
                     try_file: None,
-                }],
+                }}],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
