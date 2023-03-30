@@ -266,37 +266,56 @@ mod tests {
     fn get_random_routes() -> Vec<RandomBaseRoute> {
         vec![
             RandomBaseRoute {
-                base_route:{BaseRoute{
-                endpoint: String::from("http://localhost:4444"),
-                try_file: None,}}
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:4444"),
+                        try_file: None,
+                    }
+                },
             },
             RandomBaseRoute {
-                base_route:{BaseRoute{
-                endpoint: String::from("http://localhost:5555"),
-                try_file: None,}}
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                    }
+                },
             },
             RandomBaseRoute {
-                base_route:{BaseRoute{
-                endpoint: String::from("http://localhost:5555"),
-                try_file: None,}}
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                    }
+                },
             },
         ]
     }
     fn get_poll_routes() -> Vec<PollBaseRoute> {
         vec![
             PollBaseRoute {
-                base_route:{BaseRoute{
-                endpoint: String::from("http://localhost:4444"),
-                try_file: None,}}
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:4444"),
+                        try_file: None,
+                    }
+                },
             },
             PollBaseRoute {
-                base_route:{BaseRoute{
-                endpoint: String::from("http://localhost:5555"),
-                try_file: None,}}
-            },PollBaseRoute {
-                base_route:{BaseRoute{
-                endpoint: String::from("http://localhost:5555"),
-                try_file: None,}}
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                    }
+                },
+            },
+            PollBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                    }
+                },
             },
         ]
     }
@@ -602,7 +621,15 @@ mod tests {
             None => panic!("&a isn't a B!"),
         };
 
-        assert_eq!(header_based_route.routes.first().unwrap().base_route.endpoint, "/");
+        assert_eq!(
+            header_based_route
+                .routes
+                .first()
+                .unwrap()
+                .base_route
+                .endpoint,
+            "/"
+        );
     }
     #[test]
     fn test_poll_route_as_any() {
@@ -651,7 +678,15 @@ mod tests {
             None => panic!("&a isn't a B!"),
         };
 
-        assert_eq!(header_based_route.routes.first().unwrap().base_route.endpoint, "/");
+        assert_eq!(
+            header_based_route
+                .routes
+                .first()
+                .unwrap()
+                .base_route
+                .endpoint,
+            "/"
+        );
     }
     #[test]
     fn test_header_based_route_successfully() {

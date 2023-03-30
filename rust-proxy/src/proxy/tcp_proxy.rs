@@ -109,7 +109,7 @@ mod tests {
     use crate::vojo::api_service_manager::ApiServiceManager;
     use crate::vojo::app_config::get_route_id;
     use crate::vojo::app_config::{Route, ServiceConfig};
-    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute,RandomBaseRoute};
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use lazy_static::lazy_static;
     use std::net::TcpListener;
     use std::net::{IpAddr, Ipv4Addr};
@@ -162,10 +162,12 @@ mod tests {
     #[test]
     fn test_transfer_ok() {
         let route = Box::new(RandomRoute {
-            routes: vec![RandomBaseRoute{base_route:BaseRoute {
-                endpoint: String::from("httpbin.org:80"),
-                try_file: None,
-            }}],
+            routes: vec![RandomBaseRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("httpbin.org:80"),
+                    try_file: None,
+                },
+            }],
         }) as Box<dyn LoadbalancerStrategy>;
         TOKIO_RUNTIME.spawn(async {
             let (sender, _) = tokio::sync::mpsc::channel(10);
@@ -205,11 +207,12 @@ mod tests {
     fn test_check_deny_all() {
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
-                routes: vec![RandomBaseRoute{
-                    base_route:BaseRoute {
-                    endpoint: String::from("httpbin.org:80"),
-                    try_file: None,
-                }}],
+                routes: vec![RandomBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("httpbin.org:80"),
+                        try_file: None,
+                    },
+                }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
@@ -228,7 +231,7 @@ mod tests {
                         }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENYWALL,
+                            limit_type: AllowType::DENYALL,
                             value: None,
                         }]),
                         authentication: None,
@@ -252,11 +255,12 @@ mod tests {
     fn test_check_deny_ip() {
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
-                routes: vec![RandomBaseRoute{
-                    base_route:BaseRoute {
-                    endpoint: String::from("httpbin.org:80"),
-                    try_file: None,
-                }}],
+                routes: vec![RandomBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("httpbin.org:80"),
+                        try_file: None,
+                    },
+                }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
 

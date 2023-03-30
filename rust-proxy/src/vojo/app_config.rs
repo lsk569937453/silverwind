@@ -161,10 +161,10 @@ mod tests {
     use crate::vojo::route::BaseRoute;
     use crate::vojo::route::HeaderBasedRoute;
     use crate::vojo::route::HeaderRoute;
-    use crate::vojo::route::PollRoute;
-    use crate::vojo::route::RandomRoute;
-    use crate::vojo::route::RandomBaseRoute;
     use crate::vojo::route::PollBaseRoute;
+    use crate::vojo::route::PollRoute;
+    use crate::vojo::route::RandomBaseRoute;
+    use crate::vojo::route::RandomRoute;
 
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
@@ -258,13 +258,20 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(RandomRoute {
-                routes: vec![RandomBaseRoute{base_route:BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }},RandomBaseRoute{base_route:BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![
+                    RandomBaseRoute {
+                        base_route: BaseRoute {
+                            endpoint: String::from("/"),
+                            try_file: None,
+                        },
+                    },
+                    RandomBaseRoute {
+                        base_route: BaseRoute {
+                            endpoint: String::from("/"),
+                            try_file: None,
+                        },
+                    },
+                ],
             }),
             allow_deny_list: None,
             authentication: None,
@@ -280,6 +287,7 @@ mod tests {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
+
                 key_str: Default::default(),
             },
         };
@@ -293,10 +301,12 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -331,10 +341,12 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -369,10 +381,12 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -415,10 +429,12 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -459,10 +475,12 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
@@ -498,10 +516,12 @@ mod tests {
             host_name: None,
             route_id: get_route_id(),
             route_cluster: Box::new(PollRoute {
-                routes: vec![        PollBaseRoute{base_route:                BaseRoute {
-                    endpoint: String::from("/"),
-                    try_file: None,
-                }}],
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),

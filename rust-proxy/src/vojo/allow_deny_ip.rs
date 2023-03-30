@@ -12,7 +12,7 @@ pub struct AllowDenyObject {
 pub enum AllowType {
     #[default]
     ALLOWALL,
-    DENYWALL,
+    DENYALL,
     ALLOW,
     DENY,
 }
@@ -28,7 +28,7 @@ impl AllowDenyObject {
         if self.limit_type == AllowType::ALLOWALL {
             return Ok(AllowResult::ALLOW);
         }
-        if self.limit_type == AllowType::DENYWALL {
+        if self.limit_type == AllowType::DENYALL {
             return Ok(AllowResult::DENY);
         }
         if self.value == None {
@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn test_is_allow_deny_all() {
         let allow_object = AllowDenyObject {
-            limit_type: AllowType::DENYWALL,
+            limit_type: AllowType::DENYALL,
             value: None,
         };
         let result = allow_object.is_allow(String::from("test"));
