@@ -335,7 +335,7 @@ mod tests {
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::Route;
     use crate::vojo::app_config::ServiceConfig;
-    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute,RandomBaseRoute};
     use crate::vojo::vojo::BaseResponse;
     use lazy_static::lazy_static;
     use regex::Regex;
@@ -569,12 +569,14 @@ mod tests {
 
     #[test]
     fn test_proxy_allow_all() {
+        
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
-                routes: vec![BaseRoute {
+                routes: vec![RandomBaseRoute{
+                    base_route:BaseRoute {
                     endpoint: String::from("http://httpbin.org:80"),
                     try_file: None,
-                }],
+                }}],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
@@ -622,10 +624,11 @@ mod tests {
     fn test_proxy_deny_ip() {
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
-                routes: vec![BaseRoute {
+                routes: vec![RandomBaseRoute{
+                    base_route:BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
                     try_file: None,
-                }],
+                }}],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
 

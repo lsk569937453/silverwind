@@ -211,7 +211,7 @@ mod tests {
 
     use super::*;
     use crate::vojo::app_config::Route;
-    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute};
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use serial_test::serial;
     use tokio::runtime::{Builder, Runtime};
     lazy_static! {
@@ -327,6 +327,7 @@ mod tests {
                 .join("config")
                 .join("app_config.yaml");
             println!("{}", String::from(current_dir.to_str().unwrap()));
+
             env::set_var("CONFIG_FILE_PATH", current_dir);
             init_static_config().await;
             let res_init_app_service_config = init_app_service_config().await;
@@ -360,10 +361,13 @@ mod tests {
             .join("config")
             .join("cacert.pem");
         let certificate = std::fs::read_to_string(certificate_path).unwrap();
+
         let route = Box::new(RandomRoute {
-            routes: vec![BaseRoute {
-                endpoint: String::from("httpbin.org:80"),
-                try_file: None,
+            routes: vec![RandomBaseRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("httpbin.org:80"),
+                    try_file: None,
+                },
             }],
         }) as Box<dyn LoadbalancerStrategy>;
         let (sender, receiver) = tokio::sync::mpsc::channel(10);
