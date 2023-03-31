@@ -79,7 +79,7 @@ impl Clients {
 }
 
 impl HttpProxy {
-    pub async fn start_http_server(&mut self) {
+    pub async fn start_http_server(&mut self) -> Result<(), anyhow::Error> {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
@@ -94,7 +94,8 @@ impl HttpProxy {
                 }))
             }
         });
-        let server = Server::bind(&addr)
+        let server = Server::try_bind(&addr)
+            .map_err(|e| anyhow!("the addr {} bind error,{}", addr.clone(), e.to_string()))?
             .http1_preserve_header_case(true)
             .http1_title_case_headers(true)
             .serve(make_service);
@@ -108,8 +109,13 @@ impl HttpProxy {
         if let Err(e) = graceful.await {
             info!("server has receive error: {}", e);
         }
+        Ok(())
     }
-    pub async fn start_https_server(&mut self, pem_str: String, key_str: String) {
+    pub async fn start_https_server(
+        &mut self,
+        pem_str: String,
+        key_str: String,
+    ) -> Result<(), anyhow::Error> {
         let port_clone = self.port.clone();
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = Clients::new();
@@ -144,7 +150,8 @@ impl HttpProxy {
                 .unwrap();
             Arc::new(cfg)
         };
-        let incoming = AddrIncoming::bind(&addr).unwrap();
+        let incoming = AddrIncoming::bind(&addr)
+            .map_err(|e| anyhow!("the addr {} bind error,{}", addr.clone(), e.to_string()))?;
         let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(make_service);
         info!("Listening on https://{}", addr);
 
@@ -157,6 +164,7 @@ impl HttpProxy {
         if let Err(e) = graceful.await {
             info!("server has receive error: {}", e);
         }
+        Ok(())
     }
 }
 async fn proxy_adapter(
@@ -335,7 +343,7 @@ mod tests {
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::Route;
     use crate::vojo::app_config::ServiceConfig;
-    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomRoute,RandomBaseRoute};
+    use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use crate::vojo::vojo::BaseResponse;
     use lazy_static::lazy_static;
     use regex::Regex;
@@ -404,7 +412,7 @@ mod tests {
                 channel: receiver,
                 mapping_key: String::from("random key"),
             };
-            http_proxy.start_http_server().await;
+            let _result = http_proxy.start_http_server().await;
         });
         let sleep_time = time::Duration::from_millis(100);
         thread::sleep(sleep_time);
@@ -447,7 +455,7 @@ mod tests {
                 channel: receiver,
                 mapping_key: String::from("random key"),
             };
-            http_proxy
+            let _result = http_proxy
                 .start_https_server(ca_certificate, private_key)
                 .await;
         });
@@ -569,14 +577,14 @@ mod tests {
 
     #[test]
     fn test_proxy_allow_all() {
-        
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
-                routes: vec![RandomBaseRoute{
-                    base_route:BaseRoute {
-                    endpoint: String::from("http://httpbin.org:80"),
-                    try_file: None,
-                }}],
+                routes: vec![RandomBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("http://httpbin.org:80"),
+                        try_file: None,
+                    },
+                }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
@@ -605,7 +613,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id:new_uuid(),
+                api_service_id: new_uuid(),
                 listen_port: 9998,
                 service_config: api_service_manager.service_config.clone(),
             });
@@ -625,11 +633,12 @@ mod tests {
     fn test_proxy_deny_ip() {
         TOKIO_RUNTIME.block_on(async {
             let route = Box::new(RandomRoute {
-                routes: vec![RandomBaseRoute{
-                    base_route:BaseRoute {
-                    endpoint: String::from("httpbin.org:80"),
-                    try_file: None,
-                }}],
+                routes: vec![RandomBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("httpbin.org:80"),
+                        try_file: None,
+                    },
+                }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
@@ -658,7 +667,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id:new_uuid(),
+                api_service_id: new_uuid(),
                 listen_port: 9999,
                 service_config: api_service_manager.service_config.clone(),
             });

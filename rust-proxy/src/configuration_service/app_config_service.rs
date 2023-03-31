@@ -107,7 +107,11 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
             let port: i32 = port_str.parse().unwrap();
 
             tokio::task::spawn(async move {
-                start_proxy(port.clone(), receiver, value.server_type, key.clone()).await
+                if let Err(err) =
+                    start_proxy(port.clone(), receiver, value.server_type, key.clone()).await
+                {
+                    error!("{}", err.to_string());
+                }
             });
         }
     }
@@ -119,14 +123,14 @@ pub async fn start_proxy(
     channel: mpsc::Receiver<()>,
     server_type: ServiceType,
     mapping_key: String,
-) {
+) -> Result<(), anyhow::Error> {
     if server_type == ServiceType::HTTP {
         let mut http_proxy = HttpProxy {
             port: port,
             channel: channel,
             mapping_key: mapping_key.clone(),
         };
-        http_proxy.start_http_server().await;
+        http_proxy.start_http_server().await
     } else if server_type == ServiceType::HTTPS {
         let key_clone = mapping_key.clone();
         let service_config = GLOBAL_CONFIG_MAPPING
@@ -141,7 +145,7 @@ pub async fn start_proxy(
             channel: channel,
             mapping_key: mapping_key.clone(),
         };
-        http_proxy.start_https_server(pem_str, key_str).await;
+        http_proxy.start_https_server(pem_str, key_str).await
     } else {
         let mut tcp_proxy = TcpProxy {
             port: port,
@@ -391,7 +395,8 @@ mod tests {
         };
         GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
         TOKIO_RUNTIME.spawn(async {
-            start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test")).await;
+            let _result =
+                start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test")).await;
         });
     }
 }
