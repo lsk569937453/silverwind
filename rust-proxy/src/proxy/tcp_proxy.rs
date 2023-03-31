@@ -12,21 +12,18 @@ pub struct TcpProxy {
     pub channel: mpsc::Receiver<()>,
 }
 impl TcpProxy {
-    pub async fn start_proxy(&mut self) {
+    pub async fn start_proxy(&mut self) -> Result<(), anyhow::Error> {
         let listen_addr = format!("0.0.0.0:{}", self.port.clone());
         let mapping_key_clone = self.mapping_key.clone();
         info!("Listening on: {}", listen_addr);
-        let listener = TcpListener::bind(listen_addr).await.unwrap();
+        let listener = TcpListener::bind(listen_addr).await?;
         let reveiver = &mut self.channel;
         loop {
             let accept_future = listener.accept();
             tokio::select! {
                accept_result=accept_future=>{
                 if let Ok((inbound, socket_addr))=accept_result{
-                   let check_result= check(mapping_key_clone.clone(),socket_addr);
-                   if check_result.is_err(){
-                    return ;
-                   }
+                   check(mapping_key_clone.clone(),socket_addr)?;
                    let transfer = transfer(inbound, mapping_key_clone.clone()).map(|r| {
                         if let Err(e) = r {
                             println!("Failed to transfer; error={}", e);
@@ -37,7 +34,7 @@ impl TcpProxy {
                },
                _=reveiver.recv()=>{
                 info!("close the socket!");
-                return ;
+                return Ok(());
                }
             };
         }
@@ -140,7 +137,7 @@ mod tests {
                 channel: receiver,
                 mapping_key: String::from("random key"),
             };
-            tcp_proxy.start_proxy().await;
+            let _result = tcp_proxy.start_proxy().await;
         });
         TOKIO_RUNTIME.spawn(async {
             let listener = TcpListener::bind("127.0.0.1:3352");
@@ -241,7 +238,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id:new_uuid(),
+                api_service_id: new_uuid(),
                 listen_port: 3478,
                 service_config: api_service_manager.service_config.clone(),
             });
@@ -290,7 +287,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id:new_uuid(),
+                api_service_id: new_uuid(),
                 listen_port: 3479,
                 service_config: api_service_manager.service_config.clone(),
             });

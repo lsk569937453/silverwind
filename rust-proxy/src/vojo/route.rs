@@ -247,22 +247,22 @@ mod tests {
 
     use super::*;
     use crate::vojo::app_config::ApiService;
-    fn get_routes() -> Vec<BaseRoute> {
-        vec![
-            BaseRoute {
-                endpoint: String::from("http://localhost:4444"),
-                try_file: None,
-            },
-            BaseRoute {
-                endpoint: String::from("http://localhost:5555"),
-                try_file: None,
-            },
-            BaseRoute {
-                endpoint: String::from("http://localhost:5555"),
-                try_file: None,
-            },
-        ]
-    }
+    // fn get_routes() -> Vec<BaseRoute> {
+    //     vec![
+    //         BaseRoute {
+    //             endpoint: String::from("http://localhost:4444"),
+    //             try_file: None,
+    //         },
+    //         BaseRoute {
+    //             endpoint: String::from("http://localhost:5555"),
+    //             try_file: None,
+    //         },
+    //         BaseRoute {
+    //             endpoint: String::from("http://localhost:5555"),
+    //             try_file: None,
+    //         },
+    //     ]
+    // }
     fn get_random_routes() -> Vec<RandomBaseRoute> {
         vec![
             RandomBaseRoute {
