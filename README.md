@@ -146,7 +146,7 @@ Host: 127.0.0.1:8870
 ## Silverwind has implemented the following functions:
 * IP Allow-and-Deny list
 * Authentication(Basic Auth,ApiKey Auth)
-* Rate limiting()
+* Rate limiting(Token Bucket,Fixed Window)
 * Routing
 * Load Balancing(Poll,Random,Weight,Header Based)
 * Dynamic Configuration(Rest Api)
