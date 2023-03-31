@@ -81,7 +81,13 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         let value = GLOBAL_CONFIG_MAPPING.get(&key).unwrap().sender.clone();
         match value.send(()).await {
             Ok(_) => info!("close the socket on the port {}", key),
-            Err(err) => error!("{}", err.to_string()),
+            Err(err) => {
+                error!(
+                    "Cause error when closing the socket,the key is {},the error is {}.",
+                    key,
+                    err.to_string()
+                )
+            }
         };
         GLOBAL_CONFIG_MAPPING.remove(&key);
     }

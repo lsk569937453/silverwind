@@ -95,7 +95,13 @@ impl HttpProxy {
             }
         });
         let server = Server::try_bind(&addr)
-            .map_err(|e| anyhow!("the addr {} bind error,{}", addr.clone(), e.to_string()))?
+            .map_err(|e| {
+                anyhow!(
+                    "Cause error when binding the socket,the addr is {},the error is {}.",
+                    addr.clone(),
+                    e.to_string()
+                )
+            })?
             .http1_preserve_header_case(true)
             .http1_title_case_headers(true)
             .serve(make_service);
@@ -150,8 +156,13 @@ impl HttpProxy {
                 .unwrap();
             Arc::new(cfg)
         };
-        let incoming = AddrIncoming::bind(&addr)
-            .map_err(|e| anyhow!("the addr {} bind error,{}", addr.clone(), e.to_string()))?;
+        let incoming = AddrIncoming::bind(&addr).map_err(|e| {
+            anyhow!(
+                "Cause error when binding the socket,the addr is {},the error is {}.",
+                addr.clone(),
+                e.to_string()
+            )
+        })?;
         let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(make_service);
         info!("Listening on https://{}", addr);
 
