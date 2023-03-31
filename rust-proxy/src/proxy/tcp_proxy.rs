@@ -107,7 +107,7 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowDenyObject;
     use crate::vojo::allow_deny_ip::AllowType;
     use crate::vojo::api_service_manager::ApiServiceManager;
-    use crate::vojo::app_config::get_route_id;
+    use crate::vojo::app_config::new_uuid;
     use crate::vojo::app_config::{Route, ServiceConfig};
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use lazy_static::lazy_static;
@@ -180,7 +180,7 @@ mod tests {
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
-                        route_id: get_route_id(),
+                        route_id: new_uuid(),
                         matcher: Default::default(),
                         route_cluster: route,
                         allow_deny_list: None,
@@ -224,7 +224,7 @@ mod tests {
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
-                        route_id: get_route_id(),
+                        route_id: new_uuid(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -241,6 +241,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
+                api_service_id:new_uuid(),
                 listen_port: 3478,
                 service_config: api_service_manager.service_config.clone(),
             });
@@ -272,7 +273,7 @@ mod tests {
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
-                        route_id: get_route_id(),
+                        route_id: new_uuid(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -289,6 +290,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
+                api_service_id:new_uuid(),
                 listen_port: 3479,
                 service_config: api_service_manager.service_config.clone(),
             });

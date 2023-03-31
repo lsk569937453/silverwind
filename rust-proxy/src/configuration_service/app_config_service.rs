@@ -380,7 +380,7 @@ mod tests {
                 cert_str: Some(certificate),
                 routes: vec![Route {
                     host_name: None,
-                    route_id: crate::vojo::app_config::get_route_id(),
+                    route_id: crate::vojo::app_config::new_uuid(),
                     matcher: Default::default(),
                     route_cluster: route,
                     allow_deny_list: None,

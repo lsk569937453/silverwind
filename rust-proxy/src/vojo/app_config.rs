@@ -16,7 +16,7 @@ pub struct Matcher {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
-    #[serde(default = "get_route_id")]
+    #[serde(default = "new_uuid")]
     pub route_id: String,
     pub host_name: Option<String>,
     pub matcher: Option<Matcher>,
@@ -25,7 +25,7 @@ pub struct Route {
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
     pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
-pub fn get_route_id() -> String {
+pub fn new_uuid() -> String {
     let id = Uuid::new_v4();
     id.to_string()
 }
@@ -137,8 +137,11 @@ pub struct ServiceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiService {
     pub listen_port: i32,
+    #[serde(default = "new_uuid")]
+    pub api_service_id:String,
     pub service_config: ServiceConfig,
 }
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct StaticConifg {
     pub access_log: Option<String>,
@@ -179,7 +182,7 @@ mod tests {
     fn test_serde_output_weight_based_route() {
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(WeightBasedRoute {
                 indexs: Default::default(),
                 routes: vec![WeightRoute {
@@ -199,6 +202,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -216,7 +220,7 @@ mod tests {
     fn test_serde_output_header_based_route() {
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(HeaderBasedRoute {
                 routes: vec![HeaderRoute {
                     base_route: BaseRoute {
@@ -240,6 +244,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -256,7 +261,7 @@ mod tests {
     fn test_serde_output_random_route() {
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(RandomRoute {
                 routes: vec![
                     RandomBaseRoute {
@@ -282,6 +287,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -299,7 +305,7 @@ mod tests {
     fn test_serde_output_poll_route() {
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![PollBaseRoute {
                     base_route: BaseRoute {
@@ -319,6 +325,8 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
+
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -339,7 +347,7 @@ mod tests {
         });
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![PollBaseRoute {
                     base_route: BaseRoute {
@@ -360,6 +368,7 @@ mod tests {
         };
         let api_service = ApiService {
             listen_port: 4486,
+            api_service_id:new_uuid(),
             service_config: ServiceConfig {
                 routes: vec![route],
                 server_type: Default::default(),
@@ -379,7 +388,7 @@ mod tests {
         });
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![PollBaseRoute {
                     base_route: BaseRoute {
@@ -399,6 +408,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -427,7 +437,7 @@ mod tests {
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![PollBaseRoute {
                     base_route: BaseRoute {
@@ -447,6 +457,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -473,7 +484,7 @@ mod tests {
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![PollBaseRoute {
                     base_route: BaseRoute {
@@ -493,6 +504,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -514,7 +526,7 @@ mod tests {
         };
         let route = Route {
             host_name: None,
-            route_id: get_route_id(),
+            route_id: new_uuid(),
             route_cluster: Box::new(PollRoute {
                 routes: vec![PollBaseRoute {
                     base_route: BaseRoute {
@@ -534,6 +546,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
+            api_service_id:new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
