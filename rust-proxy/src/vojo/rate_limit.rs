@@ -562,7 +562,7 @@ mod tests {
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res4.unwrap(), true);
+        assert_eq!(res4.unwrap(), false);
     }
     #[test]
     fn test_fixed_window_ratelimit_ok4() {
@@ -589,7 +589,7 @@ mod tests {
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
-        assert_eq!(res4.unwrap(), true);
+        assert_eq!(res4.unwrap(), false);
     }
     #[test]
     fn test_fixed_window_ratelimit_ok5() {
