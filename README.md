@@ -14,7 +14,7 @@ we want to do the accurate rate limiting.
 The rate limit in the envoy is not built-in and the envoy will hit the rate limit over the network. So it will
 increase the network hops.
 
-The Sivlverwind has a built-in rate limiting.And we will maintain it free. If you have some advice, you could  post it 
+The Silverwind has a built-in rate limiting.And we will maintain it free. If you have some advice, you could  post it 
 in GitHub issues.
 ## Dynamic Configuration
 ### Single Silver-wind
