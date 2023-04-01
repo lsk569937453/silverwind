@@ -150,6 +150,7 @@ Host: 127.0.0.1:8870
 * Routing
 * Load Balancing(Poll,Random,Weight,Header Based)
 * Dynamic Configuration(Rest Api)
+## Dashboard For Silverwind
 ## Future
 - [ ] Protocol Translation
 - [ ] Caching

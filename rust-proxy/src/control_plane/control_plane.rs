@@ -1,25 +1,26 @@
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
+use crate::proxy::http_proxy::GeneralError;
 use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::ServiceType;
 use crate::vojo::vojo::BaseResponse;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{header, Body, Method, Request, Response, Server, StatusCode};
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use warp::http::{Response, StatusCode};
+use warp::Filter;
+use warp::{reject, Rejection, Reply};
 
-use crate::proxy::http_proxy::GeneralError;
-static NOTFOUND: &[u8] = b"Not Found";
-static INTERNAL_SERVER_ERROR: &[u8] = b"Internal Server Error";
-
-async fn get_app_config() -> Result<Response<Body>, GeneralError> {
+static INTERNAL_SERVER_ERROR: &str = "Internal Server Error";
+#[derive(Debug)]
+struct MethodError;
+impl reject::Reject for MethodError {}
+async fn get_app_config() -> Result<impl warp::Reply, Infallible> {
     let app_config = GLOBAL_APP_CONFIG.read().await;
     let data = BaseResponse {
         response_code: 0,
         response_object: app_config.clone(),
     };
     let res = match serde_json::to_string(&data) {
-        Ok(json) => Response::builder()
-            .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(json))
-            .unwrap(),
+        Ok(json) => Response::builder().body(json).unwrap(),
         Err(_) => Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(INTERNAL_SERVER_ERROR.into())
@@ -28,13 +29,7 @@ async fn get_app_config() -> Result<Response<Body>, GeneralError> {
     Ok(res)
 }
 
-async fn post_app_config(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
-    let byte_stream = hyper::body::to_bytes(req)
-        .await
-        .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
-    let api_services: Vec<ApiService> = serde_json::from_slice(&byte_stream)
-        .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
-
+async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Reply, Infallible> {
     let validata_result = api_services
         .iter()
         .filter(|s| s.service_config.server_type == ServiceType::HTTPS)
@@ -48,7 +43,7 @@ async fn post_app_config(req: Request<Body>) -> Result<Response<Body>, GeneralEr
     if validata_result.is_err() {
         return Ok(Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(INTERNAL_SERVER_ERROR.into())
+            .body(String::from("INTERNAL_SERVER_ERROR"))
             .unwrap());
     }
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
@@ -59,35 +54,11 @@ async fn post_app_config(req: Request<Body>) -> Result<Response<Body>, GeneralEr
     };
     let json_str = serde_json::to_string(&data).unwrap();
 
-    Response::builder()
+    Ok(Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(json_str))
+        .body(json_str)
         .map_err(|e| GeneralError(anyhow!(e.to_string())))
-}
-pub async fn response(req: Request<Body>) -> Result<Response<Body>, GeneralError> {
-    let response_result = match (req.method(), req.uri().path()) {
-        (&Method::POST, "/appConfig") => post_app_config(req).await,
-        (&Method::GET, "/appConfig") => get_app_config().await,
-        _ => Ok(Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(NOTFOUND.into())
-            .unwrap()),
-    };
-    match response_result {
-        Ok(r) => Ok(r),
-        Err(err) => {
-            let error_response = BaseResponse {
-                response_code: -1,
-                response_object: err.to_string(),
-            };
-
-            Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(serde_json::to_string(&error_response).unwrap()))
-                .unwrap())
-        }
-    }
+        .unwrap())
 }
 fn validate_tls_config(
     cert_pem_option: Option<String>,
@@ -109,19 +80,62 @@ fn validate_tls_config(
     }
     Ok(())
 }
-pub async fn start_control_plane(port: i32) -> Result<(), hyper::Error> {
-    let addr = format!("127.0.0.1:{}", port).parse().unwrap();
-    let new_service = make_service_fn(move |_| async {
-        Ok::<_, GeneralError>(service_fn(move |req| response(req)))
-    });
-    let server = Server::bind(&addr).serve(new_service);
-    println!("Listening on http://{}", addr);
-    server.await
+
+fn json_body() -> impl Filter<Extract = (Vec<ApiService>,), Error = warp::Rejection> + Clone {
+    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+}
+pub async fn handle_not_found(reject: Rejection) -> Result<impl Reply, Rejection> {
+    if reject.is_not_found() {
+        Ok(StatusCode::NOT_FOUND)
+    } else {
+        Err(reject)
+    }
+}
+pub async fn handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
+    if reject.find::<MethodError>().is_some() {
+        Ok(StatusCode::METHOD_NOT_ALLOWED)
+    } else {
+        Err(reject)
+    }
+}
+
+pub async fn start_control_plane(port: i32) {
+    let post_app_config = warp::post()
+        .and(warp::path("appConfig"))
+        .and(warp::path::end())
+        .and(json_body())
+        .and_then(post_app_config)
+        .recover(handle_not_found);
+    let get_app_config = warp::get()
+        .and(warp::path("appConfig"))
+        .and(warp::path::end())
+        .and_then(get_app_config)
+        .recover(handle_not_found);
+    let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
+
+    let cors = warp::cors()
+        .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"])
+        .allow_credentials(true)
+        .allow_headers(vec![
+            "access-control-allow-methods",
+            "access-control-allow-origin",
+            "useragent",
+            "content-type",
+            "x-custom-header",
+        ])
+        .allow_any_origin();
+    warp::serve(
+        post_app_config
+            .or(get_app_config)
+            .with(cors)
+            .recover(handle_custom),
+    )
+    .run(addr)
+    .await;
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::app_config::AppConfig;
     use http::StatusCode;
     use lazy_static::lazy_static;
     use std::env;
@@ -139,15 +153,25 @@ mod tests {
     fn test_api_get_response_ok() {
         TOKIO_RUNTIME.block_on(async {
             let res = get_app_config().await.unwrap();
-            assert_eq!(res.status(), StatusCode::OK);
+            assert_eq!(res.into_response().status(), StatusCode::OK);
         })
     }
     #[test]
     fn test_api_post_response_error() {
         TOKIO_RUNTIME.block_on(async {
-            let request = Request::builder().body(Body::from("some string")).unwrap();
-            let res = post_app_config(request).await;
-            assert_eq!(res.is_err(), true);
+            let post_app_config = warp::post()
+                .and(warp::path("appConfig"))
+                .and(warp::path::end())
+                .and(json_body())
+                .and_then(post_app_config)
+                .recover(handle_not_found);
+            let res = warp::test::request()
+                .method("POST")
+                .body(String::from("some string"))
+                .reply(&post_app_config)
+                .await;
+
+            assert_eq!(res.status(), StatusCode::NOT_FOUND);
         })
     }
     #[test]
@@ -180,12 +204,22 @@ mod tests {
             }
         ]"#;
         TOKIO_RUNTIME.block_on(async {
-            let request = Request::builder().body(Body::from(req)).unwrap();
-            let res = post_app_config(request).await;
-            assert_eq!(res.is_ok(), true);
-            let response = res.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let post_app_config = warp::post()
+                .and(warp::path("appConfig"))
+                .and(warp::path::end())
+                .and(json_body())
+                .and_then(post_app_config)
+                .recover(handle_not_found);
+            let res = warp::test::request()
+                .method("POST")
+                .path("/appConfig")
+                .body(req)
+                // .json(&true)
+                .reply(&post_app_config)
+                .await;
+
+            assert_eq!(res.status(), StatusCode::OK);
+            let body_bytes = res.body();
             let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
             assert_eq!(base_response.response_code, 0);
         })
@@ -234,11 +268,17 @@ mod tests {
     #[test]
     fn test_response_not_found() {
         TOKIO_RUNTIME.block_on(async {
-            let request = Request::builder().body(Body::empty()).unwrap();
-            let res = response(request).await;
-            assert_eq!(res.is_ok(), true);
-            let response = res.unwrap();
-            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            let post_app_config = warp::post()
+                .and(warp::path("appConfig"))
+                .and(warp::path::end())
+                .and(json_body())
+                .and_then(post_app_config)
+                .recover(handle_not_found);
+            let res = warp::test::request()
+                .method("POST")
+                .reply(&post_app_config)
+                .await;
+            assert_eq!(res.status(), StatusCode::NOT_FOUND);
         })
     }
     #[test]
@@ -271,16 +311,20 @@ mod tests {
             }
         ]"#;
         TOKIO_RUNTIME.block_on(async {
-            let request = Request::builder()
-                .uri("http://localhost:8870/appConfig")
-                .method(Method::POST)
-                .body(Body::from(body))
-                .unwrap();
-            let res = response(request).await;
-            assert_eq!(res.is_ok(), true);
-            let response = res.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let post_app_config = warp::post()
+                .and(warp::path("appConfig"))
+                .and(warp::path::end())
+                .and(json_body())
+                .and_then(post_app_config)
+                .recover(handle_not_found);
+            let res = warp::test::request()
+                .method("POST")
+                .path("/appConfig")
+                .body(body)
+                .reply(&post_app_config)
+                .await;
+            assert_eq!(res.status(), StatusCode::OK);
+            let body_bytes = res.body();
             let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
             assert_eq!(base_response.response_code, 0);
         })
@@ -288,19 +332,17 @@ mod tests {
     #[test]
     fn test_get_response_ok() {
         TOKIO_RUNTIME.block_on(async {
-            let request = Request::builder()
-                .uri("http://localhost:8870/appConfig")
-                .method(Method::GET)
-                .body(Body::empty())
-                .unwrap();
-            let res = response(request).await;
-            assert_eq!(res.is_ok(), true);
-            let response = res.unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let base_response: BaseResponse<AppConfig> =
-                serde_json::from_slice(&body_bytes).unwrap();
-            assert_eq!(base_response.response_code, 0);
+            let get_app_config = warp::get()
+                .and(warp::path("appConfig"))
+                .and(warp::path::end())
+                .and_then(get_app_config)
+                .recover(handle_not_found);
+            let res = warp::test::request()
+                .method("GET")
+                .path("/appConfig")
+                .reply(&get_app_config)
+                .await;
+            assert_eq!(res.status(), StatusCode::OK);
         })
     }
 }

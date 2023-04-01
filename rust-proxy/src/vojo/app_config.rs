@@ -138,7 +138,7 @@ pub struct ServiceConfig {
 pub struct ApiService {
     pub listen_port: i32,
     #[serde(default = "new_uuid")]
-    pub api_service_id:String,
+    pub api_service_id: String,
     pub service_config: ServiceConfig,
 }
 
@@ -146,7 +146,7 @@ pub struct ApiService {
 pub struct StaticConifg {
     pub access_log: Option<String>,
     pub database_url: Option<String>,
-    pub api_port: String,
+    pub admin_port: String,
     pub config_file_path: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -202,7 +202,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -244,7 +244,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -287,7 +287,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -325,7 +325,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
 
             listen_port: 4486,
             service_config: ServiceConfig {
@@ -368,7 +368,7 @@ mod tests {
         };
         let api_service = ApiService {
             listen_port: 4486,
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             service_config: ServiceConfig {
                 routes: vec![route],
                 server_type: Default::default(),
@@ -408,7 +408,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -457,7 +457,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -504,7 +504,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],
@@ -546,7 +546,7 @@ mod tests {
             }),
         };
         let api_service = ApiService {
-            api_service_id:new_uuid(),
+            api_service_id: new_uuid(),
             listen_port: 4486,
             service_config: ServiceConfig {
                 routes: vec![route],

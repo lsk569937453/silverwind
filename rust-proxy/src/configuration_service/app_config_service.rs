@@ -163,33 +163,26 @@ pub async fn start_proxy(
 }
 async fn init_static_config() {
     let database_url_result = env::var("DATABASE_URL");
-    let api_port_result = env::var("API_PORT");
+    let api_port =
+        env::var("ADMIN_PORT").unwrap_or(String::from(constants::constants::DEFAULT_API_PORT));
     let access_log_result = env::var("ACCESS_LOG");
     let config_file_path_result = env::var("CONFIG_FILE_PATH");
 
     let mut global_app_config = GLOBAL_APP_CONFIG.write().await;
 
-    if database_url_result.is_ok() {
-        (*global_app_config).static_config.database_url = Some(database_url_result.unwrap());
+    if let Ok(database_url) = database_url_result {
+        (*global_app_config).static_config.database_url = Some(database_url);
     }
-
-    let api_port;
-    if api_port_result.is_ok() {
-        api_port = api_port_result.clone().unwrap();
-    } else {
-        api_port = String::from(constants::constants::DEFAULT_API_PORT);
-    }
-    global_app_config.static_config.api_port = api_port.clone();
+    global_app_config.static_config.admin_port = api_port.clone();
 
     logger::start_logger();
 
-    if access_log_result.is_ok() {
-        (*global_app_config).static_config.access_log = Some(access_log_result.unwrap());
+    if let Ok(access_log) = access_log_result {
+        (*global_app_config).static_config.access_log = Some(access_log);
     }
 
-    if config_file_path_result.is_ok() {
-        (*global_app_config).static_config.config_file_path =
-            Some(config_file_path_result.unwrap());
+    if let Ok(config_file_path) = config_file_path_result {
+        (*global_app_config).static_config.config_file_path = Some(config_file_path);
     }
 }
 async fn init_app_service_config() -> Result<(), anyhow::Error> {
@@ -238,7 +231,7 @@ mod tests {
         *app_config = Default::default();
         GLOBAL_CONFIG_MAPPING.clear();
         env::remove_var("DATABASE_URL");
-        env::remove_var("API_PORT");
+        env::remove_var("ADMIN_PORT");
         env::remove_var("ACCESS_LOG");
         env::remove_var("CONFIG_FILE_PATH");
     }
@@ -250,7 +243,7 @@ mod tests {
             init_static_config().await;
             let current = GLOBAL_APP_CONFIG.read().await;
             assert_eq!(current.static_config.access_log, None);
-            assert_eq!(current.static_config.api_port, String::from("8870"));
+            assert_eq!(current.static_config.admin_port, String::from("8870"));
             assert_eq!(current.static_config.database_url, None);
             assert_eq!(current.static_config.config_file_path, None);
         });
@@ -267,7 +260,7 @@ mod tests {
             let config_path = "/root/config/config.yaml";
 
             env::set_var("DATABASE_URL", database_url);
-            env::set_var("API_PORT", port.to_string());
+            env::set_var("ADMIN_PORT", port.to_string());
             env::set_var("ACCESS_LOG", access_log);
             env::set_var("CONFIG_FILE_PATH", config_path);
             init_static_config().await;
@@ -277,7 +270,7 @@ mod tests {
                 Some(String::from(access_log))
             );
             assert_eq!(
-                current.static_config.api_port,
+                current.static_config.admin_port,
                 String::from(port.to_string())
             );
             assert_eq!(
