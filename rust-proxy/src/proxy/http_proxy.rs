@@ -1,9 +1,11 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 
 use crate::constants::constants;
+use crate::monitor::prometheus_exporter::{get_timer_list, inc};
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::proxy::tls_stream::TlsStream;
 use crate::vojo::route::BaseRoute;
+use dashmap::DashMap;
 use http::uri::InvalidUri;
 use http::StatusCode;
 use hyper::client::HttpConnector;
@@ -13,7 +15,10 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use hyper_staticfile::Static;
+use lazy_static::lazy_static;
 use log::Level;
+use prometheus::{labels, opts, register_counter, register_gauge, register_histogram_vec};
+use prometheus::{CounterVec, Encoder, Gauge, HistogramTimer, HistogramVec, TextEncoder};
 use serde_json::json;
 use std::convert::Infallible;
 use std::io::BufReader;
@@ -23,6 +28,29 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 use url::Url;
+lazy_static! {
+    pub static ref GLOBAL_PROMETHEUS_COUNTRT_VEC: DashMap<String, CounterVec> = Default::default();
+    pub static ref GLOBAL_PROMETHEUS_HISTOGRAM: DashMap<String, HistogramVec> = Default::default();
+    pub static ref GLOBAL_PROMETHEUS_GAUGE: DashMap<String, Gauge> = Default::default();
+    // static ref HTTP_COUNTER: Counter = register_counter!(opts!(
+    //     "silverwind_http_requests_total",
+    //     "Number of HTTP requests made.",
+    //     labels! {"handler" => "all",}
+    // ))
+    // .unwrap();
+    // static ref HTTP_BODY_GAUGE: Gauge = register_gauge!(opts!(
+    //     "silverwind_http_response_size_bytes",
+    //     "The HTTP response sizes in bytes.",
+    //     labels! {"handler" => "all",}
+    // ))
+    // .unwrap();
+    // static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
+    //     "silverwind_http_request_duration_seconds",
+    //     "The HTTP request latencies in seconds.",
+    //     &["handler"]
+    // )
+    // .unwrap();
+}
 #[derive(Debug)]
 pub struct GeneralError(pub anyhow::Error);
 impl std::error::Error for GeneralError {}
@@ -178,6 +206,7 @@ impl HttpProxy {
         Ok(())
     }
 }
+
 async fn proxy_adapter(
     client: Clients,
     req: Request<Body>,
@@ -189,8 +218,11 @@ async fn proxy_adapter(
     let path = uri.path();
     let headers = req.headers().clone();
     let current_time = SystemTime::now();
-
-    let res = match proxy(client, req, mapping_key, remote_addr).await {
+    let monitor_timer_list = get_timer_list(mapping_key.clone(), String::from(path.clone()))
+        .iter()
+        .map(|item| item.start_timer())
+        .collect::<Vec<HistogramTimer>>();
+    let res = match proxy(client, req, mapping_key.clone(), remote_addr).await {
         Ok(r) => Ok(r),
         Err(err) => {
             let json_value = json!({
@@ -205,11 +237,19 @@ async fn proxy_adapter(
     };
     let mut elapsed_time = 0;
     let elapsed_time_res = current_time.elapsed();
-    if elapsed_time_res.is_ok() {
-        elapsed_time = elapsed_time_res.unwrap().as_millis();
+    if let Ok(elapsed_times) = elapsed_time_res {
+        elapsed_time = elapsed_times.as_millis();
     }
     let status = res.as_ref().unwrap().status().as_u16();
     let json_value: serde_json::Value = format!("{:?}", headers).into();
+    monitor_timer_list
+        .into_iter()
+        .for_each(|item| item.observe_duration());
+    inc(
+        mapping_key.clone(),
+        String::from(path.clone()),
+        status.clone(),
+    );
     info!(target: "app",
         "{}$${}$${}$${}$${}$${}",
         remote_addr.to_string().clone(),

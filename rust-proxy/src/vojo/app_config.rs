@@ -85,7 +85,7 @@ impl Route {
         }
         if headers_option.is_some() && self.ratelimit.is_some() {
             let mut ratelimit = self.clone().ratelimit.unwrap();
-            is_allowed = ratelimit.should_limit(headers_option.clone().unwrap(), ip)?;
+            is_allowed = !ratelimit.should_limit(headers_option.clone().unwrap(), ip)?;
         }
         Ok(is_allowed)
     }

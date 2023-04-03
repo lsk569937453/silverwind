@@ -206,11 +206,16 @@ pub struct FixedWindowRateLimit {
     pub rate_per_unit: u128,
     pub unit: TimeUnit,
     pub limit_location: LimitLocation,
-    #[serde(skip_serializing, skip_deserializing)]
+    #[serde(skip_serializing, skip_deserializing, 
+        // default = "new_dash_map")
+    )]
     pub count_map: DashMap<String, Arc<AtomicIsize>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub lock: Arc<Mutex<i32>>,
 }
+// pub fn new_dash_map() -> DashMap<String, Arc<AtomicIsize>> {
+//     Da
+// }
 #[typetag::serde]
 impl RatelimitStrategy for FixedWindowRateLimit {
     fn should_limit(
@@ -222,6 +227,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         if !match_or_not {
             return Ok(false);
         }
+
         let time_unit_key = get_time_key(self.unit.clone())?;
         let location_key = self.limit_location.get_key();
         let key = format!("{}:{}", location_key, time_unit_key);
@@ -241,6 +247,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         let atomic_isize = self.count_map.get(key.as_str()).ok_or(anyhow!(
             "Can not find the key in the map of FixedWindowRateLimit!"
         ))?;
+
         let res = atomic_isize.fetch_add(1, Ordering::SeqCst);
         if res as i32 >= self.rate_per_unit as i32 {
             return Ok(true);
@@ -256,7 +263,20 @@ mod tests {
     use super::*;
     use crate::vojo::app_config::ApiService;
     use std::{thread, time};
+    // #[test]
+    // fn test_get_timeunit_key() {
+    //     loop {
+    //         println!(
+    //             "{};{};{};{}",
+    //             get_time_key(TimeUnit::MillionSecond).unwrap(),
+    //             get_time_key(TimeUnit::Second).unwrap(),
+    //             get_time_key(TimeUnit::Minute).unwrap(),
+    //             get_time_key(TimeUnit::Day).unwrap()
+    //         );
 
+    //         thread::sleep(time::Duration::from_millis(10))
+    //     }
+    // }
     #[test]
     fn test_token_bucket_rate_limit_ok1() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {

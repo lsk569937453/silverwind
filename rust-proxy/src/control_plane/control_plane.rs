@@ -3,12 +3,13 @@ use crate::proxy::http_proxy::GeneralError;
 use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::ServiceType;
 use crate::vojo::vojo::BaseResponse;
+use prometheus::{labels, opts, register_counter, register_gauge, register_histogram_vec};
+use prometheus::{Counter, Encoder, Gauge, HistogramVec, TextEncoder};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 use warp::{reject, Rejection, Reply};
-
 static INTERNAL_SERVER_ERROR: &str = "Internal Server Error";
 #[derive(Debug)]
 struct MethodError;
@@ -20,13 +21,27 @@ async fn get_app_config() -> Result<impl warp::Reply, Infallible> {
         response_object: app_config.clone(),
     };
     let res = match serde_json::to_string(&data) {
-        Ok(json) => Response::builder().body(json).unwrap(),
+        Ok(json) => Response::builder()
+            .header("content-type", "application/json")
+            .body(json)
+            .unwrap(),
         Err(_) => Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(INTERNAL_SERVER_ERROR.into())
             .unwrap(),
     };
     Ok(res)
+}
+async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
+    let metric_families = prometheus::gather();
+    let mut buffer = vec![];
+    let encoder = TextEncoder::new();
+    encoder.encode(&metric_families, &mut buffer).unwrap();
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body(String::from_utf8(buffer).unwrap_or(String::from("value")))
+        .map_err(|e| GeneralError(anyhow!(e.to_string())))
+        .unwrap())
 }
 
 async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Reply, Infallible> {
@@ -53,11 +68,10 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
         response_object: 0,
     };
     let json_str = serde_json::to_string(&data).unwrap();
-
     Ok(Response::builder()
         .status(StatusCode::OK)
+        .header("content-type", "application/json")
         .body(json_str)
-        .map_err(|e| GeneralError(anyhow!(e.to_string())))
         .unwrap())
 }
 fn validate_tls_config(
@@ -106,11 +120,15 @@ pub async fn start_control_plane(port: i32) {
         .and(json_body())
         .and_then(post_app_config)
         .recover(handle_not_found);
-    let get_app_config = warp::get()
-        .and(warp::path("appConfig"))
-        .and(warp::path::end())
-        .and_then(get_app_config)
+    let get_app_config = warp::path("appConfig").and_then(get_app_config);
+    let get_prometheus_metrics = warp::path("metrics").and_then(get_prometheus_metrics);
+
+    let get_request = warp::get()
+        .and(get_app_config.or(get_prometheus_metrics))
         .recover(handle_not_found);
+
+    let log = warp::log("dashbaord-svc");
+
     let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
 
     let cors = warp::cors()
@@ -126,8 +144,9 @@ pub async fn start_control_plane(port: i32) {
         .allow_any_origin();
     warp::serve(
         post_app_config
-            .or(get_app_config)
+            .or(get_request)
             .with(cors)
+            .with(log)
             .recover(handle_custom),
     )
     .run(addr)
