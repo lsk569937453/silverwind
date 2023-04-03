@@ -1,7 +1,6 @@
-use dashmap::DashMap;
 use lazy_static::lazy_static;
 use prometheus::{labels, opts, register_counter_vec, register_gauge, register_histogram_vec};
-use prometheus::{CounterVec, Encoder, Gauge, Histogram, HistogramVec, TextEncoder};
+use prometheus::{CounterVec, Gauge, Histogram, HistogramVec};
 
 lazy_static! {
     static ref HTTP_COUNTER: CounterVec = register_counter_vec!(
