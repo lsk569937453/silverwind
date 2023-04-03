@@ -551,7 +551,7 @@ mod tests {
     fn test_fixed_window_ratelimit_ok3() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
-            unit: TimeUnit::MillionSecond,
+            unit: TimeUnit::Hour,
             limit_location: LimitLocation::Header(HeaderBasedRatelimit {
                 key: String::from("api_key"),
                 value: String::from("test2"),
@@ -579,7 +579,7 @@ mod tests {
     fn test_fixed_window_ratelimit_ok4() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
-            unit: TimeUnit::MillionSecond,
+            unit: TimeUnit::Minute,
             limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
