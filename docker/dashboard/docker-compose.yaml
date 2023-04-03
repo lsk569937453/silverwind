@@ -11,5 +11,6 @@ services:
       container_name: silverwind
       ports:
         - "6980:6980"
+        - "6666:6666"
       environment:
         ADMIN_PORT: 6980

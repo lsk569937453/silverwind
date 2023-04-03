@@ -172,7 +172,6 @@ impl RatelimitStrategy for TokenBucketRateLimit {
         }
         let read_lock = self.current_count.read().unwrap();
         let current_value = read_lock.fetch_sub(1, Ordering::SeqCst);
-        info!("value:{}", current_value);
         if current_value <= 0 {
             let elapsed = self
                 .last_update_time
