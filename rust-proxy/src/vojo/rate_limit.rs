@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::constants::constants::DEFAULT_FIXEDWINDOW_MAP_SIZE;
 use core::fmt::Debug;
 use dashmap::DashMap;
 use dyn_clone::DynClone;
@@ -239,7 +240,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         if !self.count_map.contains_key(key.clone().as_str()) {
             let _lock = self.lock.lock().map_err(|err| anyhow!(err.to_string()))?;
             if !self.count_map.contains_key(key.clone().as_str()) {
-                if self.count_map.len() > 100 {
+                if self.count_map.len() > DEFAULT_FIXEDWINDOW_MAP_SIZE as usize {
                     let first = self.count_map.iter().next().unwrap();
                     let first_key = first.key().clone();
                     drop(first);
@@ -551,7 +552,7 @@ mod tests {
     fn test_fixed_window_ratelimit_ok3() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
-            unit: TimeUnit::MillionSecond,
+            unit: TimeUnit::Hour,
             limit_location: LimitLocation::Header(HeaderBasedRatelimit {
                 key: String::from("api_key"),
                 value: String::from("test2"),
@@ -579,7 +580,7 @@ mod tests {
     fn test_fixed_window_ratelimit_ok4() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
-            unit: TimeUnit::MillionSecond,
+            unit: TimeUnit::Minute,
             limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
