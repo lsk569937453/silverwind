@@ -91,11 +91,7 @@ impl Route {
         }
         if headers_option.is_some() && self.ratelimit.is_some() {
             let mut ratelimit = self.clone().ratelimit.unwrap();
-            is_allowed = !ratelimit.should_limit(
-                self.route_id.clone(),
-                headers_option.clone().unwrap(),
-                ip,
-            )?;
+            is_allowed = !ratelimit.should_limit(headers_option.clone().unwrap(), ip)?;
         }
         Ok(is_allowed)
     }
@@ -182,10 +178,12 @@ mod tests {
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
-
+    use dashmap::DashMap;
+    use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
     use std::sync::Mutex;
-
+    use std::sync::RwLock;
+    use std::time::SystemTime;
     #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {
@@ -438,7 +436,9 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
+            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
             lock: Arc::new(Mutex::new(0)),
+            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
         let route = Route {
@@ -484,6 +484,8 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
+            count_map: Arc::new(DashMap::new()),
+            lock: Arc::new(Mutex::new(0)),
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
         let route = Route {
