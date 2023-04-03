@@ -2,7 +2,7 @@ use crate::configuration_service::logger;
 use crate::constants;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
-use crate::vojo::api_service_manager::ApiServiceManager;
+use crate::vojo::api_service_manager::{ApiServiceManager, NewServiceConfig};
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
 use dashmap::DashMap;
@@ -17,7 +17,8 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 lazy_static! {
     pub static ref GLOBAL_APP_CONFIG: RwLock<AppConfig> = RwLock::new(Default::default());
-    pub static ref GLOBAL_CONFIG_MAPPING: DashMap<String, ApiServiceManager> = Default::default();
+    pub static ref GLOBAL_CONFIG_MAPPING: DashMap<String, ApiServiceManager<'static>> =
+        Default::default();
 }
 
 pub async fn init() {
@@ -96,7 +97,7 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         //update
         if GLOBAL_CONFIG_MAPPING.contains_key(&key) {
             let mut ref_value = GLOBAL_CONFIG_MAPPING.get(&key).unwrap().clone();
-            ref_value.service_config = value.clone();
+            ref_value.update_routes(value);
             GLOBAL_CONFIG_MAPPING.insert(key.clone(), ref_value);
             //add
         } else {
@@ -104,7 +105,7 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
             GLOBAL_CONFIG_MAPPING.insert(
                 key.clone(),
                 ApiServiceManager {
-                    service_config: value.clone(),
+                    service_config: NewServiceConfig::clone_from(value.clone()),
                     sender: sender,
                 },
             );
@@ -377,7 +378,7 @@ mod tests {
 
         let api_service_manager = ApiServiceManager {
             sender: sender,
-            service_config: ServiceConfig {
+            service_config: NewServiceConfig::clone_from(ServiceConfig {
                 key_str: Some(private_key),
                 server_type: crate::vojo::app_config::ServiceType::HTTPS,
                 cert_str: Some(certificate),
@@ -390,7 +391,7 @@ mod tests {
                     authentication: None,
                     ratelimit: None,
                 }],
-            },
+            }),
         };
         GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
         TOKIO_RUNTIME.spawn(async {

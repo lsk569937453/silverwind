@@ -389,6 +389,7 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowType;
 
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::api_service_manager::NewServiceConfig;
     use crate::vojo::app_config::new_uuid;
     use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::Matcher;
@@ -638,35 +639,36 @@ mod tests {
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
-
+            let api_service_config = ServiceConfig {
+                key_str: None,
+                server_type: crate::vojo::app_config::ServiceType::HTTP,
+                cert_str: None,
+                routes: vec![Route {
+                    host_name: None,
+                    route_id: new_uuid(),
+                    matcher: Some(Matcher {
+                        prefix: String::from("/"),
+                        prefix_rewrite: String::from("test"),
+                    }),
+                    route_cluster: route,
+                    allow_deny_list: Some(vec![AllowDenyObject {
+                        limit_type: AllowType::ALLOWALL,
+                        value: None,
+                    }]),
+                    authentication: None,
+                    ratelimit: None,
+                }],
+            };
             let api_service_manager = ApiServiceManager {
                 sender: sender,
-                service_config: ServiceConfig {
-                    key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::HTTP,
-                    cert_str: None,
-                    routes: vec![Route {
-                        host_name: None,
-                        route_id: new_uuid(),
-                        matcher: Some(Matcher {
-                            prefix: String::from("/"),
-                            prefix_rewrite: String::from("test"),
-                        }),
-                        route_cluster: route,
-                        allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::ALLOWALL,
-                            value: None,
-                        }]),
-                        authentication: None,
-                        ratelimit: None,
-                    }],
-                },
+
+                service_config: NewServiceConfig::clone_from(api_service_config.clone()),
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
                 api_service_id: new_uuid(),
                 listen_port: 9998,
-                service_config: api_service_manager.service_config.clone(),
+                service_config: api_service_config,
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("9998-HTTP"), api_service_manager);
             let client = Clients::new();
@@ -692,35 +694,35 @@ mod tests {
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
-
+            let service_config = ServiceConfig {
+                key_str: None,
+                server_type: crate::vojo::app_config::ServiceType::TCP,
+                cert_str: None,
+                routes: vec![Route {
+                    route_id: new_uuid(),
+                    host_name: None,
+                    matcher: Some(Matcher {
+                        prefix: String::from("/"),
+                        prefix_rewrite: String::from("test"),
+                    }),
+                    route_cluster: route,
+                    allow_deny_list: Some(vec![AllowDenyObject {
+                        limit_type: AllowType::DENY,
+                        value: Some(String::from("127.0.0.1")),
+                    }]),
+                    authentication: None,
+                    ratelimit: None,
+                }],
+            };
             let api_service_manager = ApiServiceManager {
                 sender: sender,
-                service_config: ServiceConfig {
-                    key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
-                    cert_str: None,
-                    routes: vec![Route {
-                        route_id: new_uuid(),
-                        host_name: None,
-                        matcher: Some(Matcher {
-                            prefix: String::from("/"),
-                            prefix_rewrite: String::from("test"),
-                        }),
-                        route_cluster: route,
-                        allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENY,
-                            value: Some(String::from("127.0.0.1")),
-                        }]),
-                        authentication: None,
-                        ratelimit: None,
-                    }],
-                },
+                service_config: NewServiceConfig::clone_from(service_config.clone()),
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
                 api_service_id: new_uuid(),
                 listen_port: 9999,
-                service_config: api_service_manager.service_config.clone(),
+                service_config: service_config.clone(),
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("9999-HTTP"), api_service_manager);
             let client = Clients::new();

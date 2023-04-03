@@ -104,6 +104,7 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowDenyObject;
     use crate::vojo::allow_deny_ip::AllowType;
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::api_service_manager::NewServiceConfig;
     use crate::vojo::app_config::new_uuid;
     use crate::vojo::app_config::{Route, ServiceConfig};
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
@@ -171,7 +172,7 @@ mod tests {
 
             let api_service_manager = ApiServiceManager {
                 sender: sender,
-                service_config: ServiceConfig {
+                service_config: NewServiceConfig::clone_from(ServiceConfig {
                     key_str: None,
                     server_type: crate::vojo::app_config::ServiceType::TCP,
                     cert_str: None,
@@ -184,7 +185,7 @@ mod tests {
                         authentication: None,
                         ratelimit: None,
                     }],
-                },
+                }),
             };
             GLOBAL_CONFIG_MAPPING.insert(String::from("test123"), api_service_manager);
             let tcp_stream = TcpStream::connect("httpbin.org:80").await.unwrap();
@@ -212,35 +213,35 @@ mod tests {
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
-
+            let api_service_config = ServiceConfig {
+                key_str: None,
+                server_type: crate::vojo::app_config::ServiceType::TCP,
+                cert_str: None,
+                routes: vec![Route {
+                    host_name: None,
+                    route_id: new_uuid(),
+                    matcher: Some(Matcher {
+                        prefix: String::from("/"),
+                        prefix_rewrite: String::from("test"),
+                    }),
+                    route_cluster: route,
+                    allow_deny_list: Some(vec![AllowDenyObject {
+                        limit_type: AllowType::DENYALL,
+                        value: None,
+                    }]),
+                    authentication: None,
+                    ratelimit: None,
+                }],
+            };
             let api_service_manager = ApiServiceManager {
                 sender: sender,
-                service_config: ServiceConfig {
-                    key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
-                    cert_str: None,
-                    routes: vec![Route {
-                        host_name: None,
-                        route_id: new_uuid(),
-                        matcher: Some(Matcher {
-                            prefix: String::from("/"),
-                            prefix_rewrite: String::from("test"),
-                        }),
-                        route_cluster: route,
-                        allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENYALL,
-                            value: None,
-                        }]),
-                        authentication: None,
-                        ratelimit: None,
-                    }],
-                },
+                service_config: NewServiceConfig::clone_from(api_service_config.clone()),
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
                 api_service_id: new_uuid(),
                 listen_port: 3478,
-                service_config: api_service_manager.service_config.clone(),
+                service_config: api_service_config.clone(),
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("3478-TCP"), api_service_manager);
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
@@ -261,35 +262,35 @@ mod tests {
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
             let (sender, _) = tokio::sync::mpsc::channel(10);
-
+            let api_service_config = ServiceConfig {
+                key_str: None,
+                server_type: crate::vojo::app_config::ServiceType::TCP,
+                cert_str: None,
+                routes: vec![Route {
+                    host_name: None,
+                    route_id: new_uuid(),
+                    matcher: Some(Matcher {
+                        prefix: String::from("/"),
+                        prefix_rewrite: String::from("test"),
+                    }),
+                    route_cluster: route,
+                    allow_deny_list: Some(vec![AllowDenyObject {
+                        limit_type: AllowType::DENY,
+                        value: Some(String::from("127.0.0.1")),
+                    }]),
+                    authentication: None,
+                    ratelimit: None,
+                }],
+            };
             let api_service_manager = ApiServiceManager {
                 sender: sender,
-                service_config: ServiceConfig {
-                    key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
-                    cert_str: None,
-                    routes: vec![Route {
-                        host_name: None,
-                        route_id: new_uuid(),
-                        matcher: Some(Matcher {
-                            prefix: String::from("/"),
-                            prefix_rewrite: String::from("test"),
-                        }),
-                        route_cluster: route,
-                        allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENY,
-                            value: Some(String::from("127.0.0.1")),
-                        }]),
-                        authentication: None,
-                        ratelimit: None,
-                    }],
-                },
+                service_config: NewServiceConfig::clone_from(api_service_config.clone()),
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
                 api_service_id: new_uuid(),
                 listen_port: 3479,
-                service_config: api_service_manager.service_config.clone(),
+                service_config: api_service_config.clone(),
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("3479-TCP"), api_service_manager);
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
