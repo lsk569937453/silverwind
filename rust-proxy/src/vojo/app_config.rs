@@ -182,8 +182,8 @@ mod tests {
     use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
     use std::sync::Mutex;
+    use std::sync::RwLock;
     use std::time::SystemTime;
-
     #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {
@@ -427,55 +427,55 @@ mod tests {
         let yaml = serde_yaml::to_string(&t).unwrap();
         println!("{}", yaml);
     }
-    // #[test]
-    // fn test_serde_output_token_bucket_ratelimit() {
-    //     let token_bucket_ratelimit = TokenBucketRateLimit {
-    //         rate_per_unit: 3,
-    //         capacity: 10000,
-    //         unit: TimeUnit::Second,
-    //         limit_location: LimitLocation::IP(IPBasedRatelimit {
-    //             value: String::from("192.168.0.0"),
-    //         }),
-    //         current_count: Arc::new(AtomicIsize::new(3)),
-    //         lock: Arc::new(Mutex::new(0)),
-    //         last_update_time: SystemTime::now(),
-    //     };
-    //     let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
-    //     let route = Route {
-    //         host_name: None,
-    //         route_id: new_uuid(),
-    //         route_cluster: Box::new(PollRoute {
-    //             routes: vec![PollBaseRoute {
-    //                 base_route: BaseRoute {
-    //                     endpoint: String::from("/"),
-    //                     try_file: None,
-    //                 },
-    //             }],
-    //             lock: Default::default(),
-    //             current_index: Default::default(),
-    //         }),
-    //         allow_deny_list: None,
-    //         authentication: None,
-    //         ratelimit: Some(ratelimit),
-    //         matcher: Some(Matcher {
-    //             prefix: String::from("ss"),
-    //             prefix_rewrite: String::from("ssss"),
-    //         }),
-    //     };
-    //     let api_service = ApiService {
-    //         api_service_id: new_uuid(),
-    //         listen_port: 4486,
-    //         service_config: ServiceConfig {
-    //             routes: vec![route],
-    //             server_type: Default::default(),
-    //             cert_str: Default::default(),
-    //             key_str: Default::default(),
-    //         },
-    //     };
-    //     let t = vec![api_service];
-    //     let yaml = serde_yaml::to_string(&t).unwrap();
-    //     println!("{}", yaml);
-    // }
+    #[test]
+    fn test_serde_output_token_bucket_ratelimit() {
+        let token_bucket_ratelimit = TokenBucketRateLimit {
+            rate_per_unit: 3,
+            capacity: 10000,
+            unit: TimeUnit::Second,
+            limit_location: LimitLocation::IP(IPBasedRatelimit {
+                value: String::from("192.168.0.0"),
+            }),
+            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
+            lock: Arc::new(Mutex::new(0)),
+            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+        };
+        let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
+        let route = Route {
+            host_name: None,
+            route_id: new_uuid(),
+            route_cluster: Box::new(PollRoute {
+                routes: vec![PollBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                }],
+                lock: Default::default(),
+                current_index: Default::default(),
+            }),
+            allow_deny_list: None,
+            authentication: None,
+            ratelimit: Some(ratelimit),
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            api_service_id: new_uuid(),
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
     #[test]
     fn test_serde_output_fixedwindow_ratelimit() {
         let fixed_window_ratelimit = FixedWindowRateLimit {
