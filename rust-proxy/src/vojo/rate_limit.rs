@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::constants::constants::DEFAULT_FIXEDWINDOW_MAP_SIZE;
 use core::fmt::Debug;
 use dashmap::DashMap;
 use dyn_clone::DynClone;
@@ -239,7 +240,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         if !self.count_map.contains_key(key.clone().as_str()) {
             let _lock = self.lock.lock().map_err(|err| anyhow!(err.to_string()))?;
             if !self.count_map.contains_key(key.clone().as_str()) {
-                if self.count_map.len() > 100 {
+                if self.count_map.len() > DEFAULT_FIXEDWINDOW_MAP_SIZE as usize {
                     let first = self.count_map.iter().next().unwrap();
                     let first_key = first.key().clone();
                     drop(first);

@@ -7,3 +7,4 @@ pub const NOT_FOUND: &'static str = r#"{
     "response_code": -1,
     "response_object": "The route could not be found in the Proxy!"
 }"#;
+pub const DEFAULT_FIXEDWINDOW_MAP_SIZE: i32 = 3;

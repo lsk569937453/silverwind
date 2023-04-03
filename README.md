@@ -1,4 +1,6 @@
 # Silverwind-The Next Generation High-Performance Proxy
+English  [简体中文](./README-zh_CN.md) 
+
 The Silverwind is a high-performance reverse proxy/load balancer. And it could be also used as the ingress
 controller in the k8s.
 ## Sivlverwind-Dashboard
@@ -26,20 +28,25 @@ You could check the [main page](http://localhost:4486/index.html) for Silverwind
 ## Why we chose Sivlverwind
 ### Benchmarks
 We do the performance testing between several popular proxies including NGINX, Envoy, and Caddy. The benchmarks show [here](https://github.com/lsk569937453/silverwind/blob/main/benchmarks.md).
-The testing result shows that our proxy has better performance.
 
-### Rate Limit is not accurate or too slow
-We think the API gateway should contain several functions like the rate limit, etc. The rate limit plugin
-on open source is not accurate. We have to buy the Kong Enterprise https://github.com/Kong/kong/issues/5311 if
-we want to do the accurate rate limiting.
+The test results show that under the same machine configuration (4 cores 8G), in some indicators (requests per second, average response time), the data of Silverwind is almost the same as the  NGINX and Envoy.
+In terms of request latency, Silverwind is better than  NGINX and Envoy.
 
-The rate limit in the envoy is not built-in and the envoy will hit the rate limit over the network. So it will
-increase the network hops.
+### All basic functions are developed in native language - fast
+Silverwind is not only a reverse proxy/load balancer, but also an API gateway. As an API gateway, Silverwind will cover all basic functions (black and white list/authorization/fuse limit/gray release
+, blue-green publishing/monitoring/caching/protocol conversion).
 
-The Silverwind has a built-in rate limiting.And we will maintain it free. If you have some advice, you could  post it 
-in GitHub issues.
+Compared with other gateways, Silverwind has the advantage of covering all the basic services of the API gateway, and has high performance. Second, Silverwind's dynamic configuration is close to real-time. Every time the configuration is modified, it will take effect within 5 seconds (close to real-time).
+
+### Kong
+The free Ratelimiting plugin for Kong is [inaccurate](https://github.com/Kong/kong/issues/5311). If we want to achieve more accurate Ratelimiting, we have to buy the enterprise version of Kong.
+
+### Envoy
+Envoy does not have built-in ratelimiting. Envoy provides a ratelimiting interface for users to implement by themselves. Currently the most used is this [project](https://github.com/envoyproxy/ratelimit).
+The first disadvantage is that the project only supports fixed-window ratelimiting. The disadvantage of the fixed window ratelimiting is that it does not support burst traffic.
+The second disadvantage is that every time Envoy is requested, it will use grpc to request the ratelimiting cluster. Compared with the built-in current limiting algorithm, this actually adds an additional network hop.
+
 ## Dynamic Configuration
-### Single Silver-wind
 You could change the configuration over the rest API. And the new configuration will have an effect **in 5 seconds**.
 
 ## Compile or Download the release
@@ -172,8 +179,8 @@ Host: 127.0.0.1:8870
 * Routing
 * Load Balancing(Poll,Random,Weight,Header Based)
 * Dynamic Configuration(Rest Api)
-## Dashboard For Silverwind
+* Dashboard For Silverwind
+* Monitoring(Prometheus)
 ## Future
 - [ ] Protocol Translation
 - [ ] Caching
-- [ ] Monitoring
