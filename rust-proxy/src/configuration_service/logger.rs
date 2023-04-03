@@ -15,7 +15,7 @@ pub fn start_logger() {
 
     let window_size = 10;
     let fixed_window_roller = FixedWindowRoller::builder()
-        .build("app-{}", window_size)
+        .build("log/app-{}", window_size)
         .unwrap();
 
     let size_limit = 10 * 1024 * 1024;

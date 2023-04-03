@@ -76,16 +76,26 @@ impl Route {
         headers_option: Option<HeaderMap<HeaderValue>>,
     ) -> Result<bool, anyhow::Error> {
         let mut is_allowed = ip_is_allowed(self.allow_deny_list.clone(), ip.clone())?;
+        if !is_allowed {
+            return Ok(is_allowed);
+        }
         if headers_option.is_some() && self.authentication.is_some() {
             is_allowed = self
                 .authentication
                 .clone()
                 .unwrap()
                 .check_authentication(headers_option.clone().unwrap())?;
+            if !is_allowed {
+                return Ok(is_allowed);
+            }
         }
         if headers_option.is_some() && self.ratelimit.is_some() {
             let mut ratelimit = self.clone().ratelimit.unwrap();
-            is_allowed = ratelimit.should_limit(headers_option.clone().unwrap(), ip)?;
+            is_allowed = !ratelimit.should_limit(
+                self.route_id.clone(),
+                headers_option.clone().unwrap(),
+                ip,
+            )?;
         }
         Ok(is_allowed)
     }
@@ -172,11 +182,9 @@ mod tests {
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
-    use dashmap::DashMap;
-    use std::sync::atomic::AtomicIsize;
+
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::time::SystemTime;
 
     #[test]
     fn test_serde_output_weight_based_route() {
@@ -430,9 +438,7 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
-            current_count: Arc::new(AtomicIsize::new(3)),
             lock: Arc::new(Mutex::new(0)),
-            last_update_time: SystemTime::now(),
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
         let route = Route {
@@ -478,8 +484,6 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
-            count_map: DashMap::new(),
-            lock: Arc::new(Mutex::new(0)),
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
         let route = Route {
