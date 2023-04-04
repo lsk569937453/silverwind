@@ -60,13 +60,12 @@ impl Route {
             if host_result.is_err() {
                 return Ok(false);
             }
-            let host_name_regex = Regex::new(real_host_name.as_str()).unwrap();
-            let match_res = host_name_regex.captures(host_result.unwrap());
-            if match_res.is_none() {
-                return Ok(false);
-            } else {
-                return Ok(true);
-            }
+            let host_name_regex = Regex::new(real_host_name.as_str())?;
+            return host_name_regex
+                .captures(host_result.unwrap())
+                .map_or(Ok(false), |_| {
+                    return Ok(true);
+                });
         }
         Ok(true)
     }
@@ -79,19 +78,18 @@ impl Route {
         if !is_allowed {
             return Ok(is_allowed);
         }
-        if headers_option.is_some() && self.authentication.is_some() {
-            is_allowed = self
-                .authentication
-                .clone()
-                .unwrap()
-                .check_authentication(headers_option.clone().unwrap())?;
+        if let (Some(header_map), Some(mut authentication_strategy)) =
+            (headers_option.clone(), self.authentication.clone())
+        {
+            is_allowed = authentication_strategy.check_authentication(header_map)?;
             if !is_allowed {
                 return Ok(is_allowed);
             }
         }
-        if headers_option.is_some() && self.ratelimit.is_some() {
-            let mut ratelimit = self.clone().ratelimit.unwrap();
-            is_allowed = !ratelimit.should_limit(headers_option.clone().unwrap(), ip)?;
+        if let (Some(header_map), Some(mut ratelimit_strategy)) =
+            (headers_option, self.ratelimit.clone())
+        {
+            is_allowed = !ratelimit_strategy.should_limit(header_map, ip)?;
         }
         Ok(is_allowed)
     }
@@ -184,6 +182,65 @@ mod tests {
     use std::sync::Mutex;
     use std::sync::RwLock;
     use std::time::SystemTime;
+    fn create_new_route_with_host_name(host_name: Option<String>) -> Route {
+        return Route {
+            host_name: host_name,
+            route_id: new_uuid(),
+            route_cluster: Box::new(WeightBasedRoute {
+                indexs: Default::default(),
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                    },
+                    weight: 100,
+                }],
+            }),
+            allow_deny_list: None,
+            authentication: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("/"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+    }
+    #[test]
+    fn test_host_name_is_none_ok1() {
+        let route = create_new_route_with_host_name(None);
+        let mut headermap = HeaderMap::new();
+        headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
+        let allow_result = route.is_matched("/test", Some(headermap));
+        assert_eq!(allow_result.is_ok(), true);
+        assert_eq!(allow_result.unwrap(), true);
+    }
+    #[test]
+    fn test_host_name_is_some_ok2() {
+        let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
+        let mut headermap = HeaderMap::new();
+        headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
+        let allow_result = route.is_matched("/test", Some(headermap));
+        assert_eq!(allow_result.is_ok(), true);
+        assert_eq!(allow_result.unwrap(), false);
+    }
+    #[test]
+    fn test_host_name_is_some_ok3() {
+        let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
+        let mut headermap = HeaderMap::new();
+        headermap.insert("Host", "Basic bHNrOjEyMzQ=".parse().unwrap());
+        let allow_result = route.is_matched("/test", Some(headermap));
+        assert_eq!(allow_result.is_ok(), true);
+        assert_eq!(allow_result.unwrap(), false);
+    }
+    #[test]
+    fn test_host_name_is_some_ok4() {
+        let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
+        let mut headermap = HeaderMap::new();
+        headermap.insert("Host", "www.test.com".parse().unwrap());
+        let allow_result = route.is_matched("/test", Some(headermap));
+        assert_eq!(allow_result.is_ok(), true);
+        assert_eq!(allow_result.unwrap(), true);
+    }
     #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {

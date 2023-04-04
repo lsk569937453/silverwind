@@ -54,10 +54,10 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
             );
         })
         .collect::<Result<Vec<()>, anyhow::Error>>();
-    if validata_result.is_err() {
+    if let Err(err) = validata_result {
         return Ok(Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(String::from("INTERNAL_SERVER_ERROR"))
+            .body(err.to_string())
             .unwrap());
     }
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
