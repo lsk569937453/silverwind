@@ -356,13 +356,13 @@ mod tests {
         let private_key_path = env::current_dir()
             .unwrap()
             .join("config")
-            .join("privkey.pem");
+            .join("test_key.pem");
         let private_key = std::fs::read_to_string(private_key_path).unwrap();
 
         let certificate_path = env::current_dir()
             .unwrap()
             .join("config")
-            .join("cacert.pem");
+            .join("test_cert.pem");
         let certificate = std::fs::read_to_string(certificate_path).unwrap();
 
         let route = Box::new(RandomRoute {

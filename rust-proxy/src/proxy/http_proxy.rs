@@ -430,7 +430,7 @@ mod tests {
         let current_dir = env::current_dir()
             .unwrap()
             .join("config")
-            .join("cacert.pem");
+            .join("test_cert.pem");
         let file = File::open(current_dir).unwrap();
         let mut reader = BufReader::new(file);
         let certs_result = rustls_pemfile::certs(&mut reader);
@@ -444,7 +444,7 @@ mod tests {
         let current_dir = env::current_dir()
             .unwrap()
             .join("config")
-            .join("privkey.pem");
+            .join("test_key.pem");
         let data = std::fs::read_to_string(current_dir).unwrap();
 
         println!("input: {:?}", data);
@@ -488,13 +488,13 @@ mod tests {
         let private_key_path = env::current_dir()
             .unwrap()
             .join("config")
-            .join("privkey.pem");
+            .join("test_key.pem");
         let private_key = std::fs::read_to_string(private_key_path).unwrap();
 
         let ca_certificate_path = env::current_dir()
             .unwrap()
             .join("config")
-            .join("privkey.pem");
+            .join("test_key.pem");
         let ca_certificate = std::fs::read_to_string(ca_certificate_path).unwrap();
 
         TOKIO_RUNTIME.spawn(async {
