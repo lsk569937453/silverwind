@@ -7,6 +7,8 @@ mod control_plane;
 mod monitor;
 mod proxy;
 mod vojo;
+use crate::constants::constants::DEFAULT_ADMIN_PORT;
+use crate::constants::constants::ENV_ADMIN_PORT;
 use std::env;
 #[macro_use]
 extern crate log;
@@ -20,8 +22,8 @@ fn main() {
         .unwrap();
 
     rt.block_on(async {
-        let admin_port: i32 = env::var("ADMIN_PORT")
-            .unwrap_or(String::from("8870"))
+        let admin_port: i32 = env::var(ENV_ADMIN_PORT)
+            .unwrap_or(String::from(DEFAULT_ADMIN_PORT))
             .parse()
             .unwrap();
         start(admin_port).await

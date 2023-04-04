@@ -1,5 +1,9 @@
 use crate::configuration_service::logger;
 use crate::constants;
+use crate::constants::constants::ENV_ACCESS_LOG;
+use crate::constants::constants::ENV_ADMIN_PORT;
+use crate::constants::constants::ENV_CONFIG_FILE_PATH;
+use crate::constants::constants::ENV_DATABASE_URL;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
@@ -162,11 +166,11 @@ pub async fn start_proxy(
     }
 }
 async fn init_static_config() {
-    let database_url_result = env::var("DATABASE_URL");
+    let database_url_result = env::var(ENV_DATABASE_URL);
     let api_port =
-        env::var("ADMIN_PORT").unwrap_or(String::from(constants::constants::DEFAULT_API_PORT));
-    let access_log_result = env::var("ACCESS_LOG");
-    let config_file_path_result = env::var("CONFIG_FILE_PATH");
+        env::var(ENV_ADMIN_PORT).unwrap_or(String::from(constants::constants::DEFAULT_ADMIN_PORT));
+    let access_log_result = env::var(ENV_ACCESS_LOG);
+    let config_file_path_result = env::var(ENV_CONFIG_FILE_PATH);
 
     let mut global_app_config = GLOBAL_APP_CONFIG.write().await;
 
