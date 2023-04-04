@@ -1,4 +1,9 @@
 # Silverwind-The Next Generation High-Performance Proxy
+[![build](https://github.com/printfn/fend/workflows/build/badge.svg)](https://github.com/lsk569937453/silverwind/actions/workflows/build.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](./licence)
+
+
+
 English  [简体中文](./README-zh_CN.md) 
 
 The Silverwind is a high-performance reverse proxy/load balancer. And it could be also used as the ingress
