@@ -8,5 +8,6 @@
       route_cluster:
         type: RandomRoute
         routes:
-        - endpoint: http://backend:8080
-          weight: 100
+        - base_route:
+            endpoint: http://backend:8080/
+            try_file: null

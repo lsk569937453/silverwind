@@ -4,6 +4,7 @@ extern crate derive_builder;
 mod configuration_service;
 mod constants;
 mod control_plane;
+mod health_check_task;
 mod monitor;
 mod proxy;
 mod vojo;

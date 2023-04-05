@@ -110,6 +110,8 @@ mod tests {
     use lazy_static::lazy_static;
     use std::net::TcpListener;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
+    use std::sync::RwLock;
     use std::{thread, time, vec};
 
     use crate::vojo::app_config::ApiService;
@@ -163,6 +165,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
             }],
         }) as Box<dyn LoadbalancerStrategy>;
@@ -183,6 +186,7 @@ mod tests {
                         allow_deny_list: None,
                         authentication: None,
                         ratelimit: None,
+                        health_check: None,
                     }],
                 },
             };
@@ -208,6 +212,7 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -233,6 +238,7 @@ mod tests {
                         }]),
                         authentication: None,
                         ratelimit: None,
+                        health_check: None,
                     }],
                 },
             };
@@ -257,6 +263,7 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -281,6 +288,7 @@ mod tests {
                             value: Some(String::from("127.0.0.1")),
                         }]),
                         authentication: None,
+                        health_check: None,
                         ratelimit: None,
                     }],
                 },

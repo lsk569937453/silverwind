@@ -1,55 +1,34 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 
 use crate::constants::constants;
+use crate::constants::constants::DEFAULT_HTTP_TIMEOUT;
 use crate::monitor::prometheus_exporter::{get_timer_list, inc};
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::proxy::tls_stream::TlsStream;
 use crate::vojo::route::BaseRoute;
-use dashmap::DashMap;
 use http::uri::InvalidUri;
 use http::StatusCode;
 use hyper::client::HttpConnector;
+use hyper::client::ResponseFuture;
 use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Request, Response, Server};
 use hyper_rustls::ConfigBuilderExt;
 use hyper_staticfile::Static;
-use lazy_static::lazy_static;
 use log::Level;
-use prometheus::{CounterVec, Gauge, HistogramTimer, HistogramVec};
+use prometheus::HistogramTimer;
 use serde_json::json;
 use std::convert::Infallible;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 use url::Url;
-lazy_static! {
-    pub static ref GLOBAL_PROMETHEUS_COUNTRT_VEC: DashMap<String, CounterVec> = Default::default();
-    pub static ref GLOBAL_PROMETHEUS_HISTOGRAM: DashMap<String, HistogramVec> = Default::default();
-    pub static ref GLOBAL_PROMETHEUS_GAUGE: DashMap<String, Gauge> = Default::default();
-    // static ref HTTP_COUNTER: Counter = register_counter!(opts!(
-    //     "silverwind_http_requests_total",
-    //     "Number of HTTP requests made.",
-    //     labels! {"handler" => "all",}
-    // ))
-    // .unwrap();
-    // static ref HTTP_BODY_GAUGE: Gauge = register_gauge!(opts!(
-    //     "silverwind_http_response_size_bytes",
-    //     "The HTTP response sizes in bytes.",
-    //     labels! {"handler" => "all",}
-    // ))
-    // .unwrap();
-    // static ref HTTP_REQ_HISTOGRAM: HistogramVec = register_histogram_vec!(
-    //     "silverwind_http_request_duration_seconds",
-    //     "The HTTP request latencies in seconds.",
-    //     &["handler"]
-    // )
-    // .unwrap();
-}
 #[derive(Debug)]
 pub struct GeneralError(pub anyhow::Error);
 impl std::error::Error for GeneralError {}
@@ -75,7 +54,7 @@ pub struct Clients {
     pub https_client: Client<hyper_rustls::HttpsConnector<HttpConnector>>,
 }
 impl Clients {
-    fn new() -> Clients {
+    pub fn new() -> Clients {
         let http_client = Client::builder()
             .http1_title_case_headers(true)
             .http1_preserve_header_case(true)
@@ -97,11 +76,11 @@ impl Clients {
             https_client: https_client,
         };
     }
-    async fn request_http(&self, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-        return self.http_client.request(req).await;
+    pub fn request_http(&self, req: Request<Body>) -> ResponseFuture {
+        return self.http_client.request(req);
     }
-    async fn request_https(&self, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
-        return self.https_client.request(req).await;
+    pub fn request_https(&self, req: Request<Body>) -> ResponseFuture {
+        return self.https_client.request(req);
     }
 }
 
@@ -270,7 +249,7 @@ async fn proxy(
         debug!("req: {:?}", req);
     }
 
-    let backend_path = req.uri().path();
+    let backend_path = req.uri().path().clone();
     let api_service_manager = GLOBAL_CONFIG_MAPPING
         .get(&mapping_key)
         .ok_or(GeneralError(anyhow!(format!(
@@ -321,23 +300,19 @@ async fn proxy(
         *req.uri_mut() = request_path
             .parse()
             .map_err(|err: InvalidUri| GeneralError(anyhow!(err.to_string())))?;
+        let request_future;
         if request_path.contains("https") {
-            return client.request_https(req).await.map_err(|err| {
-                GeneralError(anyhow!(
-                    "{},the dst endpoint is {}",
-                    err.to_string(),
-                    request_path.clone()
-                ))
-            });
+            request_future = client.request_https(req);
         } else {
-            return client.request_http(req).await.map_err(|err| {
-                GeneralError(anyhow!(
-                    "{},the dst endpoint is {}",
-                    err.to_string(),
-                    request_path.clone()
-                ))
-            });
+            request_future = client.request_http(req);
         }
+        return match timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT), request_future).await {
+            Ok(response) => response.map_err(|e| GeneralError(anyhow!(e.to_string()))),
+            Err(_) => Err(GeneralError(anyhow!(
+                "request time out,the uri is {}",
+                request_path
+            ))),
+        };
     }
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
@@ -401,6 +376,8 @@ mod tests {
     use std::fs::File;
     use std::io::BufReader;
     use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
+    use std::sync::RwLock;
     use std::{thread, time};
     use tokio::runtime::{Builder, Runtime};
     lazy_static! {
@@ -567,6 +544,7 @@ mod tests {
             let base_route = BaseRoute {
                 endpoint: String::from("not_found"),
                 try_file: None,
+                health_check_status: Arc::new(RwLock::new(None)),
             };
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_err(), true);
@@ -585,6 +563,7 @@ mod tests {
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
                 try_file: None,
+                health_check_status: Arc::new(RwLock::new(None)),
             };
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_ok(), true);
@@ -600,6 +579,7 @@ mod tests {
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
                 try_file: Some(String::from("app_config.yaml")),
+                health_check_status: Arc::new(RwLock::new(None)),
             };
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_ok(), true);
@@ -633,6 +613,7 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("http://httpbin.org:80"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -658,6 +639,7 @@ mod tests {
                         }]),
                         authentication: None,
                         ratelimit: None,
+                        health_check: None,
                     }],
                 },
             };
@@ -687,6 +669,7 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -712,6 +695,7 @@ mod tests {
                         }]),
                         authentication: None,
                         ratelimit: None,
+                        health_check: None,
                     }],
                 },
             };

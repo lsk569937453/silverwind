@@ -12,10 +12,16 @@ use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
-
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HealthCheckStatus {
+    OK,
+    FAIL,
+}
 #[typetag::serde(tag = "type")]
 pub trait LoadbalancerStrategy: Sync + Send + DynClone {
     fn get_route(&mut self, headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, anyhow::Error>;
+
+    fn get_all_route(&mut self) -> Vec<BaseRoute>;
 
     fn get_debug(&self) -> String {
         String::from("debug")
@@ -30,10 +36,85 @@ impl Debug for dyn LoadbalancerStrategy {
         write!(f, "{{{}}}", routes)
     }
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BaseRoute {
     pub endpoint: String,
     pub try_file: Option<String>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub health_check_status: Arc<RwLock<Option<HealthCheckStatus>>>,
+}
+impl BaseRoute {
+    pub fn update_health_check_status_with_ok(&self) -> Result<(), anyhow::Error> {
+        let read_lock = self
+            .health_check_status
+            .read()
+            .map_err(|e| anyhow!("{}", e))?;
+        if read_lock.clone().is_none() {
+            drop(read_lock);
+            let mut write_lock = self
+                .health_check_status
+                .write()
+                .map_err(|e| anyhow!("{}", e))?;
+            *write_lock = Some(HealthCheckStatus::OK);
+        } else {
+            let option_value = read_lock.clone().unwrap();
+            match option_value {
+                HealthCheckStatus::FAIL => {
+                    drop(read_lock);
+                    let mut write_lock = self
+                        .health_check_status
+                        .write()
+                        .map_err(|e| anyhow!("{}", e))?;
+                    *write_lock = Some(HealthCheckStatus::OK)
+                }
+                HealthCheckStatus::OK => {}
+            }
+        }
+        Ok(())
+    }
+    pub fn update_health_check_status_with_fail(&self) -> Result<(), anyhow::Error> {
+        let read_lock = self
+            .health_check_status
+            .read()
+            .map_err(|e| anyhow!("{}", e))?;
+        if read_lock.clone().is_none() {
+            drop(read_lock);
+            let mut write_lock = self
+                .health_check_status
+                .write()
+                .map_err(|e| anyhow!("{}", e))?;
+            *write_lock = Some(HealthCheckStatus::FAIL);
+        } else {
+            let option_value = read_lock.clone().unwrap();
+            match option_value {
+                HealthCheckStatus::FAIL => {}
+                HealthCheckStatus::OK => {
+                    drop(read_lock);
+                    let mut write_lock = self
+                        .health_check_status
+                        .write()
+                        .map_err(|e| anyhow!("{}", e))?;
+                    *write_lock = Some(HealthCheckStatus::FAIL)
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl PartialEq for BaseRoute {
+    fn eq(&self, other: &BaseRoute) -> bool {
+        let status = self.endpoint.eq(&other.endpoint) && self.try_file.eq(&other.try_file);
+        if !status {
+            return !status;
+        }
+        let src_option = self.health_check_status.read();
+        let dst_option = other.health_check_status.read();
+        if src_option.is_err() || dst_option.is_err() {
+            return false;
+        }
+
+        src_option.unwrap().eq(&dst_option.unwrap())
+    }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct WeightRoute {
@@ -67,7 +148,7 @@ pub enum HeaderValueMappingType {
     TEXT(TextMatch),
     SPLIT(SplitSegment),
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeaderRoute {
     pub base_route: BaseRoute,
     pub header_key: String,
@@ -77,13 +158,20 @@ pub struct HeaderRoute {
 fn default_weight() -> i32 {
     100
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HeaderBasedRoute {
     pub routes: Vec<HeaderRoute>,
 }
 
 #[typetag::serde]
 impl LoadbalancerStrategy for HeaderBasedRoute {
+    fn get_all_route(&mut self) -> Vec<BaseRoute> {
+        self.routes
+            .iter()
+            .map(|item| item.base_route.clone())
+            .collect::<Vec<BaseRoute>>()
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -137,16 +225,22 @@ impl LoadbalancerStrategy for HeaderBasedRoute {
         Ok(first)
     }
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RandomBaseRoute {
     pub base_route: BaseRoute,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RandomRoute {
     pub routes: Vec<RandomBaseRoute>,
 }
 #[typetag::serde]
 impl LoadbalancerStrategy for RandomRoute {
+    fn get_all_route(&mut self) -> Vec<BaseRoute> {
+        self.routes
+            .iter()
+            .map(|item| item.base_route.clone())
+            .collect::<Vec<BaseRoute>>()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -157,7 +251,7 @@ impl LoadbalancerStrategy for RandomRoute {
         Ok(dst.base_route)
     }
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PollBaseRoute {
     pub base_route: BaseRoute,
 }
@@ -171,6 +265,12 @@ pub struct PollRoute {
 }
 #[typetag::serde]
 impl LoadbalancerStrategy for PollRoute {
+    fn get_all_route(&mut self) -> Vec<BaseRoute> {
+        self.routes
+            .iter()
+            .map(|item| item.base_route.clone())
+            .collect::<Vec<BaseRoute>>()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -195,6 +295,12 @@ pub struct WeightBasedRoute {
 impl WeightRoute {}
 #[typetag::serde]
 impl LoadbalancerStrategy for WeightBasedRoute {
+    fn get_all_route(&mut self) -> Vec<BaseRoute> {
+        self.routes
+            .iter()
+            .map(|item| item.base_route.clone())
+            .collect::<Vec<BaseRoute>>()
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -270,6 +376,7 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:4444"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     }
                 },
             },
@@ -278,6 +385,7 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     }
                 },
             },
@@ -286,6 +394,7 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     }
                 },
             },
@@ -298,6 +407,7 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:4444"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     }
                 },
             },
@@ -306,6 +416,7 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     }
                 },
             },
@@ -314,6 +425,7 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     }
                 },
             },
@@ -325,6 +437,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 weight: 100,
             },
@@ -332,6 +445,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 weight: 100,
             },
@@ -339,6 +453,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:6666"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 weight: 100,
             },
@@ -350,6 +465,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::REGEX(RegexMatch {
@@ -360,6 +476,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::SPLIT(SplitSegment {
@@ -375,6 +492,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:7777"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::SPLIT(SplitSegment {
@@ -390,6 +508,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:8888"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::TEXT(TextMatch {

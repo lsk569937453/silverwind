@@ -4,6 +4,8 @@ use crate::constants::constants::ENV_ACCESS_LOG;
 use crate::constants::constants::ENV_ADMIN_PORT;
 use crate::constants::constants::ENV_CONFIG_FILE_PATH;
 use crate::constants::constants::ENV_DATABASE_URL;
+use crate::constants::constants::TIMER_WAIT_SECONDS;
+use crate::health_check_task::health_check_task::HealthCheck;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
@@ -35,6 +37,12 @@ pub async fn init() {
             sync_mapping_from_global_app_config().await;
         })
     });
+    tokio::task::spawn_blocking(move || {
+        Handle::current().block_on(async {
+            let mut health_check = HealthCheck::new();
+            health_check.start_health_check_loop().await;
+        })
+    });
 }
 async fn sync_mapping_from_global_app_config() {
     loop {
@@ -44,7 +52,7 @@ async fn sync_mapping_from_global_app_config() {
         if async_result.is_err() {
             error!("sync_mapping_from_global_app_config catch panic successfully!");
         }
-        sleep(std::time::Duration::from_secs(5)).await;
+        sleep(std::time::Duration::from_secs(TIMER_WAIT_SECONDS)).await;
     }
 }
 /**
@@ -220,6 +228,8 @@ mod tests {
     use crate::vojo::app_config::Route;
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use serial_test::serial;
+    use std::sync::Arc;
+    use std::sync::RwLock;
     use tokio::runtime::{Builder, Runtime};
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
@@ -374,6 +384,7 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
                     try_file: None,
+                    health_check_status: Arc::new(RwLock::new(None)),
                 },
             }],
         }) as Box<dyn LoadbalancerStrategy>;
@@ -393,6 +404,7 @@ mod tests {
                     allow_deny_list: None,
                     authentication: None,
                     ratelimit: None,
+                    health_check: None,
                 }],
             },
         };

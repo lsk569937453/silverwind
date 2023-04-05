@@ -12,3 +12,5 @@ pub const ENV_ADMIN_PORT: &'static str = "ADMIN_PORT";
 pub const ENV_DATABASE_URL: &'static str = "DATABASE_URL";
 pub const ENV_ACCESS_LOG: &'static str = "ACCESS_LOG";
 pub const ENV_CONFIG_FILE_PATH: &'static str = "CONFIG_FILE_PATH";
+pub const TIMER_WAIT_SECONDS: u64 = 5;
+pub const DEFAULT_HTTP_TIMEOUT: u64 = 10;

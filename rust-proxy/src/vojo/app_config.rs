@@ -1,14 +1,14 @@
 use super::allow_deny_ip::AllowResult;
 use crate::vojo::allow_deny_ip::AllowDenyObject;
 use crate::vojo::authentication::AuthenticationStrategy;
+use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::rate_limit::RatelimitStrategy;
 use crate::vojo::route::LoadbalancerStrategy;
 use http::HeaderMap;
 use http::HeaderValue;
 use regex::Regex;
-use uuid::Uuid;
-
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
     pub prefix: String,
@@ -22,6 +22,7 @@ pub struct Route {
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
+    pub health_check: Option<HealthCheckType>,
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
     pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
@@ -173,6 +174,7 @@ mod tests {
     use crate::vojo::route::RandomBaseRoute;
     use crate::vojo::route::RandomRoute;
 
+    use crate::vojo::health_check::{BaseHealthCheckParam, HttpHealthCheckParam};
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
@@ -192,10 +194,12 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                     weight: 100,
                 }],
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -242,6 +246,52 @@ mod tests {
         assert_eq!(allow_result.unwrap(), true);
     }
     #[test]
+    fn test_serde_output_health_check() {
+        let route = Route {
+            host_name: None,
+            route_id: new_uuid(),
+            route_cluster: Box::new(WeightBasedRoute {
+                indexs: Default::default(),
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
+                    },
+                    weight: 100,
+                }],
+            }),
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 10,
+                    interval: 10,
+                },
+                path: String::from("value"),
+            })),
+            allow_deny_list: None,
+            authentication: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            api_service_id: new_uuid(),
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let t = vec![api_service];
+        let yaml = serde_yaml::to_string(&t).unwrap();
+        println!("{}", yaml);
+    }
+
+    #[test]
     fn test_serde_output_weight_based_route() {
         let route = Route {
             host_name: None,
@@ -252,10 +302,12 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                     weight: 100,
                 }],
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -289,6 +341,7 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                     header_key: String::from("user-agent"),
                     header_value_mapping_type: crate::vojo::route::HeaderValueMappingType::REGEX(
@@ -298,6 +351,7 @@ mod tests {
                     ),
                 }],
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -331,18 +385,21 @@ mod tests {
                         base_route: BaseRoute {
                             endpoint: String::from("/"),
                             try_file: None,
+                            health_check_status: Arc::new(RwLock::new(None)),
                         },
                     },
                     RandomBaseRoute {
                         base_route: BaseRoute {
                             endpoint: String::from("/"),
                             try_file: None,
+                            health_check_status: Arc::new(RwLock::new(None)),
                         },
                     },
                 ],
             }),
             allow_deny_list: None,
             authentication: None,
+            health_check: None,
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -374,11 +431,13 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -416,11 +475,13 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: Some(basic_auth),
             ratelimit: None,
@@ -457,11 +518,13 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
+            health_check: None,
             allow_deny_list: None,
             ratelimit: None,
             authentication: Some(api_key_auth),
@@ -506,11 +569,13 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: Some(ratelimit),
@@ -553,11 +618,13 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
+            health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: Some(ratelimit),
@@ -595,11 +662,13 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
+                        health_check_status: Arc::new(RwLock::new(None)),
                     },
                 }],
                 lock: Default::default(),
                 current_index: Default::default(),
             }),
+            health_check: None,
             allow_deny_list: Some(vec![allow_object]),
             authentication: None,
             ratelimit: None,
