@@ -5,6 +5,8 @@ use crate::constants::constants::DEFAULT_HTTP_TIMEOUT;
 use crate::monitor::prometheus_exporter::{get_timer_list, inc};
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::proxy::tls_stream::TlsStream;
+use crate::vojo::anomaly_detection::AnomalyDetectionType;
+use crate::vojo::app_config::{LivenessConfig, LivenessStatus, Route};
 use crate::vojo::route::BaseRoute;
 use http::uri::InvalidUri;
 use http::StatusCode;
@@ -24,6 +26,7 @@ use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::RwLock;
 use std::time::Duration;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
@@ -200,25 +203,25 @@ async fn proxy_adapter(
         .iter()
         .map(|item| item.start_timer())
         .collect::<Vec<HistogramTimer>>();
-    let res = match proxy(client, req, mapping_key.clone(), remote_addr).await {
-        Ok(r) => Ok(r),
-        Err(err) => {
+    let res = proxy(client, req, mapping_key.clone(), remote_addr)
+        .await
+        .unwrap_or_else(|err| {
             let json_value = json!({
                 "response_code": -1,
                 "response_object": format!("{}", err.to_string())
             });
-            Ok(Response::builder()
+            Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(json_value.to_string()))
-                .unwrap())
-        }
-    };
+                .unwrap()
+        });
     let mut elapsed_time = 0;
     let elapsed_time_res = current_time.elapsed();
     if let Ok(elapsed_times) = elapsed_time_res {
         elapsed_time = elapsed_times.as_millis();
     }
-    let status = res.as_ref().unwrap().status().as_u16();
+
+    let status = res.status().as_u16();
     let json_value: serde_json::Value = format!("{:?}", headers).into();
     monitor_timer_list
         .into_iter()
@@ -237,8 +240,9 @@ async fn proxy_adapter(
         path,
         json_value.to_string()
     );
-    return res;
+    return Ok(res);
 }
+
 async fn proxy(
     client: Clients,
     mut req: Request<Body>,
@@ -281,14 +285,14 @@ async fn proxy(
                 .unwrap());
         }
 
-        let route_cluster = item
+        let base_route = item
             .route_cluster
             .clone()
             .get_route(req.headers().clone())
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
-        let endpoint = route_cluster.clone().endpoint;
+        let endpoint = base_route.clone().endpoint;
         if !endpoint.clone().contains("http") {
-            return route_file(route_cluster, req).await;
+            return route_file(base_route, req).await;
         }
         let host =
             Url::parse(endpoint.as_str()).map_err(|err| GeneralError(anyhow!(err.to_string())))?;
@@ -306,20 +310,73 @@ async fn proxy(
         } else {
             request_future = client.request_http(req);
         }
-        return match timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT), request_future).await {
-            Ok(response) => response.map_err(|e| GeneralError(anyhow!(e.to_string()))),
-            Err(_) => Err(GeneralError(anyhow!(
-                "request time out,the uri is {}",
-                request_path
-            ))),
-        };
+        let response_result =
+            match timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT), request_future).await {
+                Ok(response) => response.map_err(|e| GeneralError(anyhow!(e.to_string()))),
+                Err(_) => Err(GeneralError(anyhow!(
+                    "Request time out,the uri is {}",
+                    request_path
+                ))),
+            };
+        if let (Some(anomaly_detection), Some(liveness_config)) =
+            (item.clone().anomaly_detection, item.clone().liveness_config)
+        {
+            let is_5xx = match response_result.as_ref() {
+                Ok(response) => {
+                    let status_code = response.status();
+                    status_code.clone().as_u16() >= StatusCode::INTERNAL_SERVER_ERROR.as_u16()
+                }
+                Err(_) => true,
+            };
+            let anomaly_detection_status_lock = base_route.anomaly_detection_status.read();
+            if anomaly_detection_status_lock.is_err() {
+                return response_result;
+            }
+            let consecutive_5xx = anomaly_detection_status_lock.unwrap().consecutive_5xx;
+            if is_5xx || (!is_5xx && consecutive_5xx > 0) {
+                if let Err(err) = trigger_anomaly_detection(
+                    anomaly_detection,
+                    item.liveness_status.clone(),
+                    base_route,
+                    is_5xx,
+                    liveness_config,
+                ) {
+                    error!("{}", err);
+                }
+            }
+        }
+        return response_result;
     }
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Body::from(constants::NOT_FOUND))
         .unwrap())
 }
+fn trigger_anomaly_detection(
+    anomaly_detection: AnomalyDetectionType,
+    liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+    base_route: BaseRoute,
+    is_5xx: bool,
+    liveness_config: LivenessConfig,
+) -> Result<(), anyhow::Error> {
+    let http_anomaly_detection_param = match anomaly_detection {
+        AnomalyDetectionType::Http(param) => param,
+    };
+    let res = base_route.trigger_http_anomaly_detection(
+        http_anomaly_detection_param,
+        liveness_status_lock,
+        is_5xx,
+        liveness_config,
+    );
+    if res.is_err() {
+        error!(
+            "trigger_http_anomaly_detection error,the error is {}",
+            res.unwrap_err()
+        );
+    }
 
+    Ok(())
+}
 async fn route_file(
     base_route: BaseRoute,
     req: Request<Body>,
@@ -362,12 +419,16 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowDenyObject;
     use crate::vojo::allow_deny_ip::AllowType;
 
+    use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
+    use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
     use crate::vojo::api_service_manager::ApiServiceManager;
     use crate::vojo::app_config::new_uuid;
     use crate::vojo::app_config::ApiService;
+    use crate::vojo::app_config::LivenessStatus;
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::Route;
     use crate::vojo::app_config::ServiceConfig;
+    use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use crate::vojo::vojo::BaseResponse;
     use lazy_static::lazy_static;
@@ -544,7 +605,10 @@ mod tests {
             let base_route = BaseRoute {
                 endpoint: String::from("not_found"),
                 try_file: None,
-                health_check_status: Arc::new(RwLock::new(None)),
+                is_alive: Arc::new(RwLock::new(None)),
+                anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    consecutive_5xx: 100,
+                })),
             };
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_err(), true);
@@ -563,7 +627,10 @@ mod tests {
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
                 try_file: None,
-                health_check_status: Arc::new(RwLock::new(None)),
+                is_alive: Arc::new(RwLock::new(None)),
+                anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    consecutive_5xx: 100,
+                })),
             };
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_ok(), true);
@@ -579,7 +646,10 @@ mod tests {
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
                 try_file: Some(String::from("app_config.yaml")),
-                health_check_status: Arc::new(RwLock::new(None)),
+                is_alive: Arc::new(RwLock::new(None)),
+                anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    consecutive_5xx: 100,
+                })),
             };
             let res = route_file(base_route, request).await;
             assert_eq!(res.is_ok(), true);
@@ -613,7 +683,10 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("http://httpbin.org:80"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -638,6 +711,11 @@ mod tests {
                             value: None,
                         }]),
                         authentication: None,
+                        anomaly_detection: None,
+                        liveness_config: None,
+                        liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                            current_liveness_count: 0,
+                        })),
                         ratelimit: None,
                         health_check: None,
                     }],
@@ -669,7 +747,10 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -695,7 +776,12 @@ mod tests {
                         }]),
                         authentication: None,
                         ratelimit: None,
+                        liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                            current_liveness_count: 0,
+                        })),
                         health_check: None,
+                        anomaly_detection: None,
+                        liveness_config: None,
                     }],
                 },
             };
@@ -716,6 +802,75 @@ mod tests {
             assert_eq!(res.is_ok(), true);
             let response = res.unwrap();
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        });
+    }
+    #[test]
+    fn test_proxy_turn_5xx() {
+        TOKIO_RUNTIME.block_on(async {
+            let route = Box::new(RandomRoute {
+                routes: vec![RandomBaseRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("http://127.0.0.1:9851"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    },
+                }],
+            }) as Box<dyn LoadbalancerStrategy>;
+            let (sender, _) = tokio::sync::mpsc::channel(10);
+
+            let api_service_manager = ApiServiceManager {
+                sender: sender,
+                service_config: ServiceConfig {
+                    key_str: None,
+                    server_type: crate::vojo::app_config::ServiceType::HTTP,
+                    cert_str: None,
+                    routes: vec![Route {
+                        host_name: None,
+                        route_id: new_uuid(),
+                        matcher: Some(Matcher {
+                            prefix: String::from("/"),
+                            prefix_rewrite: String::from("test"),
+                        }),
+                        route_cluster: route,
+                        allow_deny_list: None,
+                        authentication: None,
+                        anomaly_detection: Some(AnomalyDetectionType::Http(
+                            HttpAnomalyDetectionParam {
+                                consecutive_5xx: 3,
+                                base_anomaly_detection_param: BaseAnomalyDetectionParam {
+                                    ejection_second: 10,
+                                },
+                            },
+                        )),
+                        liveness_config: Some(LivenessConfig {
+                            min_liveness_count: 1,
+                        }),
+                        liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                            current_liveness_count: 0,
+                        })),
+                        ratelimit: None,
+                        health_check: None,
+                    }],
+                },
+            };
+            let mut write = GLOBAL_APP_CONFIG.write().await;
+            write.api_service_config.push(ApiService {
+                api_service_id: new_uuid(),
+                listen_port: 10024,
+                service_config: api_service_manager.service_config.clone(),
+            });
+            GLOBAL_CONFIG_MAPPING.insert(String::from("10024-HTTP"), api_service_manager);
+            let client = Clients::new();
+            let request = Request::builder()
+                .uri("http://localhost:10024/get")
+                .body(Body::empty())
+                .unwrap();
+            let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+            let res = proxy(client, request, String::from("10024-HTTP"), socket).await;
+            assert_eq!(res.is_err(), true);
         });
     }
 }

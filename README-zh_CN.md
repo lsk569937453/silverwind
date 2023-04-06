@@ -35,7 +35,7 @@ Silverwind不止是一个反向代理/负载均衡器，而且是一个API网关
 与其他的网关相比，Silverwind的优点是涵盖API网关所有的基础服务，并且性能高。其次，Silverwind的动态配置接近实时。每次修改完配置，会在5秒内生效(接近实时)。
 
 ### Kong
-Kong的免费限流插件[不准确]( https://github.com/Kong/kong/issues/5311)。如果想要实现更准确的限流，我们不的不买企业版的Kong。
+Kong的免费限流插件[不准确]( https://github.com/Kong/kong/issues/5311)。如果想要实现更准确的限流，我们不得不买企业版的Kong。
 
 
 ### Envoy

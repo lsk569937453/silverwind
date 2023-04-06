@@ -2,6 +2,7 @@ pub mod api_service_manager;
 pub mod app_config;
 
 pub mod allow_deny_ip;
+pub mod anomaly_detection;
 pub mod authentication;
 pub mod health_check;
 pub mod rate_limit;

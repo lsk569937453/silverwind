@@ -30,9 +30,9 @@ fn main() {
         start(admin_port).await
     });
 }
-async fn start(api_port: i32) {
+async fn start(admin_port: i32) {
     configuration_service::app_config_service::init().await;
-    start_control_plane(api_port).await;
+    start_control_plane(admin_port).await;
 }
 #[cfg(test)]
 mod tests {
@@ -55,7 +55,7 @@ mod tests {
         TOKIO_RUNTIME.spawn(async {
             start(5402).await;
         });
-        let sleep_time = time::Duration::from_millis(2000);
+        let sleep_time = time::Duration::from_millis(5000);
         thread::sleep(sleep_time);
         let listener = TcpListener::bind("127.0.0.1:5402");
         assert_eq!(listener.is_err(), true);

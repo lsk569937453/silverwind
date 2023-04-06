@@ -1,5 +1,6 @@
 use super::allow_deny_ip::AllowResult;
 use crate::vojo::allow_deny_ip::AllowDenyObject;
+use crate::vojo::anomaly_detection::AnomalyDetectionType;
 use crate::vojo::authentication::AuthenticationStrategy;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::rate_limit::RatelimitStrategy;
@@ -7,14 +8,24 @@ use crate::vojo::route::LoadbalancerStrategy;
 use http::HeaderMap;
 use http::HeaderValue;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::sync::Arc;
+use std::sync::RwLock;
 use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
     pub prefix: String,
     pub prefix_rewrite: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct LivenessConfig {
+    pub min_liveness_count: i32,
+}
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct LivenessStatus {
+    pub current_liveness_count: i32,
+}
+#[derive(Debug, Clone, Serialize)]
 pub struct Route {
     #[serde(default = "new_uuid")]
     pub route_id: String,
@@ -22,10 +33,66 @@ pub struct Route {
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
+    pub anomaly_detection: Option<AnomalyDetectionType>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub liveness_status: Arc<RwLock<LivenessStatus>>,
+    pub liveness_config: Option<LivenessConfig>,
     pub health_check: Option<HealthCheckType>,
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
     pub route_cluster: Box<dyn LoadbalancerStrategy>,
 }
+impl<'de> Deserialize<'de> for Route {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct VistorRoute {
+            #[serde(default = "new_uuid")]
+            pub route_id: String,
+            pub host_name: Option<String>,
+            pub matcher: Option<Matcher>,
+            pub allow_deny_list: Option<Vec<AllowDenyObject>>,
+            pub authentication: Option<Box<dyn AuthenticationStrategy>>,
+            pub anomaly_detection: Option<AnomalyDetectionType>,
+
+            pub liveness_config: Option<LivenessConfig>,
+            pub health_check: Option<HealthCheckType>,
+            pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
+            pub route_cluster: Box<dyn LoadbalancerStrategy>,
+        }
+        let data = VistorRoute::deserialize(deserializer).map(
+            |VistorRoute {
+                 route_id,
+                 host_name,
+                 matcher,
+                 allow_deny_list,
+                 authentication,
+                 anomaly_detection,
+                 liveness_config,
+                 health_check,
+                 ratelimit,
+                 mut route_cluster,
+             }| Route {
+                route_id: route_id,
+                host_name: host_name,
+                matcher: matcher,
+                allow_deny_list: allow_deny_list,
+                authentication: authentication,
+                anomaly_detection: anomaly_detection,
+                liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                    current_liveness_count: route_cluster.get_all_route().unwrap().len() as i32,
+                })),
+                liveness_config: liveness_config,
+                health_check: health_check,
+                ratelimit: ratelimit,
+                route_cluster: route_cluster,
+            },
+        )?;
+        Ok(data)
+    }
+}
+
 pub fn new_uuid() -> String {
     let id = Uuid::new_v4();
     id.to_string()
@@ -175,6 +242,7 @@ mod tests {
     use crate::vojo::route::RandomRoute;
 
     use crate::vojo::health_check::{BaseHealthCheckParam, HttpHealthCheckParam};
+    use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::RegexMatch;
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
@@ -189,19 +257,28 @@ mod tests {
             host_name: host_name,
             route_id: new_uuid(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
+                    index: Arc::new(AtomicIsize::new(0)),
                     weight: 100,
-                }],
+                }])),
             }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
             authentication: None,
+            liveness_config: None,
+
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("/"),
@@ -251,15 +328,18 @@ mod tests {
             host_name: None,
             route_id: new_uuid(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
+                    index: Arc::new(AtomicIsize::new(0)),
                     weight: 100,
-                }],
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -268,8 +348,14 @@ mod tests {
                 },
                 path: String::from("value"),
             })),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
+            liveness_config: None,
+
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -297,19 +383,28 @@ mod tests {
             host_name: None,
             route_id: new_uuid(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
+                    index: Arc::new(AtomicIsize::new(0)),
                     weight: 100,
-                }],
+                }])),
             }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
             authentication: None,
+            liveness_config: None,
+
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -341,7 +436,10 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     header_key: String::from("user-agent"),
                     header_value_mapping_type: crate::vojo::route::HeaderValueMappingType::REGEX(
@@ -351,10 +449,16 @@ mod tests {
                     ),
                 }],
             }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
+            liveness_config: None,
+
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
@@ -385,18 +489,33 @@ mod tests {
                         base_route: BaseRoute {
                             endpoint: String::from("/"),
                             try_file: None,
-                            health_check_status: Arc::new(RwLock::new(None)),
+                            is_alive: Arc::new(RwLock::new(None)),
+                            anomaly_detection_status: Arc::new(RwLock::new(
+                                AnomalyDetectionStatus {
+                                    consecutive_5xx: 100,
+                                },
+                            )),
                         },
                     },
                     RandomBaseRoute {
                         base_route: BaseRoute {
                             endpoint: String::from("/"),
                             try_file: None,
-                            health_check_status: Arc::new(RwLock::new(None)),
+                            is_alive: Arc::new(RwLock::new(None)),
+                            anomaly_detection_status: Arc::new(RwLock::new(
+                                AnomalyDetectionStatus {
+                                    consecutive_5xx: 100,
+                                },
+                            )),
                         },
                     },
                 ],
             }),
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
             health_check: None,
@@ -431,12 +550,20 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
-                lock: Default::default(),
+                // lock: Default::default(),
                 current_index: Default::default(),
             }),
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
             authentication: None,
@@ -475,14 +602,22 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
-                lock: Default::default(),
+                // lock: Default::default(),
                 current_index: Default::default(),
             }),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
             authentication: Some(basic_auth),
             ratelimit: None,
             matcher: Some(Matcher {
@@ -518,14 +653,22 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
-                lock: Default::default(),
+                // lock: Default::default(),
                 current_index: Default::default(),
             }),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
             ratelimit: None,
             authentication: Some(api_key_auth),
             matcher: Some(Matcher {
@@ -569,14 +712,23 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
-                lock: Default::default(),
+                // lock: Default::default(),
                 current_index: Default::default(),
             }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
+            liveness_config: None,
+
             authentication: None,
             ratelimit: Some(ratelimit),
             matcher: Some(Matcher {
@@ -618,15 +770,24 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
-                lock: Default::default(),
+                // lock: Default::default(),
                 current_index: Default::default(),
             }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
             authentication: None,
+            liveness_config: None,
+
             ratelimit: Some(ratelimit),
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -662,15 +823,23 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
-                lock: Default::default(),
+                // lock: Default::default(),
                 current_index: Default::default(),
             }),
+            anomaly_detection: None,
             health_check: None,
             allow_deny_list: Some(vec![allow_object]),
             authentication: None,
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),

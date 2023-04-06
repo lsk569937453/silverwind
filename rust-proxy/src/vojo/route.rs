@@ -1,3 +1,6 @@
+use super::app_config::LivenessConfig;
+use super::app_config::LivenessStatus;
+use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
 use core::fmt::Debug;
 use dyn_clone::DynClone;
 use http::HeaderMap;
@@ -5,23 +8,19 @@ use http::HeaderValue;
 use log::Level;
 use rand::prelude::*;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::any::Any;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::RwLock;
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum HealthCheckStatus {
-    OK,
-    FAIL,
-}
+use tokio::time::{sleep, Duration};
+
 #[typetag::serde(tag = "type")]
 pub trait LoadbalancerStrategy: Sync + Send + DynClone {
     fn get_route(&mut self, headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, anyhow::Error>;
 
-    fn get_all_route(&mut self) -> Vec<BaseRoute>;
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error>;
 
     fn get_debug(&self) -> String {
         String::from("debug")
@@ -37,67 +36,142 @@ impl Debug for dyn LoadbalancerStrategy {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnomalyDetectionStatus {
+    pub consecutive_5xx: i32,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BaseRoute {
     pub endpoint: String,
     pub try_file: Option<String>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub health_check_status: Arc<RwLock<Option<HealthCheckStatus>>>,
+    pub is_alive: Arc<RwLock<Option<bool>>>,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub anomaly_detection_status: Arc<RwLock<AnomalyDetectionStatus>>,
 }
 impl BaseRoute {
-    pub fn update_health_check_status_with_ok(&self) -> Result<(), anyhow::Error> {
-        let read_lock = self
-            .health_check_status
-            .read()
+    fn update_ok(
+        &self,
+        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+    ) -> Result<(), anyhow::Error> {
+        let mut is_alive_lock = self.is_alive.write().map_err(|e| anyhow!("{}", e))?;
+        // let is_alive = is_alive_lock
+        if is_alive_lock.is_none() {
+            *is_alive_lock = Some(true);
+        } else if !is_alive_lock.unwrap() {
+            *is_alive_lock = Some(true);
+            let mut liveness_status = liveness_status_lock.write().map_err(|e| anyhow!("{}", e))?;
+            (*liveness_status).current_liveness_count += 1;
+        }
+        Ok(())
+    }
+    fn update_fail(
+        &self,
+        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+    ) -> Result<(), anyhow::Error> {
+        let mut is_alive_lock = self.is_alive.write().map_err(|e| anyhow!("{}", e))?;
+        if is_alive_lock.is_none() || is_alive_lock.unwrap() {
+            let mut liveness_status = liveness_status_lock.write().map_err(|e| anyhow!("{}", e))?;
+            (*liveness_status).current_liveness_count -= 1;
+            *is_alive_lock = Some(false);
+        }
+        Ok(())
+    }
+    pub fn update_health_check_status_with_ok(
+        &self,
+        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+    ) -> Result<(), anyhow::Error> {
+        let is_alive_lock = self.is_alive.read().map_err(|e| anyhow!("{}", e))?;
+        let is_alive = is_alive_lock.unwrap_or(false);
+        if !is_alive {
+            drop(is_alive_lock);
+            self.update_ok(liveness_status_lock)?;
+        }
+        Ok(())
+    }
+    pub fn update_health_check_status_with_fail(
+        &self,
+        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+        liveness_config: LivenessConfig,
+    ) -> Result<bool, anyhow::Error> {
+        let liveness_status = liveness_status_lock.read().map_err(|e| anyhow!("{}", e))?;
+        if liveness_status.current_liveness_count <= liveness_config.min_liveness_count {
+            return Ok(false);
+        }
+        let is_alive_lock = self.is_alive.read().map_err(|e| anyhow!("{}", e))?;
+        let is_alive = is_alive_lock.unwrap_or(true);
+        if is_alive {
+            drop(liveness_status);
+            drop(is_alive_lock);
+            self.update_fail(liveness_status_lock.clone())?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    pub fn trigger_http_anomaly_detection(
+        &self,
+        http_anomaly_detection_param: HttpAnomalyDetectionParam,
+        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+        is_5xx: bool,
+        liveness_config: LivenessConfig,
+    ) -> Result<(), anyhow::Error> {
+        let consecutive_5xx_config = http_anomaly_detection_param.consecutive_5xx;
+        let mut anomaly_detection_status = self
+            .anomaly_detection_status
+            .try_write()
             .map_err(|e| anyhow!("{}", e))?;
-        if read_lock.clone().is_none() {
-            drop(read_lock);
-            let mut write_lock = self
-                .health_check_status
-                .write()
-                .map_err(|e| anyhow!("{}", e))?;
-            *write_lock = Some(HealthCheckStatus::OK);
+        if !is_5xx && (*anomaly_detection_status).consecutive_5xx > 0 {
+            (*anomaly_detection_status).consecutive_5xx = 0;
+            return Ok(());
+        }
+
+        if (*anomaly_detection_status).consecutive_5xx < consecutive_5xx_config - 1 {
+            (*anomaly_detection_status).consecutive_5xx += 1;
         } else {
-            let option_value = read_lock.clone().unwrap();
-            match option_value {
-                HealthCheckStatus::FAIL => {
-                    drop(read_lock);
-                    let mut write_lock = self
-                        .health_check_status
-                        .write()
-                        .map_err(|e| anyhow!("{}", e))?;
-                    *write_lock = Some(HealthCheckStatus::OK)
-                }
-                HealthCheckStatus::OK => {}
+            drop(anomaly_detection_status);
+            let update_result = self.update_health_check_status_with_fail(
+                liveness_status_lock.clone(),
+                liveness_config,
+            )?;
+            if update_result {
+                let alive_lock = self.is_alive.clone();
+                let ejection_second = http_anomaly_detection_param
+                    .base_anomaly_detection_param
+                    .ejection_second;
+                let anomaly_detection_status_lock = self.anomaly_detection_status.clone();
+                tokio::spawn(async move {
+                    let res = BaseRoute::wait_for_alive(
+                        alive_lock,
+                        ejection_second,
+                        liveness_status_lock,
+                        anomaly_detection_status_lock,
+                    )
+                    .await;
+                    if res.is_err() {
+                        error!("Wait for alive error,the error is {}!", res.unwrap_err());
+                    } else {
+                        info!("Wait for alive successfully!");
+                    }
+                });
             }
         }
         Ok(())
     }
-    pub fn update_health_check_status_with_fail(&self) -> Result<(), anyhow::Error> {
-        let read_lock = self
-            .health_check_status
-            .read()
+
+    pub async fn wait_for_alive(
+        is_alive_lock: Arc<RwLock<Option<bool>>>,
+        wait_second: u64,
+        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
+        anomaly_detection_status_lock: Arc<RwLock<AnomalyDetectionStatus>>,
+    ) -> Result<(), anyhow::Error> {
+        sleep(Duration::from_secs(wait_second)).await;
+        let mut is_alive_option = is_alive_lock.write().map_err(|e| anyhow!("{}", e))?;
+        let mut liveness_status = liveness_status_lock.write().map_err(|e| anyhow!("{}", e))?;
+        let mut anomaly_detection_status = anomaly_detection_status_lock
+            .write()
             .map_err(|e| anyhow!("{}", e))?;
-        if read_lock.clone().is_none() {
-            drop(read_lock);
-            let mut write_lock = self
-                .health_check_status
-                .write()
-                .map_err(|e| anyhow!("{}", e))?;
-            *write_lock = Some(HealthCheckStatus::FAIL);
-        } else {
-            let option_value = read_lock.clone().unwrap();
-            match option_value {
-                HealthCheckStatus::FAIL => {}
-                HealthCheckStatus::OK => {
-                    drop(read_lock);
-                    let mut write_lock = self
-                        .health_check_status
-                        .write()
-                        .map_err(|e| anyhow!("{}", e))?;
-                    *write_lock = Some(HealthCheckStatus::FAIL)
-                }
-            }
-        }
+        *is_alive_option = Some(true);
+        (*liveness_status).current_liveness_count += 1;
+        (*anomaly_detection_status).consecutive_5xx = 0;
         Ok(())
     }
 }
@@ -107,8 +181,8 @@ impl PartialEq for BaseRoute {
         if !status {
             return !status;
         }
-        let src_option = self.health_check_status.read();
-        let dst_option = other.health_check_status.read();
+        let src_option = self.is_alive.read();
+        let dst_option = other.is_alive.read();
         if src_option.is_err() || dst_option.is_err() {
             return false;
         }
@@ -116,11 +190,13 @@ impl PartialEq for BaseRoute {
         src_option.unwrap().eq(&dst_option.unwrap())
     }
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WeightRoute {
     pub base_route: BaseRoute,
     #[serde(default = "default_weight")]
     pub weight: i32,
+    #[serde(skip_serializing, skip_deserializing)]
+    pub index: Arc<AtomicIsize>,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitSegment {
@@ -165,17 +241,30 @@ pub struct HeaderBasedRoute {
 
 #[typetag::serde]
 impl LoadbalancerStrategy for HeaderBasedRoute {
-    fn get_all_route(&mut self) -> Vec<BaseRoute> {
-        self.routes
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+        Ok(self
+            .routes
             .iter()
             .map(|item| item.base_route.clone())
-            .collect::<Vec<BaseRoute>>()
+            .collect::<Vec<BaseRoute>>())
     }
 
     fn as_any(&self) -> &dyn Any {
         self
     }
     fn get_route(&mut self, headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, anyhow::Error> {
+        let mut alive_cluster: Vec<HeaderRoute> = vec![];
+        for item in self.routes.clone() {
+            let is_alve_result = item.base_route.is_alive.read();
+            if is_alve_result.is_err() {
+                continue;
+            }
+            let is_alive_option = is_alve_result.unwrap();
+            let is_alive = is_alive_option.unwrap_or(true);
+            if is_alive {
+                alive_cluster.push(item.clone());
+            }
+        }
         for item in self.routes.iter() {
             let headers_contais_key = headers.contains_key(item.header_key.clone());
             if !headers_contais_key {
@@ -235,20 +324,33 @@ pub struct RandomRoute {
 }
 #[typetag::serde]
 impl LoadbalancerStrategy for RandomRoute {
-    fn get_all_route(&mut self) -> Vec<BaseRoute> {
-        self.routes
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+        Ok(self
+            .routes
             .iter()
             .map(|item| item.base_route.clone())
-            .collect::<Vec<BaseRoute>>()
+            .collect::<Vec<BaseRoute>>())
     }
     fn as_any(&self) -> &dyn Any {
         self
     }
     fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, anyhow::Error> {
         let mut rng = thread_rng();
-        let index = rng.gen_range(0..self.routes.len());
-        let dst = self.routes[index].clone();
-        Ok(dst.base_route)
+        let mut alive_cluster: Vec<BaseRoute> = vec![];
+        for item in self.routes.clone() {
+            let is_alve_result = item.base_route.is_alive.read();
+            if is_alve_result.is_err() {
+                continue;
+            }
+            let is_alive_option = is_alve_result.unwrap();
+            let is_alive = is_alive_option.unwrap_or(true);
+            if is_alive {
+                alive_cluster.push(item.base_route.clone());
+            }
+        }
+        let index = rng.gen_range(0..alive_cluster.len());
+        let dst = alive_cluster[index].clone();
+        Ok(dst)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -260,23 +362,36 @@ pub struct PollRoute {
     #[serde(skip_serializing, skip_deserializing)]
     pub current_index: Arc<AtomicUsize>,
     pub routes: Vec<PollBaseRoute>,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub lock: Arc<Mutex<i32>>,
+    // #[serde(skip_serializing, skip_deserializing)]
+    // pub lock: Arc<Mutex<i32>>,
 }
 #[typetag::serde]
 impl LoadbalancerStrategy for PollRoute {
-    fn get_all_route(&mut self) -> Vec<BaseRoute> {
-        self.routes
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+        Ok(self
+            .routes
             .iter()
             .map(|item| item.base_route.clone())
-            .collect::<Vec<BaseRoute>>()
+            .collect::<Vec<BaseRoute>>())
     }
     fn as_any(&self) -> &dyn Any {
         self
     }
     fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, anyhow::Error> {
+        let mut alive_cluster: Vec<PollBaseRoute> = vec![];
+        for item in self.routes.clone() {
+            let is_alve_result = item.base_route.is_alive.read();
+            if is_alve_result.is_err() {
+                continue;
+            }
+            let is_alive_option = is_alve_result.unwrap();
+            let is_alive = is_alive_option.unwrap_or(true);
+            if is_alive {
+                alive_cluster.push(item.clone());
+            }
+        }
         let older = self.current_index.fetch_add(1, Ordering::SeqCst);
-        let len = self.routes.len();
+        let len = alive_cluster.len();
         let current_index = older % len;
         let dst = self.routes[current_index].clone();
         if log_enabled!(Level::Debug) {
@@ -285,63 +400,106 @@ impl LoadbalancerStrategy for PollRoute {
         Ok(dst.base_route)
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct WeightBasedRoute {
-    #[serde(skip_serializing, skip_deserializing)]
-    pub indexs: Arc<RwLock<Vec<AtomicIsize>>>,
-    pub routes: Vec<WeightRoute>,
+    // pub indexs: Arc<RwLock<Vec<AtomicIsize>>>,
+    pub routes: Arc<RwLock<Vec<WeightRoute>>>,
+}
+impl<'de> Deserialize<'de> for WeightBasedRoute {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct VistorWeightBasedRoute {
+            pub routes: Vec<WeightRoute>,
+        }
+        let data = VistorWeightBasedRoute::deserialize(deserializer).map(
+            |VistorWeightBasedRoute { routes }| WeightBasedRoute {
+                routes: Arc::new(RwLock::new(routes)),
+            },
+        )?;
+        Ok(data)
+    }
+}
+impl Serialize for WeightBasedRoute {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::Error;
+
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct VistorWeightBasedRoute {
+            pub routes: Vec<WeightRoute>,
+        }
+        let vistor_weight_based_route = self
+            .routes
+            .read()
+            .map_err(|e| Error::custom(e.to_string()))?;
+        vistor_weight_based_route.serialize(serializer)
+    }
 }
 
 impl WeightRoute {}
 #[typetag::serde]
 impl LoadbalancerStrategy for WeightBasedRoute {
-    fn get_all_route(&mut self) -> Vec<BaseRoute> {
-        self.routes
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+        let read_lock = self.routes.read().map_err(|e| anyhow!("{}", e))?;
+        let array = read_lock
             .iter()
             .map(|item| item.base_route.clone())
-            .collect::<Vec<BaseRoute>>()
+            .collect::<Vec<BaseRoute>>();
+        Ok(array)
     }
     fn as_any(&self) -> &dyn Any {
         self
     }
     fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, anyhow::Error> {
-        let indexs = self.indexs.read().unwrap();
-        for (pos, e) in indexs.iter().enumerate() {
-            let old_value = e.fetch_sub(1, Ordering::SeqCst);
-            if old_value > 0 {
-                let res = &self.routes[pos].clone();
-                if log_enabled!(Level::Debug) {
-                    debug!("WeightRoute current index:{}", pos as i32);
+        let cluster_read_lock = self.routes.read().map_err(|e| anyhow!("{}", e))?;
+        for (pos, e) in cluster_read_lock.iter().enumerate() {
+            let is_alive_option_lock = e.base_route.is_alive.read();
+            if let Ok(is_alive_option) = is_alive_option_lock {
+                let is_alive = is_alive_option.unwrap_or(true);
+                if is_alive {
+                    let old_value = e.index.fetch_sub(1, Ordering::SeqCst);
+                    if old_value > 0 {
+                        if log_enabled!(Level::Debug) {
+                            debug!("WeightRoute current index:{}", pos as i32);
+                        }
+                        return Ok(e.base_route.clone());
+                    }
                 }
-                return Ok(res.base_route.clone());
             }
         }
-        drop(indexs);
+        drop(cluster_read_lock);
 
-        let mut new_lock = self.indexs.write().unwrap();
-        let check_alive = new_lock.iter().any(|f| {
-            let tt = f.load(Ordering::SeqCst);
+        let mut new_lock = self.routes.write().map_err(|e| anyhow!("{}", e))?;
+        let index_is_alive = new_lock.iter().any(|f| {
+            let tt = f.index.load(Ordering::SeqCst);
             tt.is_positive()
         });
-        if !check_alive {
-            let s = self
-                .routes
-                .iter()
-                .map(|s| AtomicIsize::from(s.weight as isize))
-                .collect::<Vec<AtomicIsize>>();
-            *new_lock = s;
+        if !index_is_alive {
+            (*new_lock).iter_mut().for_each(|mut weight_route| {
+                weight_route.index = Arc::new(AtomicIsize::from(weight_route.weight as isize))
+            });
         }
         drop(new_lock);
+        let cluster_read_lock2 = self.routes.read().map_err(|e| anyhow!("{}", e))?;
 
-        let indexs = self.indexs.read().unwrap();
-        for (pos, e) in indexs.iter().enumerate() {
-            let old_value = e.fetch_sub(1, Ordering::SeqCst);
-            if old_value > 0 {
-                let res = &self.routes[pos].clone();
-                if log_enabled!(Level::Debug) {
-                    debug!("WeightRoute current index:{}", pos as i32);
+        for (pos, e) in cluster_read_lock2.iter().enumerate() {
+            let is_alive_option_lock = e.base_route.is_alive.read();
+            if let Ok(is_alive_option) = is_alive_option_lock {
+                let is_alive = is_alive_option.unwrap_or(true);
+                if is_alive {
+                    let old_value = e.index.fetch_sub(1, Ordering::SeqCst);
+                    if old_value > 0 {
+                        if log_enabled!(Level::Debug) {
+                            debug!("WeightRoute current index:{}", pos as i32);
+                        }
+                        return Ok(e.base_route.clone());
+                    }
                 }
-                return Ok(res.base_route.clone());
             }
         }
         Err(anyhow!("WeightRoute get route error"))
@@ -352,7 +510,7 @@ mod tests {
     use std::vec;
 
     use super::*;
-    use crate::vojo::app_config::ApiService;
+    use crate::vojo::{anomaly_detection::BaseAnomalyDetectionParam, app_config::ApiService};
     // fn get_routes() -> Vec<BaseRoute> {
     //     vec![
     //         BaseRoute {
@@ -376,7 +534,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:4444"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     }
                 },
             },
@@ -385,7 +546,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     }
                 },
             },
@@ -394,7 +558,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     }
                 },
             },
@@ -407,7 +574,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:4444"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     }
                 },
             },
@@ -416,7 +586,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     }
                 },
             },
@@ -425,7 +598,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     }
                 },
             },
@@ -437,25 +613,37 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
                 weight: 100,
+                index: Arc::new(AtomicIsize::new(0)),
             },
             WeightRoute {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
                 },
                 weight: 100,
+                index: Arc::new(AtomicIsize::new(0)),
             },
             WeightRoute {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:6666"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
                 weight: 100,
+                index: Arc::new(AtomicIsize::new(0)),
             },
         ]
     }
@@ -465,7 +653,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::REGEX(RegexMatch {
@@ -476,7 +667,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::SPLIT(SplitSegment {
@@ -492,7 +686,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:7777"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::SPLIT(SplitSegment {
@@ -508,7 +705,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:8888"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::TEXT(TextMatch {
@@ -530,7 +730,7 @@ mod tests {
         let mut poll_rate = PollRoute {
             current_index: Default::default(),
             routes: routes.clone(),
-            lock: Default::default(),
+            // lock: Default::default(),
         };
         for i in 0..100 {
             let current_route = poll_rate.get_route(HeaderMap::new()).unwrap();
@@ -551,8 +751,7 @@ mod tests {
     fn test_weight_route_successfully() {
         let routes = get_weight_routes();
         let mut weight_route = WeightBasedRoute {
-            indexs: Default::default(),
-            routes: routes.clone(),
+            routes: Arc::new(RwLock::new(routes.clone())),
         };
         for _ in 0..100 {
             let current_route = weight_route.get_route(HeaderMap::new()).unwrap();
@@ -574,7 +773,6 @@ mod tests {
     #[test]
     fn test_debug_trait() {
         let weight_route: Box<dyn LoadbalancerStrategy> = Box::new(WeightBasedRoute {
-            indexs: Default::default(),
             routes: Default::default(),
         });
         assert_eq!(format!("{:?}", weight_route), "{debug}");
@@ -620,13 +818,28 @@ mod tests {
             .first()
             .unwrap()
             .clone();
-        let route = first_api_service.route_cluster;
+        let route = first_api_service.route_cluster.clone();
         let weight_based_route: &WeightBasedRoute =
             match route.as_any().downcast_ref::<WeightBasedRoute>() {
                 Some(b) => b,
                 None => panic!("&a isn't a B!"),
             };
-        assert_eq!(weight_based_route.routes.first().unwrap().weight, 100)
+
+        println!(
+            "the len is {}",
+            weight_based_route.routes.read().unwrap().len()
+        );
+        assert_eq!(
+            weight_based_route
+                .clone()
+                .routes
+                .read()
+                .unwrap()
+                .first()
+                .unwrap()
+                .weight,
+            100
+        )
     }
 
     #[test]
@@ -835,5 +1048,248 @@ mod tests {
         let result4 = header_route.get_route(headermap4.clone());
         assert_eq!(result4.is_ok(), true);
         assert_eq!(result4.unwrap().endpoint, "http://localhost:8888");
+    }
+    #[test]
+    fn test_update_health_check_status_with_ok_success1() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(None)),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route.update_health_check_status_with_ok(liveness_status_lock.clone());
+        assert_eq!(result.is_ok(), true);
+        let is_alive_option = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option.is_some(), true);
+        assert_eq!(is_alive_option.unwrap(), true);
+        let liveness_status = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+    #[test]
+    fn test_update_health_check_status_with_ok_success2() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(true))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route.update_health_check_status_with_ok(liveness_status_lock.clone());
+        assert_eq!(result.is_ok(), true);
+        let is_alive_option = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option.is_some(), true);
+        assert_eq!(is_alive_option.unwrap(), true);
+        let liveness_status = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+    #[test]
+    fn test_update_health_check_status_with_ok_success3() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(false))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route.update_health_check_status_with_ok(liveness_status_lock.clone());
+        assert_eq!(result.is_ok(), true);
+        let is_alive_option = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option.is_some(), true);
+        assert_eq!(is_alive_option.unwrap(), true);
+        let liveness_status = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status.current_liveness_count, 4);
+    }
+
+    #[test]
+    fn test_update_health_check_status_with_fail_success1() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(None)),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route.update_health_check_status_with_fail(
+            liveness_status_lock.clone(),
+            LivenessConfig {
+                min_liveness_count: 3,
+            },
+        );
+        assert_eq!(result.is_ok(), true);
+        let is_alive_option = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option.is_none(), true);
+    }
+    #[test]
+    fn test_update_health_check_status_with_fail_success2() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(true))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route.update_health_check_status_with_fail(
+            liveness_status_lock.clone(),
+            LivenessConfig {
+                min_liveness_count: 3,
+            },
+        );
+        assert_eq!(result.is_ok(), true);
+        //update fails
+        assert_eq!(result.unwrap(), false);
+        let is_alive_option = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option.is_some(), true);
+        assert_eq!(is_alive_option.unwrap(), true);
+        let liveness_status = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+    #[test]
+    fn test_update_health_check_status_with_fail_success3() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(false))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route.update_health_check_status_with_fail(
+            liveness_status_lock.clone(),
+            LivenessConfig {
+                min_liveness_count: 3,
+            },
+        );
+        assert_eq!(result.is_ok(), true);
+        let is_alive_option = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option.is_some(), true);
+        assert_eq!(is_alive_option.unwrap(), false);
+        let liveness_status = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+
+    #[test]
+    fn test_trigger_http_anomaly_detection_success1() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(false))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+        let http_anomaly_detection_param = HttpAnomalyDetectionParam {
+            consecutive_5xx: 2,
+            base_anomaly_detection_param: BaseAnomalyDetectionParam { ejection_second: 3 },
+        };
+        let result = base_route.trigger_http_anomaly_detection(
+            http_anomaly_detection_param,
+            liveness_status_lock.clone(),
+            true,
+            LivenessConfig {
+                min_liveness_count: 3,
+            },
+        );
+        assert_eq!(result.is_ok(), true);
+        let anomaly_detection_status = base_route.anomaly_detection_status.read().unwrap();
+        assert_eq!(anomaly_detection_status.consecutive_5xx, 1);
+    }
+    #[tokio::test]
+    async fn test_trigger_http_anomaly_detection_success2() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(true))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 1,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 4,
+        }));
+        let http_anomaly_detection_param = HttpAnomalyDetectionParam {
+            consecutive_5xx: 3,
+            base_anomaly_detection_param: BaseAnomalyDetectionParam { ejection_second: 3 },
+        };
+        let result = base_route.trigger_http_anomaly_detection(
+            http_anomaly_detection_param.clone(),
+            liveness_status_lock.clone(),
+            true,
+            LivenessConfig {
+                min_liveness_count: 3,
+            },
+        );
+        assert_eq!(result.is_ok(), true);
+        let anomaly_detection_status1 = base_route.anomaly_detection_status.read().unwrap();
+        assert_eq!(anomaly_detection_status1.consecutive_5xx, 2);
+        drop(anomaly_detection_status1);
+        let is_alive_option1 = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option1.unwrap(), true);
+        drop(is_alive_option1);
+        let liveness_status1 = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status1.current_liveness_count, 4);
+        drop(liveness_status1);
+
+        let result2 = base_route.trigger_http_anomaly_detection(
+            http_anomaly_detection_param,
+            liveness_status_lock.clone(),
+            true,
+            LivenessConfig {
+                min_liveness_count: 3,
+            },
+        );
+        // println!("dead_lock :{}", result2.unwrap_err().to_string());
+        assert_eq!(result2.is_ok(), true);
+        let anomaly_detection_status2 = base_route.anomaly_detection_status.read().unwrap();
+        assert_eq!(anomaly_detection_status2.consecutive_5xx, 2);
+        drop(anomaly_detection_status2);
+
+        let is_alive_option2 = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option2.unwrap(), false);
+        drop(is_alive_option2);
+
+        let liveness_status2 = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status2.current_liveness_count, 3);
+        drop(liveness_status2);
+
+        sleep(Duration::from_secs(4)).await;
+        let anomaly_detection_status3 = base_route.anomaly_detection_status.read().unwrap();
+        assert_eq!(anomaly_detection_status3.consecutive_5xx, 0);
+        let is_alive_option3 = base_route.is_alive.read().unwrap();
+        assert_eq!(is_alive_option3.unwrap(), true);
+        let liveness_status3 = liveness_status_lock.read().unwrap();
+        assert_eq!(liveness_status3.current_liveness_count, 4);
     }
 }

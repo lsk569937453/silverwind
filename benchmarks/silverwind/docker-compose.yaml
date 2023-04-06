@@ -19,7 +19,7 @@ services:
           cpus: "4.0"
           memory: 8192M
   silverwind:
-    image: lsk569937453/silverwind:0.0.5
+    image: lsk569937453/silverwind:0.0.6
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml
       RUST_BACKTRACE: 1
@@ -27,8 +27,7 @@ services:
     restart: unless-stopped
     ports:
       - 6667:6667
-    volumes:
-    - ./app_config.yaml:/data/app/app_config.yaml
+      - 8870:8870
     deploy:
       resources:
         limits:

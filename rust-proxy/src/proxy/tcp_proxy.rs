@@ -105,7 +105,11 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowType;
     use crate::vojo::api_service_manager::ApiServiceManager;
     use crate::vojo::app_config::new_uuid;
+    use crate::vojo::app_config::ApiService;
+    use crate::vojo::app_config::LivenessStatus;
+    use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::{Route, ServiceConfig};
+    use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use lazy_static::lazy_static;
     use std::net::TcpListener;
@@ -113,9 +117,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::RwLock;
     use std::{thread, time, vec};
-
-    use crate::vojo::app_config::ApiService;
-    use crate::vojo::app_config::Matcher;
 
     use tokio::runtime::{Builder, Runtime};
 
@@ -165,7 +166,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
             }],
         }) as Box<dyn LoadbalancerStrategy>;
@@ -187,6 +191,11 @@ mod tests {
                         authentication: None,
                         ratelimit: None,
                         health_check: None,
+                        anomaly_detection: None,
+                        liveness_config: None,
+                        liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                            current_liveness_count: 0,
+                        })),
                     }],
                 },
             };
@@ -212,7 +221,10 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -239,6 +251,11 @@ mod tests {
                         authentication: None,
                         ratelimit: None,
                         health_check: None,
+                        anomaly_detection: None,
+                        liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                            current_liveness_count: 0,
+                        })),
+                        liveness_config: None,
                     }],
                 },
             };
@@ -263,7 +280,10 @@ mod tests {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                 }],
             }) as Box<dyn LoadbalancerStrategy>;
@@ -290,6 +310,11 @@ mod tests {
                         authentication: None,
                         health_check: None,
                         ratelimit: None,
+                        anomaly_detection: None,
+                        liveness_config: None,
+                        liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                            current_liveness_count: 0,
+                        })),
                     }],
                 },
             };

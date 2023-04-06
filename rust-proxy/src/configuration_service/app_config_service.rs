@@ -225,7 +225,9 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
 mod tests {
 
     use super::*;
+    use crate::vojo::app_config::LivenessStatus;
     use crate::vojo::app_config::Route;
+    use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use serial_test::serial;
     use std::sync::Arc;
@@ -384,7 +386,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
                     try_file: None,
-                    health_check_status: Arc::new(RwLock::new(None)),
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
             }],
         }) as Box<dyn LoadbalancerStrategy>;
@@ -405,6 +410,11 @@ mod tests {
                     authentication: None,
                     ratelimit: None,
                     health_check: None,
+                    anomaly_detection: None,
+                    liveness_config: None,
+                    liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                        current_liveness_count: 0,
+                    })),
                 }],
             },
         };

@@ -130,7 +130,7 @@ async fn do_http_health_check(
     timeout_number: i32,
     http_health_check_client: HealthCheckClient,
 ) -> Result<(), anyhow::Error> {
-    let route_list = route.route_cluster.get_all_route();
+    let route_list = route.route_cluster.get_all_route()?;
     let http_client = http_health_check_client.http_clients.clone();
     let mut set = JoinSet::new();
     for item in route_list {
@@ -172,19 +172,41 @@ async fn do_http_health_check(
             if let Ok(response_result3) = response_result2 {
                 if let Ok(response_result4) = response_result3 {
                     if response_result4.status() == StatusCode::OK {
-                        if let Err(err) = base_route.update_health_check_status_with_ok() {
+                        if let Err(err) = base_route
+                            .update_health_check_status_with_ok(route.liveness_status.clone())
+                        {
                             error!("Update status error,the error is :{}", err)
                         } else {
                             info!(
-                                "Update the healthcheck status of route-{} success,",
+                                "Update the liveness of route-{} to ok succesfully!",
                                 base_route.endpoint
                             )
                         }
+                        continue;
                     }
                 }
             }
-            if let Err(err) = base_route.update_health_check_status_with_fail() {
-                error!("Update status error,the error is :{}", err);
+            if let Some(current_liveness_config) = route.liveness_config.clone() {
+                let update_result = base_route.update_health_check_status_with_fail(
+                    route.liveness_status.clone(),
+                    current_liveness_config,
+                );
+                if update_result.is_err() {
+                    error!(
+                        "Update status error,the error is :{}",
+                        update_result.unwrap_err()
+                    );
+                } else {
+                    info!(
+                        "Update the liveness of route-{} to fail succesfully!",
+                        base_route.endpoint.clone()
+                    )
+                }
+            } else {
+                error!(
+                    "Can not update the route-{} to fail,as the liveness_status is empty!",
+                    base_route.endpoint.clone()
+                );
             }
         }
     }
@@ -233,16 +255,18 @@ fn submit_task(
 mod tests {
     use super::*;
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::LivenessConfig;
+    use crate::vojo::app_config::LivenessStatus;
     use crate::vojo::app_config::Matcher;
     use crate::vojo::app_config::ServiceConfig;
     use crate::vojo::health_check::BaseHealthCheckParam;
+    use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::{BaseRoute, WeightBasedRoute, WeightRoute};
     use lazy_static::lazy_static;
+    use std::sync::atomic::AtomicIsize;
     use std::sync::{Arc, RwLock};
-    use std::thread::sleep;
     use tokio::runtime::{Builder, Runtime};
     use uuid::Uuid;
-
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -260,17 +284,25 @@ mod tests {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             health_check: None,
+            liveness_config: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -283,22 +315,25 @@ mod tests {
         let res = submit_task(0, route, health_check_param);
         assert_eq!(res.is_err(), true);
     }
-    #[test]
-    fn test_submit_task_ok1() {
+    #[tokio::test]
+    async fn test_submit_task_ok1() {
         let id = Uuid::new_v4();
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -307,6 +342,12 @@ mod tests {
                 },
                 path: String::from("value"),
             })),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
+            liveness_config: None,
+
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -320,26 +361,29 @@ mod tests {
         assert_eq!(res.is_ok(), true);
         let delay_timer = DelayTimerBuilder::default().build();
         let res = delay_timer.insert_task(res.unwrap());
-        sleep(Duration::from_secs(2));
+        sleep(Duration::from_secs(2)).await;
         assert_eq!(res.is_ok(), true);
     }
     #[test]
     fn test_do_health_check_ok1() {
         let id = Uuid::new_v4();
-        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+        let (sender, _receiver) = tokio::sync::mpsc::channel(10);
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -347,6 +391,11 @@ mod tests {
                     interval: 10,
                 },
                 path: String::from("value"),
+            })),
+            anomaly_detection: None,
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
             })),
             allow_deny_list: None,
             authentication: None,
@@ -379,32 +428,40 @@ mod tests {
         });
     }
 
-    #[test]
-    fn test_do_health_check_ok2() {
+    #[tokio::test]
+    async fn test_do_health_check_ok2() {
         let id = Uuid::new_v4();
-        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+        let (sender, _receiver) = tokio::sync::mpsc::channel(10);
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
-                        endpoint: String::from("/"),
+                        endpoint: String::from("http://httpbin.org/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
                     timeout: 10,
-                    interval: 10,
+                    interval: 3,
                 },
-                path: String::from("value"),
+                path: String::from("/get"),
             })),
             allow_deny_list: None,
+            anomaly_detection: None,
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
             authentication: None,
             ratelimit: None,
             matcher: Some(Matcher {
@@ -424,7 +481,7 @@ mod tests {
         let uuid2 = Uuid::new_v4();
         let key = uuid2.to_string();
 
-        TOKIO_RUNTIME.block_on(async move {
+        TOKIO_RUNTIME.spawn(async move {
             GLOBAL_CONFIG_MAPPING.insert(key.clone().to_string(), api_service_manager);
 
             let mut health_check = HealthCheck::new();
@@ -433,6 +490,71 @@ mod tests {
             let res2 = health_check.do_health_check().await;
             assert_eq!(res2.is_ok(), true);
         });
+        sleep(Duration::from_secs(10)).await;
+    }
+    #[tokio::test]
+    async fn test_do_health_check_err1() {
+        let id = Uuid::new_v4();
+        let (sender, _receiver) = tokio::sync::mpsc::channel(10);
+        let route = Route {
+            host_name: None,
+            route_id: id.to_string(),
+            route_cluster: Box::new(WeightBasedRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("http://127.0.0.1:9394/"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    },
+                    weight: 100,
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
+            }),
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 10,
+                    interval: 3,
+                },
+                path: String::from("/get"),
+            })),
+            allow_deny_list: None,
+            anomaly_detection: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 3,
+            }),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            authentication: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service_manager = ApiServiceManager {
+            sender: sender,
+            service_config: ServiceConfig {
+                key_str: None,
+                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                cert_str: None,
+                routes: vec![route],
+            },
+        };
+        let uuid2 = Uuid::new_v4();
+        let key = uuid2.to_string();
+
+        TOKIO_RUNTIME.spawn(async move {
+            GLOBAL_CONFIG_MAPPING.insert(key.clone().to_string(), api_service_manager);
+
+            let mut health_check = HealthCheck::new();
+            let res = health_check.do_health_check().await;
+            assert_eq!(res.is_ok(), true);
+        });
+        sleep(Duration::from_secs(10)).await;
     }
     #[test]
 
@@ -450,15 +572,18 @@ mod tests {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -467,6 +592,11 @@ mod tests {
                 },
                 path: String::from("value"),
             })),
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
             ratelimit: None,
@@ -498,15 +628,18 @@ mod tests {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
-                        endpoint: String::from("http://localhost:8080/"),
+                        endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -515,8 +648,13 @@ mod tests {
                 },
                 path: String::from("value"),
             })),
+            anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
+            liveness_config: None,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -546,15 +684,18 @@ mod tests {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: Box::new(WeightBasedRoute {
-                indexs: Default::default(),
-                routes: vec![WeightRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
-                        endpoint: String::from("http://httpbin.org"),
+                        endpoint: String::from("/"),
                         try_file: None,
-                        health_check_status: Arc::new(RwLock::new(None)),
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
                     },
                     weight: 100,
-                }],
+                    index: Arc::new(AtomicIsize::new(0)),
+                }])),
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -563,8 +704,13 @@ mod tests {
                 },
                 path: String::from("/"),
             })),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
+            liveness_config: None,
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
