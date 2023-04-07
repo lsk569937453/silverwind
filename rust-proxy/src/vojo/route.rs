@@ -31,7 +31,7 @@ dyn_clone::clone_trait_object!(LoadbalancerStrategy);
 
 impl Debug for dyn LoadbalancerStrategy {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let routes = self.get_debug().clone();
+        let routes = self.get_debug();
         write!(f, "{{{}}}", routes)
     }
 }
@@ -39,14 +39,39 @@ impl Debug for dyn LoadbalancerStrategy {
 pub struct AnomalyDetectionStatus {
     pub consecutive_5xx: i32,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct BaseRoute {
     pub endpoint: String,
     pub try_file: Option<String>,
-    #[serde(skip_serializing, skip_deserializing)]
+    #[serde(skip_deserializing)]
     pub is_alive: Arc<RwLock<Option<bool>>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub anomaly_detection_status: Arc<RwLock<AnomalyDetectionStatus>>,
+}
+impl Serialize for BaseRoute {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::Error;
+
+        #[derive(Debug, Clone, Serialize, Deserialize)]
+        pub struct VistorBaseRoute {
+            pub endpoint: String,
+            pub try_file: Option<String>,
+            pub is_alive: Option<bool>,
+        }
+        let is_alive = self
+            .is_alive
+            .read()
+            .map_err(|e| Error::custom(e.to_string()))?;
+        let vistor_based_route = VistorBaseRoute {
+            endpoint: self.endpoint.clone(),
+            try_file: self.try_file.clone(),
+            is_alive: *is_alive,
+        };
+        vistor_based_route.serialize(serializer)
+    }
 }
 impl BaseRoute {
     fn update_ok(
@@ -60,7 +85,7 @@ impl BaseRoute {
         } else if !is_alive_lock.unwrap() {
             *is_alive_lock = Some(true);
             let mut liveness_status = liveness_status_lock.write().map_err(|e| anyhow!("{}", e))?;
-            (*liveness_status).current_liveness_count += 1;
+            liveness_status.current_liveness_count += 1;
         }
         Ok(())
     }
@@ -71,7 +96,7 @@ impl BaseRoute {
         let mut is_alive_lock = self.is_alive.write().map_err(|e| anyhow!("{}", e))?;
         if is_alive_lock.is_none() || is_alive_lock.unwrap() {
             let mut liveness_status = liveness_status_lock.write().map_err(|e| anyhow!("{}", e))?;
-            (*liveness_status).current_liveness_count -= 1;
+            liveness_status.current_liveness_count -= 1;
             *is_alive_lock = Some(false);
         }
         Ok(())
@@ -119,20 +144,20 @@ impl BaseRoute {
             .anomaly_detection_status
             .try_write()
             .map_err(|e| anyhow!("{}", e))?;
-        if !is_5xx && (*anomaly_detection_status).consecutive_5xx > 0 {
-            (*anomaly_detection_status).consecutive_5xx = 0;
+        if !is_5xx && anomaly_detection_status.consecutive_5xx > 0 {
+            anomaly_detection_status.consecutive_5xx = 0;
             return Ok(());
         }
 
-        if (*anomaly_detection_status).consecutive_5xx < consecutive_5xx_config - 1 {
-            (*anomaly_detection_status).consecutive_5xx += 1;
+        if anomaly_detection_status.consecutive_5xx < consecutive_5xx_config - 1 {
+            anomaly_detection_status.consecutive_5xx += 1;
         } else {
             drop(anomaly_detection_status);
-            let update_result = self.update_health_check_status_with_fail(
+            let update_success = self.update_health_check_status_with_fail(
                 liveness_status_lock.clone(),
                 liveness_config,
             )?;
-            if update_result {
+            if update_success {
                 let alive_lock = self.is_alive.clone();
                 let ejection_second = http_anomaly_detection_param
                     .base_anomaly_detection_param
@@ -170,8 +195,8 @@ impl BaseRoute {
             .write()
             .map_err(|e| anyhow!("{}", e))?;
         *is_alive_option = Some(true);
-        (*liveness_status).current_liveness_count += 1;
-        (*anomaly_detection_status).consecutive_5xx = 0;
+        liveness_status.current_liveness_count += 1;
+        anomaly_detection_status.consecutive_5xx = 0;
         Ok(())
     }
 }
@@ -220,9 +245,9 @@ pub struct TextMatch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum HeaderValueMappingType {
-    REGEX(RegexMatch),
-    TEXT(TextMatch),
-    SPLIT(SplitSegment),
+    Regex(RegexMatch),
+    Text(TextMatch),
+    Split(SplitSegment),
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeaderRoute {
@@ -273,7 +298,7 @@ impl LoadbalancerStrategy for HeaderBasedRoute {
             let header_value = headers.get(item.header_key.clone()).unwrap();
             let header_value_str = header_value.to_str().unwrap();
             match item.clone().header_value_mapping_type {
-                HeaderValueMappingType::REGEX(regex_str) => {
+                HeaderValueMappingType::Regex(regex_str) => {
                     let re = Regex::new(&regex_str.value).unwrap();
                     let capture_option = re.captures(header_value_str);
                     if capture_option.is_none() {
@@ -282,17 +307,17 @@ impl LoadbalancerStrategy for HeaderBasedRoute {
                         return Ok(item.clone().base_route);
                     }
                 }
-                HeaderValueMappingType::TEXT(text_str) => {
+                HeaderValueMappingType::Text(text_str) => {
                     if text_str.value == header_value_str {
                         return Ok(item.clone().base_route);
                     } else {
                         continue;
                     }
                 }
-                HeaderValueMappingType::SPLIT(split_segment) => {
+                HeaderValueMappingType::Split(split_segment) => {
                     let split_set: HashSet<_> =
                         header_value_str.split(&split_segment.split_by).collect();
-                    if split_set.len() == 0 {
+                    if split_set.is_empty() {
                         continue;
                     }
                     let mut flag = true;
@@ -433,15 +458,18 @@ impl Serialize for WeightBasedRoute {
         pub struct VistorWeightBasedRoute {
             pub routes: Vec<WeightRoute>,
         }
-        let vistor_weight_based_route = self
+
+        let weight_based_route = self
             .routes
             .read()
             .map_err(|e| Error::custom(e.to_string()))?;
+        let vistor_weight_based_route = VistorWeightBasedRoute {
+            routes: weight_based_route.to_vec(),
+        };
         vistor_weight_based_route.serialize(serializer)
     }
 }
 
-impl WeightRoute {}
 #[typetag::serde]
 impl LoadbalancerStrategy for WeightBasedRoute {
     fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
@@ -659,7 +687,7 @@ mod tests {
                     })),
                 },
                 header_key: String::from("x-client"),
-                header_value_mapping_type: HeaderValueMappingType::REGEX(RegexMatch {
+                header_value_mapping_type: HeaderValueMappingType::Regex(RegexMatch {
                     value: String::from("^100*"),
                 }),
             },
@@ -673,7 +701,7 @@ mod tests {
                     })),
                 },
                 header_key: String::from("x-client"),
-                header_value_mapping_type: HeaderValueMappingType::SPLIT(SplitSegment {
+                header_value_mapping_type: HeaderValueMappingType::Split(SplitSegment {
                     split_by: String::from(";"),
                     split_list: vec![
                         String::from("a=1"),
@@ -692,7 +720,7 @@ mod tests {
                     })),
                 },
                 header_key: String::from("x-client"),
-                header_value_mapping_type: HeaderValueMappingType::SPLIT(SplitSegment {
+                header_value_mapping_type: HeaderValueMappingType::Split(SplitSegment {
                     split_by: String::from(","),
                     split_list: vec![
                         String::from("a:12"),
@@ -711,7 +739,7 @@ mod tests {
                     })),
                 },
                 header_key: String::from("x-client"),
-                header_value_mapping_type: HeaderValueMappingType::TEXT(TextMatch {
+                header_value_mapping_type: HeaderValueMappingType::Text(TextMatch {
                     value: String::from("google chrome"),
                 }),
             },
@@ -740,9 +768,7 @@ mod tests {
     #[test]
     fn test_random_route_successfully() {
         let routes = get_random_routes();
-        let mut random_rate = RandomRoute {
-            routes: routes.clone(),
-        };
+        let mut random_rate = RandomRoute { routes };
         for _ in 0..100 {
             random_rate.get_route(HeaderMap::new()).unwrap();
         }
@@ -783,7 +809,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -848,7 +874,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -868,7 +894,7 @@ mod tests {
                           },
                           "header_key": "user-agent",
                           "header_value_mapping_type": {
-                            "type": "REGEX",
+                            "type": "Regex",
                             "value": "^100$"
                           }
                         }
@@ -903,7 +929,7 @@ mod tests {
                 .first()
                 .unwrap()
                 .header_value_mapping_type,
-            HeaderValueMappingType::REGEX(regex_match)
+            HeaderValueMappingType::Regex(regex_match)
         )
     }
     #[test]
@@ -912,7 +938,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -969,7 +995,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -1023,30 +1049,30 @@ mod tests {
     #[test]
     fn test_header_based_route_successfully() {
         let routes = get_header_based_routes();
-        let header_route = HeaderBasedRoute { routes: routes };
+        let header_route = HeaderBasedRoute { routes };
         let mut header_route: Box<dyn LoadbalancerStrategy> = Box::new(header_route);
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("x-client", "100zh-CN,zh;q=0.9,en;q=0.8".parse().unwrap());
         let result1 = header_route.get_route(headermap1.clone());
-        assert_eq!(result1.is_ok(), true);
+        assert!(result1.is_ok());
         assert_eq!(result1.unwrap().endpoint, "http://localhost:4444");
 
         let mut headermap2 = HeaderMap::new();
         headermap2.insert("x-client", "a=1;b=2;c:3;d=4;f5=6667".parse().unwrap());
         let result2 = header_route.get_route(headermap2.clone());
-        assert_eq!(result2.is_ok(), true);
+        assert!(result2.is_ok());
         assert_eq!(result2.unwrap().endpoint, "http://localhost:5555");
 
         let mut headermap3 = HeaderMap::new();
         headermap3.insert("x-client", "a:12,b:9,c=7,d=4;f5=6667".parse().unwrap());
         let result3 = header_route.get_route(headermap3.clone());
-        assert_eq!(result3.is_ok(), true);
+        assert!(result3.is_ok());
         assert_eq!(result3.unwrap().endpoint, "http://localhost:7777");
 
         let mut headermap4 = HeaderMap::new();
         headermap4.insert("x-client", "google chrome".parse().unwrap());
         let result4 = header_route.get_route(headermap4.clone());
-        assert_eq!(result4.is_ok(), true);
+        assert!(result4.is_ok());
         assert_eq!(result4.unwrap().endpoint, "http://localhost:8888");
     }
     #[test]
@@ -1064,10 +1090,10 @@ mod tests {
         }));
 
         let result = base_route.update_health_check_status_with_ok(liveness_status_lock.clone());
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         let is_alive_option = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option.is_some(), true);
-        assert_eq!(is_alive_option.unwrap(), true);
+        assert!(is_alive_option.is_some(),);
+        assert!(is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().unwrap();
         assert_eq!(liveness_status.current_liveness_count, 3);
     }
@@ -1086,10 +1112,10 @@ mod tests {
         }));
 
         let result = base_route.update_health_check_status_with_ok(liveness_status_lock.clone());
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok(),);
         let is_alive_option = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option.is_some(), true);
-        assert_eq!(is_alive_option.unwrap(), true);
+        assert!(is_alive_option.is_some(),);
+        assert!(is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().unwrap();
         assert_eq!(liveness_status.current_liveness_count, 3);
     }
@@ -1108,10 +1134,10 @@ mod tests {
         }));
 
         let result = base_route.update_health_check_status_with_ok(liveness_status_lock.clone());
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok(),);
         let is_alive_option = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option.is_some(), true);
-        assert_eq!(is_alive_option.unwrap(), true);
+        assert!(is_alive_option.is_some(),);
+        assert!(is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().unwrap();
         assert_eq!(liveness_status.current_liveness_count, 4);
     }
@@ -1131,14 +1157,14 @@ mod tests {
         }));
 
         let result = base_route.update_health_check_status_with_fail(
-            liveness_status_lock.clone(),
+            liveness_status_lock,
             LivenessConfig {
                 min_liveness_count: 3,
             },
         );
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok(),);
         let is_alive_option = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option.is_none(), true);
+        assert!(is_alive_option.is_none());
     }
     #[test]
     fn test_update_health_check_status_with_fail_success2() {
@@ -1160,12 +1186,12 @@ mod tests {
                 min_liveness_count: 3,
             },
         );
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         //update fails
-        assert_eq!(result.unwrap(), false);
+        assert!(!result.unwrap());
         let is_alive_option = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option.is_some(), true);
-        assert_eq!(is_alive_option.unwrap(), true);
+        assert!(is_alive_option.is_some());
+        assert!(is_alive_option.unwrap());
         let liveness_status = liveness_status_lock.read().unwrap();
         assert_eq!(liveness_status.current_liveness_count, 3);
     }
@@ -1189,10 +1215,10 @@ mod tests {
                 min_liveness_count: 3,
             },
         );
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok(),);
         let is_alive_option = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option.is_some(), true);
-        assert_eq!(is_alive_option.unwrap(), false);
+        assert!(is_alive_option.is_some(),);
+        assert!(!is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().unwrap();
         assert_eq!(liveness_status.current_liveness_count, 3);
     }
@@ -1216,13 +1242,13 @@ mod tests {
         };
         let result = base_route.trigger_http_anomaly_detection(
             http_anomaly_detection_param,
-            liveness_status_lock.clone(),
+            liveness_status_lock,
             true,
             LivenessConfig {
                 min_liveness_count: 3,
             },
         );
-        assert_eq!(result.is_ok(), true);
+        assert!(result.is_ok());
         let anomaly_detection_status = base_route.anomaly_detection_status.read().unwrap();
         assert_eq!(anomaly_detection_status.consecutive_5xx, 1);
     }
@@ -1251,45 +1277,49 @@ mod tests {
                 min_liveness_count: 3,
             },
         );
-        assert_eq!(result.is_ok(), true);
-        let anomaly_detection_status1 = base_route.anomaly_detection_status.read().unwrap();
-        assert_eq!(anomaly_detection_status1.consecutive_5xx, 2);
-        drop(anomaly_detection_status1);
-        let is_alive_option1 = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option1.unwrap(), true);
-        drop(is_alive_option1);
-        let liveness_status1 = liveness_status_lock.read().unwrap();
-        assert_eq!(liveness_status1.current_liveness_count, 4);
-        drop(liveness_status1);
+        assert!(result.is_ok(),);
+        {
+            let anomaly_detection_status1 = base_route.anomaly_detection_status.read().unwrap();
+            assert_eq!(anomaly_detection_status1.consecutive_5xx, 2);
+            drop(anomaly_detection_status1);
+            let is_alive_option1 = base_route.is_alive.read().unwrap();
+            assert!(is_alive_option1.unwrap(),);
+            drop(is_alive_option1);
+            let liveness_status1 = liveness_status_lock.read().unwrap();
+            assert_eq!(liveness_status1.current_liveness_count, 4);
+            drop(liveness_status1);
+        }
+        {
+            let result2 = base_route.trigger_http_anomaly_detection(
+                http_anomaly_detection_param,
+                liveness_status_lock.clone(),
+                true,
+                LivenessConfig {
+                    min_liveness_count: 3,
+                },
+            );
+            // println!("dead_lock :{}", result2.unwrap_err().to_string());
+            assert!(result2.is_ok(),);
+            let anomaly_detection_status2 = base_route.anomaly_detection_status.read().unwrap();
+            assert_eq!(anomaly_detection_status2.consecutive_5xx, 2);
+            drop(anomaly_detection_status2);
 
-        let result2 = base_route.trigger_http_anomaly_detection(
-            http_anomaly_detection_param,
-            liveness_status_lock.clone(),
-            true,
-            LivenessConfig {
-                min_liveness_count: 3,
-            },
-        );
-        // println!("dead_lock :{}", result2.unwrap_err().to_string());
-        assert_eq!(result2.is_ok(), true);
-        let anomaly_detection_status2 = base_route.anomaly_detection_status.read().unwrap();
-        assert_eq!(anomaly_detection_status2.consecutive_5xx, 2);
-        drop(anomaly_detection_status2);
+            let is_alive_option2 = base_route.is_alive.read().unwrap();
+            assert!(!is_alive_option2.unwrap(),);
+            drop(is_alive_option2);
 
-        let is_alive_option2 = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option2.unwrap(), false);
-        drop(is_alive_option2);
-
-        let liveness_status2 = liveness_status_lock.read().unwrap();
-        assert_eq!(liveness_status2.current_liveness_count, 3);
-        drop(liveness_status2);
-
+            let liveness_status2 = liveness_status_lock.read().unwrap();
+            assert_eq!(liveness_status2.current_liveness_count, 3);
+            drop(liveness_status2);
+        }
         sleep(Duration::from_secs(4)).await;
-        let anomaly_detection_status3 = base_route.anomaly_detection_status.read().unwrap();
-        assert_eq!(anomaly_detection_status3.consecutive_5xx, 0);
-        let is_alive_option3 = base_route.is_alive.read().unwrap();
-        assert_eq!(is_alive_option3.unwrap(), true);
-        let liveness_status3 = liveness_status_lock.read().unwrap();
-        assert_eq!(liveness_status3.current_liveness_count, 4);
+        {
+            let anomaly_detection_status3 = base_route.anomaly_detection_status.read().unwrap();
+            assert_eq!(anomaly_detection_status3.consecutive_5xx, 0);
+            let is_alive_option3 = base_route.is_alive.read().unwrap();
+            assert!(is_alive_option3.unwrap());
+            let liveness_status3 = liveness_status_lock.read().unwrap();
+            assert_eq!(liveness_status3.current_liveness_count, 4);
+        }
     }
 }

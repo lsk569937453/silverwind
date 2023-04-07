@@ -61,35 +61,37 @@ impl<'de> Deserialize<'de> for Route {
             pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
             pub route_cluster: Box<dyn LoadbalancerStrategy>,
         }
-        let data = VistorRoute::deserialize(deserializer).map(
-            |VistorRoute {
-                 route_id,
-                 host_name,
-                 matcher,
-                 allow_deny_list,
-                 authentication,
-                 anomaly_detection,
-                 liveness_config,
-                 health_check,
-                 ratelimit,
-                 mut route_cluster,
-             }| Route {
-                route_id: route_id,
-                host_name: host_name,
-                matcher: matcher,
-                allow_deny_list: allow_deny_list,
-                authentication: authentication,
-                anomaly_detection: anomaly_detection,
-                liveness_status: Arc::new(RwLock::new(LivenessStatus {
-                    current_liveness_count: route_cluster.get_all_route().unwrap().len() as i32,
-                })),
-                liveness_config: liveness_config,
-                health_check: health_check,
-                ratelimit: ratelimit,
-                route_cluster: route_cluster,
-            },
-        )?;
-        Ok(data)
+        let mut vistor_route = VistorRoute::deserialize(deserializer)?;
+        let new_matcher = vistor_route.matcher.clone();
+        if let Some(mut matcher) = new_matcher.clone() {
+            let src_prefix = matcher.prefix.clone();
+            if !src_prefix.ends_with('/') {
+                let src_prefix_len = matcher.prefix.len();
+                matcher.prefix.insert(src_prefix_len, '/');
+            }
+            if !src_prefix.starts_with('/') {
+                matcher.prefix.insert(0, '/')
+            }
+        }
+        let liveness_status = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: vistor_route.route_cluster.get_all_route().unwrap().len()
+                as i32,
+        }));
+        let route = Route {
+            route_id: vistor_route.route_id,
+            host_name: vistor_route.host_name,
+            matcher: new_matcher,
+            allow_deny_list: vistor_route.allow_deny_list,
+            authentication: vistor_route.authentication,
+            anomaly_detection: vistor_route.anomaly_detection,
+            liveness_status,
+            liveness_config: vistor_route.liveness_config,
+            health_check: vistor_route.health_check,
+            ratelimit: vistor_route.ratelimit,
+            route_cluster: vistor_route.route_cluster,
+        };
+
+        Ok(route)
     }
 }
 
@@ -102,7 +104,7 @@ impl Route {
         &self,
         path: &str,
         headers_option: Option<HeaderMap<HeaderValue>>,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<Option<String>, anyhow::Error> {
         let match_prefix = self
             .clone()
             .matcher
@@ -110,32 +112,31 @@ impl Route {
             .map_err(|err| anyhow!(err))?
             .prefix;
 
-        let re = Regex::new(match_prefix.as_str()).unwrap();
-        let match_res = re.captures(path);
+        // let re = Regex::new(match_prefix.as_str()).unwrap();
+        // let match_res = re.captures(path);
+        let match_res = path.strip_prefix(match_prefix.as_str());
         if match_res.is_none() {
-            return Ok(false);
+            return Ok(None);
         }
         if let Some(real_host_name) = &self.host_name {
             if headers_option.is_none() {
-                return Ok(false);
+                return Ok(None);
             }
-            let header_map = headers_option.clone().unwrap();
+            let header_map = headers_option.unwrap();
             let host_option = header_map.get("Host");
             if host_option.is_none() {
-                return Ok(false);
+                return Ok(None);
             }
             let host_result = host_option.unwrap().to_str();
             if host_result.is_err() {
-                return Ok(false);
+                return Ok(None);
             }
             let host_name_regex = Regex::new(real_host_name.as_str())?;
             return host_name_regex
                 .captures(host_result.unwrap())
-                .map_or(Ok(false), |_| {
-                    return Ok(true);
-                });
+                .map_or(Ok(None), |_| Ok(Some(String::from(match_res.unwrap()))));
         }
-        Ok(true)
+        Ok(Some(String::from(match_res.unwrap())))
     }
     pub fn is_allowed(
         &self,
@@ -166,23 +167,23 @@ pub fn ip_is_allowed(
     allow_deny_list: Option<Vec<AllowDenyObject>>,
     ip: String,
 ) -> Result<bool, anyhow::Error> {
-    if allow_deny_list == None || allow_deny_list.clone().unwrap().len() == 0 {
+    if allow_deny_list.is_none() || allow_deny_list.clone().unwrap().is_empty() {
         return Ok(true);
     }
-    let allow_deny_list = allow_deny_list.clone().unwrap();
-    let iter = allow_deny_list.iter();
+    let allow_deny_list = allow_deny_list.unwrap();
+    // let iter = allow_deny_list.iter();
 
-    for item in iter {
+    for item in allow_deny_list {
         let is_allow = item.is_allow(ip.clone());
         match is_allow {
-            Ok(AllowResult::ALLOW) => {
+            Ok(AllowResult::Allow) => {
                 return Ok(true);
             }
-            Ok(AllowResult::DENY) => {
+            Ok(AllowResult::Deny) => {
                 return Ok(false);
             }
-            Ok(AllowResult::NOTMAPPING) => {
-                break;
+            Ok(AllowResult::Notmapping) => {
+                continue;
             }
             Err(err) => {
                 return Err(anyhow!(err.to_string()));
@@ -195,9 +196,9 @@ pub fn ip_is_allowed(
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, strum_macros::Display)]
 pub enum ServiceType {
     #[default]
-    HTTP,
-    HTTPS,
-    TCP,
+    Http,
+    Https,
+    Tcp,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServiceConfig {
@@ -253,8 +254,8 @@ mod tests {
     use std::sync::RwLock;
     use std::time::SystemTime;
     fn create_new_route_with_host_name(host_name: Option<String>) -> Route {
-        return Route {
-            host_name: host_name,
+        Route {
+            host_name,
             route_id: new_uuid(),
             route_cluster: Box::new(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
@@ -284,7 +285,7 @@ mod tests {
                 prefix: String::from("/"),
                 prefix_rewrite: String::from("ssss"),
             }),
-        };
+        }
     }
     #[test]
     fn test_host_name_is_none_ok1() {
@@ -292,17 +293,18 @@ mod tests {
         let mut headermap = HeaderMap::new();
         headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
         let allow_result = route.is_matched("/test", Some(headermap));
-        assert_eq!(allow_result.is_ok(), true);
-        assert_eq!(allow_result.unwrap(), true);
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_some());
     }
+
     #[test]
     fn test_host_name_is_some_ok2() {
         let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
         let mut headermap = HeaderMap::new();
         headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
         let allow_result = route.is_matched("/test", Some(headermap));
-        assert_eq!(allow_result.is_ok(), true);
-        assert_eq!(allow_result.unwrap(), false);
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_none());
     }
     #[test]
     fn test_host_name_is_some_ok3() {
@@ -310,8 +312,8 @@ mod tests {
         let mut headermap = HeaderMap::new();
         headermap.insert("Host", "Basic bHNrOjEyMzQ=".parse().unwrap());
         let allow_result = route.is_matched("/test", Some(headermap));
-        assert_eq!(allow_result.is_ok(), true);
-        assert_eq!(allow_result.unwrap(), false);
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_none());
     }
     #[test]
     fn test_host_name_is_some_ok4() {
@@ -319,8 +321,8 @@ mod tests {
         let mut headermap = HeaderMap::new();
         headermap.insert("Host", "www.test.com".parse().unwrap());
         let allow_result = route.is_matched("/test", Some(headermap));
-        assert_eq!(allow_result.is_ok(), true);
-        assert_eq!(allow_result.unwrap(), true);
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_some());
     }
     #[test]
     fn test_serde_output_health_check() {
@@ -442,7 +444,7 @@ mod tests {
                         })),
                     },
                     header_key: String::from("user-agent"),
-                    header_value_mapping_type: crate::vojo::route::HeaderValueMappingType::REGEX(
+                    header_value_mapping_type: crate::vojo::route::HeaderValueMappingType::Regex(
                         RegexMatch {
                             value: String::from("^100$"),
                         },
@@ -812,7 +814,7 @@ mod tests {
     #[test]
     fn test_serde_output_allow_deny_list() {
         let allow_object = AllowDenyObject {
-            limit_type: crate::vojo::allow_deny_ip::AllowType::ALLOW,
+            limit_type: crate::vojo::allow_deny_ip::AllowType::Allow,
             value: Some(String::from("sss")),
         };
         let route = Route {
@@ -859,5 +861,24 @@ mod tests {
         let t = vec![api_service];
         let yaml = serde_yaml::to_string(&t).unwrap();
         println!("{}", yaml);
+    }
+    #[test]
+    fn test_regex() {
+        // let re = Regex::new("/api/test/book").unwrap();
+        // let match_res = re.captures("/api");
+        // assert_eq!(match_res.is_some(), true);
+        let src_path1 = "/api/test/book";
+        let dst1 = src_path1.strip_prefix("/api");
+        assert!(dst1.is_some());
+        assert_eq!(dst1.unwrap(), "/test/book");
+
+        let src_path2 = "/api/test/book";
+        let dst2 = src_path2.strip_prefix("api");
+        assert!(dst2.is_none());
+
+        let src_path3 = "/api/test/book";
+        let dst3 = src_path3.strip_prefix("/api/");
+        assert!(dst3.is_some());
+        assert_eq!(dst3.unwrap(), "test/book");
     }
 }

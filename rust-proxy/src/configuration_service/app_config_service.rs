@@ -1,11 +1,11 @@
 use crate::configuration_service::logger;
 use crate::constants;
-use crate::constants::constants::ENV_ACCESS_LOG;
-use crate::constants::constants::ENV_ADMIN_PORT;
-use crate::constants::constants::ENV_CONFIG_FILE_PATH;
-use crate::constants::constants::ENV_DATABASE_URL;
-use crate::constants::constants::TIMER_WAIT_SECONDS;
-use crate::health_check_task::health_check_task::HealthCheck;
+use crate::constants::common_constants::ENV_ACCESS_LOG;
+use crate::constants::common_constants::ENV_ADMIN_PORT;
+use crate::constants::common_constants::ENV_CONFIG_FILE_PATH;
+use crate::constants::common_constants::ENV_DATABASE_URL;
+use crate::constants::common_constants::TIMER_WAIT_SECONDS;
+use crate::health_check::health_check_task::HealthCheck;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
@@ -69,11 +69,7 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         .iter()
         .map(|s| {
             (
-                format!(
-                    "{}-{}",
-                    s.listen_port.clone(),
-                    s.service_config.server_type.to_string()
-                ),
+                format!("{}-{}", s.listen_port.clone(), s.service_config.server_type),
                 s.service_config.clone(),
             )
         })
@@ -117,16 +113,15 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
                 key.clone(),
                 ApiServiceManager {
                     service_config: value.clone(),
-                    sender: sender,
+                    sender,
                 },
             );
-            let item_list: Vec<&str> = key.split("-").collect();
+            let item_list: Vec<&str> = key.split('-').collect();
             let port_str = item_list.first().unwrap();
             let port: i32 = port_str.parse().unwrap();
 
             tokio::task::spawn(async move {
-                if let Err(err) =
-                    start_proxy(port.clone(), receiver, value.server_type, key.clone()).await
+                if let Err(err) = start_proxy(port, receiver, value.server_type, key.clone()).await
                 {
                     error!("{}", err.to_string());
                 }
@@ -142,14 +137,14 @@ pub async fn start_proxy(
     server_type: ServiceType,
     mapping_key: String,
 ) -> Result<(), anyhow::Error> {
-    if server_type == ServiceType::HTTP {
+    if server_type == ServiceType::Http {
         let mut http_proxy = HttpProxy {
-            port: port,
-            channel: channel,
+            port,
+            channel,
             mapping_key: mapping_key.clone(),
         };
         http_proxy.start_http_server().await
-    } else if server_type == ServiceType::HTTPS {
+    } else if server_type == ServiceType::Https {
         let key_clone = mapping_key.clone();
         let service_config = GLOBAL_CONFIG_MAPPING
             .get(&key_clone)
@@ -159,42 +154,43 @@ pub async fn start_proxy(
         let pem_str = service_config.cert_str.unwrap();
         let key_str = service_config.key_str.unwrap();
         let mut http_proxy = HttpProxy {
-            port: port,
-            channel: channel,
+            port,
+            channel,
             mapping_key: mapping_key.clone(),
         };
         http_proxy.start_https_server(pem_str, key_str).await
     } else {
         let mut tcp_proxy = TcpProxy {
-            port: port,
-            mapping_key: mapping_key,
-            channel: channel,
+            port,
+            mapping_key,
+            channel,
         };
         tcp_proxy.start_proxy().await
     }
 }
 async fn init_static_config() {
     let database_url_result = env::var(ENV_DATABASE_URL);
-    let api_port =
-        env::var(ENV_ADMIN_PORT).unwrap_or(String::from(constants::constants::DEFAULT_ADMIN_PORT));
+    let api_port = env::var(ENV_ADMIN_PORT).unwrap_or(String::from(
+        constants::common_constants::DEFAULT_ADMIN_PORT,
+    ));
     let access_log_result = env::var(ENV_ACCESS_LOG);
     let config_file_path_result = env::var(ENV_CONFIG_FILE_PATH);
 
     let mut global_app_config = GLOBAL_APP_CONFIG.write().await;
 
     if let Ok(database_url) = database_url_result {
-        (*global_app_config).static_config.database_url = Some(database_url);
+        global_app_config.static_config.database_url = Some(database_url);
     }
     global_app_config.static_config.admin_port = api_port.clone();
 
     logger::start_logger();
 
     if let Ok(access_log) = access_log_result {
-        (*global_app_config).static_config.access_log = Some(access_log);
+        global_app_config.static_config.access_log = Some(access_log);
     }
 
     if let Ok(config_file_path) = config_file_path_result {
-        (*global_app_config).static_config.config_file_path = Some(config_file_path);
+        global_app_config.static_config.config_file_path = Some(config_file_path);
     }
 }
 async fn init_app_service_config() -> Result<(), anyhow::Error> {
@@ -217,7 +213,7 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
     };
     let mut rw_app_config_write = GLOBAL_APP_CONFIG.write().await;
 
-    (*rw_app_config_write).api_service_config = scrape_config;
+    rw_app_config_write.api_service_config = scrape_config;
     Ok(())
 }
 
@@ -285,10 +281,7 @@ mod tests {
                 current.static_config.access_log,
                 Some(String::from(access_log))
             );
-            assert_eq!(
-                current.static_config.admin_port,
-                String::from(port.to_string())
-            );
+            assert_eq!(current.static_config.admin_port, port.to_string());
             assert_eq!(
                 current.static_config.access_log,
                 Some(String::from(access_log))
@@ -312,9 +305,9 @@ mod tests {
             env::set_var("CONFIG_FILE_PATH", current_dir);
             init_static_config().await;
             let res = init_app_service_config().await;
-            assert_eq!(res.is_ok(), true);
+            assert!(res.is_ok());
             let app_config = GLOBAL_APP_CONFIG.read().await.clone();
-            let api_services = app_config.api_service_config.clone();
+            let api_services = app_config.api_service_config;
             assert!(api_services.len() <= 5);
             let api_service = api_services.first().cloned().unwrap();
             assert_eq!(api_service.listen_port, 4486);
@@ -330,9 +323,9 @@ mod tests {
             before_test().await;
             init_static_config().await;
             let res_init_app_service_config = init_app_service_config().await;
-            assert_eq!(res_init_app_service_config.is_err(), false);
+            assert!(res_init_app_service_config.is_ok());
             let res_update_config_mapping = update_mapping_from_global_appconfig().await;
-            assert_eq!(res_update_config_mapping.is_err(), false);
+            assert!(res_update_config_mapping.is_ok());
             assert!(GLOBAL_CONFIG_MAPPING.len() < 4);
         });
     }
@@ -350,8 +343,7 @@ mod tests {
             env::set_var("CONFIG_FILE_PATH", current_dir);
             init_static_config().await;
             let res_init_app_service_config = init_app_service_config().await;
-            assert_eq!(res_init_app_service_config.is_err(), false);
-
+            assert!(res_init_app_service_config.is_ok());
             let _res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
             // assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
@@ -396,10 +388,10 @@ mod tests {
         let (sender, receiver) = tokio::sync::mpsc::channel(10);
 
         let api_service_manager = ApiServiceManager {
-            sender: sender,
+            sender,
             service_config: ServiceConfig {
                 key_str: Some(private_key),
-                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                server_type: crate::vojo::app_config::ServiceType::Https,
                 cert_str: Some(certificate),
                 routes: vec![Route {
                     host_name: None,
@@ -421,7 +413,7 @@ mod tests {
         GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
         TOKIO_RUNTIME.spawn(async {
             let _result =
-                start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test")).await;
+                start_proxy(2256, receiver, ServiceType::Https, String::from("test")).await;
         });
     }
 }

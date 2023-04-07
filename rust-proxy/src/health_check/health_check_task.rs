@@ -1,5 +1,5 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
-use crate::constants::constants::TIMER_WAIT_SECONDS;
+use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::proxy::http_proxy::Clients;
 use crate::vojo::app_config::Route;
 use crate::vojo::health_check::HealthCheckType;
@@ -40,8 +40,8 @@ pub struct TaskKey {
 impl TaskKey {
     pub fn new(route_id: String, health_check_type: HealthCheckType) -> Self {
         TaskKey {
-            route_id: route_id,
-            health_check_type: health_check_type,
+            route_id,
+            health_check_type,
         }
     }
 }
@@ -78,10 +78,7 @@ impl HealthCheck {
             .filter(|item| item.health_check.is_some())
             .map(|item| {
                 (
-                    TaskKey::new(
-                        item.route_id.clone(),
-                        item.health_check.clone().unwrap().clone(),
-                    ),
+                    TaskKey::new(item.route_id.clone(), item.health_check.clone().unwrap()),
                     item,
                 )
             })
@@ -89,7 +86,7 @@ impl HealthCheck {
         //delet the old task
         self.task_id_map.retain(|route_id, task_id| {
             if !route_list.contains_key(route_id) {
-                let res = self.delay_timer.remove_task(task_id.clone());
+                let res = self.delay_timer.remove_task(*task_id);
                 if let Err(err) = res {
                     error!(
                         "Health check task remove task error,the error is {}.",
@@ -100,12 +97,12 @@ impl HealthCheck {
                     return false;
                 }
             }
-            return true;
+            true
         });
         let old_map = self.task_id_map.clone();
         route_list
             .iter()
-            .filter(|(task_key, _)| !old_map.contains_key(task_key.clone()))
+            .filter(|(task_key, _)| !old_map.contains_key(&(*task_key).clone()))
             .for_each(|(task_key, route)| {
                 let current_id = self.current_id.fetch_add(1, Ordering::SeqCst);
                 let submit_task_result =
@@ -169,9 +166,9 @@ async fn do_http_health_check(
     }
     while let Some(response_result1) = set.join_next().await {
         if let Ok((response_result2, base_route)) = response_result1 {
-            if let Ok(response_result3) = response_result2 {
-                if let Ok(response_result4) = response_result3 {
-                    if response_result4.status() == StatusCode::OK {
+            match response_result2 {
+                Ok(Ok(t)) => {
+                    if t.status() == StatusCode::OK {
                         if let Err(err) = base_route
                             .update_health_check_status_with_ok(route.liveness_status.clone())
                         {
@@ -182,31 +179,32 @@ async fn do_http_health_check(
                                 base_route.endpoint
                             )
                         }
-                        continue;
                     }
                 }
-            }
-            if let Some(current_liveness_config) = route.liveness_config.clone() {
-                let update_result = base_route.update_health_check_status_with_fail(
-                    route.liveness_status.clone(),
-                    current_liveness_config,
-                );
-                if update_result.is_err() {
-                    error!(
-                        "Update status error,the error is :{}",
-                        update_result.unwrap_err()
-                    );
-                } else {
-                    info!(
-                        "Update the liveness of route-{} to fail succesfully!",
-                        base_route.endpoint.clone()
-                    )
+                _ => {
+                    if let Some(current_liveness_config) = route.liveness_config.clone() {
+                        let update_result = base_route.update_health_check_status_with_fail(
+                            route.liveness_status.clone(),
+                            current_liveness_config,
+                        );
+                        if update_result.is_err() {
+                            error!(
+                                "Update status error,the error is :{}",
+                                update_result.unwrap_err()
+                            );
+                        } else {
+                            info!(
+                                "Update the liveness of route-{} to fail succesfully!",
+                                base_route.endpoint.clone()
+                            )
+                        }
+                    } else {
+                        error!(
+                            "Can not update the route-{} to fail,as the liveness_status is empty!",
+                            base_route.endpoint.clone()
+                        );
+                    }
                 }
-            } else {
-                error!(
-                    "Can not update the route-{} to fail,as the liveness_status is empty!",
-                    base_route.endpoint.clone()
-                );
             }
         }
     }
@@ -219,11 +217,11 @@ fn submit_task(
 ) -> Result<Task, anyhow::Error> {
     if let Some(health_check) = route.health_check.clone() {
         let mut task_builder = TaskBuilder::default();
-        let base_param = health_check.clone().get_base_param();
-        let timeout = base_param.clone().timeout;
+        let base_param = health_check.get_base_param();
+        let timeout = base_param.timeout;
         let task = move || {
             let route_share = route.clone();
-            let timeout_share = timeout.clone();
+            let timeout_share = timeout;
             let health_check_client_shared = health_check_clients.clone();
             let health_check_type_shared = health_check.clone();
             async move {
@@ -237,8 +235,8 @@ fn submit_task(
                         )
                         .await
                     }
-                    HealthCheckType::Mysql(_) => Ok({}),
-                    HealthCheckType::Redis(_) => Ok({}),
+                    HealthCheckType::Mysql(_) => Ok(()),
+                    HealthCheckType::Redis(_) => Ok(()),
                 }
             }
         };
@@ -313,7 +311,7 @@ mod tests {
         };
         let health_check_param = HealthCheckClient::new();
         let res = submit_task(0, route, health_check_param);
-        assert_eq!(res.is_err(), true);
+        assert!(res.is_err());
     }
     #[tokio::test]
     async fn test_submit_task_ok1() {
@@ -358,11 +356,11 @@ mod tests {
         };
         let health_check_param = HealthCheckClient::new();
         let res = submit_task(0, route, health_check_param);
-        assert_eq!(res.is_ok(), true);
+        assert!(res.is_ok());
         let delay_timer = DelayTimerBuilder::default().build();
         let res = delay_timer.insert_task(res.unwrap());
         sleep(Duration::from_secs(2)).await;
-        assert_eq!(res.is_ok(), true);
+        assert!(res.is_ok());
     }
     #[test]
     fn test_do_health_check_ok1() {
@@ -406,10 +404,10 @@ mod tests {
             }),
         };
         let api_service_manager = ApiServiceManager {
-            sender: sender,
+            sender,
             service_config: ServiceConfig {
                 key_str: None,
-                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                server_type: crate::vojo::app_config::ServiceType::Https,
                 cert_str: None,
                 routes: vec![route],
             },
@@ -418,11 +416,11 @@ mod tests {
         let key = uuid2.to_string();
 
         TOKIO_RUNTIME.block_on(async move {
-            GLOBAL_CONFIG_MAPPING.insert(key.clone().to_string(), api_service_manager);
+            GLOBAL_CONFIG_MAPPING.insert(key.clone(), api_service_manager);
 
             let mut health_check = HealthCheck::new();
             let res = health_check.do_health_check().await;
-            assert_eq!(res.is_ok(), true);
+            assert!(res.is_ok());
             // let res2 = health_check.do_health_check().await;
             // assert_eq!(res2.is_ok(), true);
         });
@@ -470,10 +468,10 @@ mod tests {
             }),
         };
         let api_service_manager = ApiServiceManager {
-            sender: sender,
+            sender,
             service_config: ServiceConfig {
                 key_str: None,
-                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                server_type: crate::vojo::app_config::ServiceType::Https,
                 cert_str: None,
                 routes: vec![route],
             },
@@ -482,13 +480,13 @@ mod tests {
         let key = uuid2.to_string();
 
         TOKIO_RUNTIME.spawn(async move {
-            GLOBAL_CONFIG_MAPPING.insert(key.clone().to_string(), api_service_manager);
+            GLOBAL_CONFIG_MAPPING.insert(key.clone(), api_service_manager);
 
             let mut health_check = HealthCheck::new();
             let res = health_check.do_health_check().await;
-            assert_eq!(res.is_ok(), true);
+            assert!(res.is_ok());
             let res2 = health_check.do_health_check().await;
-            assert_eq!(res2.is_ok(), true);
+            assert!(res2.is_ok());
         });
         sleep(Duration::from_secs(10)).await;
     }
@@ -536,10 +534,10 @@ mod tests {
             }),
         };
         let api_service_manager = ApiServiceManager {
-            sender: sender,
+            sender,
             service_config: ServiceConfig {
                 key_str: None,
-                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                server_type: crate::vojo::app_config::ServiceType::Https,
                 cert_str: None,
                 routes: vec![route],
             },
@@ -548,11 +546,11 @@ mod tests {
         let key = uuid2.to_string();
 
         TOKIO_RUNTIME.spawn(async move {
-            GLOBAL_CONFIG_MAPPING.insert(key.clone().to_string(), api_service_manager);
+            GLOBAL_CONFIG_MAPPING.insert(key.clone(), api_service_manager);
 
             let mut health_check = HealthCheck::new();
             let res = health_check.do_health_check().await;
-            assert_eq!(res.is_ok(), true);
+            assert!(res.is_ok());
         });
         sleep(Duration::from_secs(10)).await;
     }
@@ -609,7 +607,7 @@ mod tests {
             let result =
                 do_http_health_check(http_health_check_param, route, 10, HealthCheckClient::new())
                     .await;
-            assert_eq!(result.is_ok(), true);
+            assert!(result.is_ok());
         });
     }
     #[test]
@@ -665,7 +663,7 @@ mod tests {
             let result =
                 do_http_health_check(http_health_check_param, route, 10, HealthCheckClient::new())
                     .await;
-            assert_eq!(result.is_ok(), true);
+            assert!(result.is_ok());
         });
     }
     #[test]
@@ -721,7 +719,7 @@ mod tests {
             let result =
                 do_http_health_check(http_health_check_param, route, 10, HealthCheckClient::new())
                     .await;
-            assert_eq!(result.is_ok(), true);
+            assert!(result.is_ok());
         });
     }
 }

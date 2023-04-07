@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::constants::constants::DEFAULT_FIXEDWINDOW_MAP_SIZE;
+use crate::constants::common_constants::DEFAULT_FIXEDWINDOW_MAP_SIZE;
 use core::fmt::Debug;
 use dashmap::DashMap;
 use dyn_clone::DynClone;
@@ -32,7 +32,7 @@ dyn_clone::clone_trait_object!(RatelimitStrategy);
 
 impl Debug for dyn RatelimitStrategy {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let routes = self.get_debug().clone();
+        let routes = self.get_debug();
         write!(f, "{{{}}}", routes)
     }
 }
@@ -59,14 +59,14 @@ pub struct IpRangeBasedRatelimit {
 pub enum LimitLocation {
     IP(IPBasedRatelimit),
     Header(HeaderBasedRatelimit),
-    IPRANGE(IpRangeBasedRatelimit),
+    Iprange(IpRangeBasedRatelimit),
 }
 impl LimitLocation {
     pub fn get_key(&self) -> String {
         match self {
             LimitLocation::Header(headers) => headers.get_key(),
             LimitLocation::IP(ip) => ip.value.clone(),
-            LimitLocation::IPRANGE(ip_range) => ip_range.value.clone(),
+            LimitLocation::Iprange(ip_range) => ip_range.value.clone(),
         }
     }
 }
@@ -130,9 +130,7 @@ fn matched(
     remote_ip: String,
 ) -> Result<bool, anyhow::Error> {
     return match limit_location {
-        LimitLocation::IP(ip_based_ratelimit) => {
-            Ok(ip_based_ratelimit.clone().value.clone() == remote_ip)
-        }
+        LimitLocation::IP(ip_based_ratelimit) => Ok(ip_based_ratelimit.value == remote_ip),
         LimitLocation::Header(header_based_ratelimit) => {
             if !headers.contains_key(header_based_ratelimit.key.clone()) {
                 return Ok(false);
@@ -144,16 +142,15 @@ fn matched(
 
             return Ok(header_value_str == header_based_ratelimit.value);
         }
-        LimitLocation::IPRANGE(ip_range_based_ratelimit) => {
-            if !ip_range_based_ratelimit.value.contains("/") {
+        LimitLocation::Iprange(ip_range_based_ratelimit) => {
+            if !ip_range_based_ratelimit.value.contains('/') {
                 return Err(anyhow!("The Ip Range should contain '/'."));
             }
-            let ip_range: IpRange<Ipv4Net> = [ip_range_based_ratelimit.value.clone()]
+            let ip_range: IpRange<Ipv4Net> = [ip_range_based_ratelimit.value]
                 .iter()
                 .map(|s| s.parse().unwrap())
                 .collect();
             let source_ip = remote_ip
-                .clone()
                 .parse::<Ipv4Addr>()
                 .map_err(|err| anyhow!(err.to_string()))?;
             return Ok(ip_range.contains(&source_ip));
@@ -207,7 +204,7 @@ impl RatelimitStrategy for TokenBucketRateLimit {
                 return Ok(true);
             }
         }
-        return Ok(false);
+        Ok(false)
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -237,9 +234,9 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         let time_unit_key = get_time_key(self.unit.clone())?;
         let location_key = self.limit_location.get_key();
         let key = format!("{}:{}", location_key, time_unit_key);
-        if !self.count_map.contains_key(key.clone().as_str()) {
+        if !self.count_map.contains_key(key.as_str()) {
             let _lock = self.lock.lock().map_err(|err| anyhow!(err.to_string()))?;
-            if !self.count_map.contains_key(key.clone().as_str()) {
+            if !self.count_map.contains_key(key.as_str()) {
                 if self.count_map.len() > DEFAULT_FIXEDWINDOW_MAP_SIZE as usize {
                     let first = self.count_map.iter().next().unwrap();
                     let first_key = first.key().clone();
@@ -257,7 +254,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         if res as i32 >= self.rate_per_unit as i32 {
             return Ok(true);
         }
-        return Ok(false);
+        Ok(false)
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -286,17 +283,17 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap(),);
     }
     #[test]
     fn test_token_bucket_rate_limit_ok2() {
@@ -304,7 +301,7 @@ mod tests {
             rate_per_unit: 3,
             capacity: 10000,
             unit: TimeUnit::Minute,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("245.168.0.0/8"),
             }),
             current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
@@ -315,17 +312,17 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("245.0.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("245.255.0.1"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("245.255.255.1"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 = token_bucket_ratelimit
             .should_limit(headermap1.clone(), String::from("245.255.255.255"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap(),);
     }
 
     #[test]
@@ -345,14 +342,14 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("lsk", "test".parse().unwrap());
         let res1 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap(),);
     }
     #[test]
     fn test_token_bucket_rate_limit_ok4() {
@@ -371,14 +368,14 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("lsk", "test1".parse().unwrap());
         let res1 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
-        assert_eq!(res4.unwrap(), false);
+        assert!(!res4.unwrap(),);
     }
     #[test]
     fn test_token_bucket_rate_limit_ok5() {
@@ -386,7 +383,7 @@ mod tests {
             rate_per_unit: 3,
             capacity: 10000,
             unit: TimeUnit::Minute,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("245.168.0.0/8"),
             }),
             current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
@@ -397,16 +394,16 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("246.0.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("246.255.0.1"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("246.255.255.1"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
         let res4 = token_bucket_ratelimit
             .should_limit(headermap1.clone(), String::from("246.255.255.255"));
-        assert_eq!(res4.unwrap(), false);
+        assert!(!res4.unwrap(),);
     }
     #[test]
     fn test_token_bucket_rate_limit_ok7() {
@@ -425,17 +422,17 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res4.unwrap(), false);
+        assert!(!res4.unwrap(),);
     }
     #[test]
     fn test_token_bucket_rate_limit_ok8() {
@@ -454,19 +451,19 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
         let res2 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap());
 
         let one_second = time::Duration::from_secs(1);
         thread::sleep(one_second);
         let res4 =
             token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res4.unwrap(), false);
+        assert!(!res4.unwrap(),);
     }
     #[test]
     fn test_time_unit() {
@@ -496,17 +493,17 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap());
     }
 
     #[test]
@@ -524,29 +521,29 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let one_second = time::Duration::from_secs(1);
         thread::sleep(one_second);
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res4.unwrap(), false);
+        assert!(!res4.unwrap(),);
         let res5 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res5.unwrap(), false);
+        assert!(!res5.unwrap(),);
         let res6 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res6.unwrap(), false);
+        assert!(!res6.unwrap(),);
 
         let res7 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res7.unwrap(), true);
+        assert!(res7.unwrap(),);
     }
     #[test]
     fn test_fixed_window_ratelimit_ok3() {
@@ -564,24 +561,24 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap());
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap(),);
     }
     #[test]
     fn test_fixed_window_ratelimit_ok4() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Minute,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: Arc::new(DashMap::new()),
@@ -591,24 +588,24 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap(),);
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap());
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap());
     }
     #[test]
     fn test_fixed_window_ratelimit_ok5() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Day,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: Arc::new(DashMap::new()),
@@ -618,24 +615,24 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap());
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap());
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap());
     }
     #[test]
     fn test_fixed_window_ratelimit_ok6() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Hour,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: Arc::new(DashMap::new()),
@@ -645,24 +642,24 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap());
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap());
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap(),);
     }
     #[test]
     fn test_fixed_window_ratelimit_ok7() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::MillionSecond,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: Arc::new(DashMap::new()),
@@ -689,7 +686,7 @@ mod tests {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Hour,
-            limit_location: LimitLocation::IPRANGE(IpRangeBasedRatelimit {
+            limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: Arc::new(DashMap::new()),
@@ -699,17 +696,17 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
         let res2 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap(),);
         let res3 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
-        assert_eq!(res3.unwrap(), false);
+        assert!(!res3.unwrap(),);
 
         let res4 =
             fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
-        assert_eq!(res4.unwrap(), true);
+        assert!(res4.unwrap());
     }
     #[test]
     fn test_debug_trait() {
@@ -731,7 +728,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -794,7 +791,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [

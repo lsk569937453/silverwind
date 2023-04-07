@@ -24,10 +24,8 @@ pub fn start_logger() {
         Box::new(size_trigger),
         Box::new(fixed_window_roller.clone()),
     );
-    let compound_policy2 = CompoundPolicy::new(
-        Box::new(size_trigger),
-        Box::new(fixed_window_roller.clone()),
-    );
+    let compound_policy2 =
+        CompoundPolicy::new(Box::new(size_trigger), Box::new(fixed_window_roller));
 
     let requests = RollingFileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(

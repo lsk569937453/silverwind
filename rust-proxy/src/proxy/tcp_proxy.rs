@@ -69,12 +69,12 @@ async fn transfer(mut inbound: TcpStream, mapping_key: String) -> Result<(), any
 }
 fn check(mapping_key: String, remote_addr: SocketAddr) -> Result<bool, anyhow::Error> {
     let value = GLOBAL_CONFIG_MAPPING
-        .get(&mapping_key.clone())
+        .get(&mapping_key)
         .ok_or("Can not get apiservice from global_mapping")
         .map_err(|err| anyhow!(err.to_string()))?;
     let service_config = &value.service_config.routes.clone();
     let service_config_clone = service_config.clone();
-    if service_config_clone.len() == 0 {
+    if service_config_clone.is_empty() {
         return Err(anyhow!("The len of routes is 0"));
     }
     let route = service_config_clone.first().unwrap();
@@ -85,12 +85,12 @@ fn check(mapping_key: String, remote_addr: SocketAddr) -> Result<bool, anyhow::E
 }
 fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
     let value = GLOBAL_CONFIG_MAPPING
-        .get(&mapping_key.clone())
+        .get(&mapping_key)
         .ok_or("Can not get apiservice from global_mapping")
         .map_err(|err| anyhow!(err.to_string()))?;
     let service_config = &value.service_config.routes.clone();
     let service_config_clone = service_config.clone();
-    if service_config_clone.len() == 0 {
+    if service_config_clone.is_empty() {
         return Err(anyhow!("The len of routes is 0"));
     }
     let mut route = service_config_clone.first().unwrap().route_cluster.clone();
@@ -144,7 +144,7 @@ mod tests {
         });
         TOKIO_RUNTIME.spawn(async {
             let listener = TcpListener::bind("127.0.0.1:3352");
-            assert_eq!(listener.is_err(), true);
+            assert!(listener.is_err());
         });
         let sleep_time = time::Duration::from_millis(200);
         thread::sleep(sleep_time);
@@ -154,7 +154,7 @@ mod tests {
         TOKIO_RUNTIME.spawn(async {
             let tcp_stream = TcpStream::connect("httpbin.org:80").await.unwrap();
             let result = transfer(tcp_stream, String::from("test")).await;
-            assert_eq!(result.is_err(), true);
+            assert!(result.is_err());
         });
         let sleep_time = time::Duration::from_millis(2000);
         thread::sleep(sleep_time);
@@ -177,10 +177,10 @@ mod tests {
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
             let api_service_manager = ApiServiceManager {
-                sender: sender,
+                sender,
                 service_config: ServiceConfig {
                     key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    server_type: crate::vojo::app_config::ServiceType::Tcp,
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
@@ -202,7 +202,7 @@ mod tests {
             GLOBAL_CONFIG_MAPPING.insert(String::from("test123"), api_service_manager);
             let tcp_stream = TcpStream::connect("httpbin.org:80").await.unwrap();
             let result = transfer(tcp_stream, String::from("test123")).await;
-            assert_eq!(result.is_ok(), true);
+            assert!(result.is_ok());
         });
         let sleep_time = time::Duration::from_millis(2000);
         thread::sleep(sleep_time);
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn test_get_route_cluster_error() {
         let result = get_route_cluster(String::from("testxxxx"));
-        assert_eq!(result.is_err(), true);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -231,10 +231,10 @@ mod tests {
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
             let api_service_manager = ApiServiceManager {
-                sender: sender,
+                sender,
                 service_config: ServiceConfig {
                     key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    server_type: crate::vojo::app_config::ServiceType::Tcp,
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
@@ -245,7 +245,7 @@ mod tests {
                         }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENYALL,
+                            limit_type: AllowType::DenyAll,
                             value: None,
                         }]),
                         authentication: None,
@@ -268,8 +268,8 @@ mod tests {
             GLOBAL_CONFIG_MAPPING.insert(String::from("3478-TCP"), api_service_manager);
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = check(String::from("3478-TCP"), socket);
-            assert_eq!(res.is_ok(), true);
-            assert_eq!(res.unwrap(), false);
+            assert!(res.is_ok());
+            assert!(!res.unwrap());
         });
     }
     #[test]
@@ -290,10 +290,10 @@ mod tests {
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
             let api_service_manager = ApiServiceManager {
-                sender: sender,
+                sender,
                 service_config: ServiceConfig {
                     key_str: None,
-                    server_type: crate::vojo::app_config::ServiceType::TCP,
+                    server_type: crate::vojo::app_config::ServiceType::Tcp,
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
@@ -304,7 +304,7 @@ mod tests {
                         }),
                         route_cluster: route,
                         allow_deny_list: Some(vec![AllowDenyObject {
-                            limit_type: AllowType::DENY,
+                            limit_type: AllowType::Deny,
                             value: Some(String::from("127.0.0.1")),
                         }]),
                         authentication: None,
@@ -327,8 +327,8 @@ mod tests {
             GLOBAL_CONFIG_MAPPING.insert(String::from("3479-TCP"), api_service_manager);
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = check(String::from("3479-TCP"), socket);
-            assert_eq!(res.is_ok(), true);
-            assert_eq!(res.unwrap(), false);
+            assert!(res.is_ok());
+            assert!(!res.unwrap());
         });
     }
 }

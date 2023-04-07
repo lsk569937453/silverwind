@@ -4,16 +4,17 @@ extern crate derive_builder;
 mod configuration_service;
 mod constants;
 mod control_plane;
-mod health_check_task;
+mod health_check;
 mod monitor;
 mod proxy;
 mod vojo;
-use crate::constants::constants::DEFAULT_ADMIN_PORT;
-use crate::constants::constants::ENV_ADMIN_PORT;
+
+use crate::constants::common_constants::DEFAULT_ADMIN_PORT;
+use crate::constants::common_constants::ENV_ADMIN_PORT;
 use std::env;
 #[macro_use]
 extern crate log;
-use crate::control_plane::control_plane::start_control_plane;
+use crate::control_plane::rest_api::start_control_plane;
 use tokio::runtime;
 
 fn main() {
@@ -34,6 +35,7 @@ async fn start(admin_port: i32) {
     configuration_service::app_config_service::init().await;
     start_control_plane(admin_port).await;
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -58,16 +60,6 @@ mod tests {
         let sleep_time = time::Duration::from_millis(5000);
         thread::sleep(sleep_time);
         let listener = TcpListener::bind("127.0.0.1:5402");
-        assert_eq!(listener.is_err(), true);
-    }
-    #[test]
-    fn test_start_api_error() {
-        let _listener = TcpListener::bind("127.0.0.1:8860");
-        TOKIO_RUNTIME.spawn(async {
-            let _res = start(8860).await;
-            // assert_eq!(res.is_err(), true);
-        });
-        let sleep_time = time::Duration::from_millis(20);
-        thread::sleep(sleep_time);
+        assert!(listener.is_err());
     }
 }
