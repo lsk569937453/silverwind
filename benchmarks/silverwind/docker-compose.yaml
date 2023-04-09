@@ -24,6 +24,8 @@ services:
       CONFIG_FILE_PATH: /data/app/app_config.yaml
       RUST_BACKTRACE: 1
     container_name: silverwind
+    volumes:
+    - ./app_config.yaml:/data/app/app_config.yaml
     restart: unless-stopped
     ports:
       - 6667:6667

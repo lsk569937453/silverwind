@@ -1,6 +1,6 @@
 - listen_port: 6667
   service_config:
-    server_type: HTTP
+    server_type: Http
     routes:
     - matcher:
         prefix: /

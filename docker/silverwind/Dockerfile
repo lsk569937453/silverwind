@@ -1,4 +1,4 @@
-FROM ubuntu:jammy-20211029
+FROM ubuntu:jammy-20230301
 COPY silverwind /tmp/silverwind
 RUN chmod go+r /tmp/silverwind
 WORKDIR "/tmp"
