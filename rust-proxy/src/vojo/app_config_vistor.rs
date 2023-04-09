@@ -304,12 +304,6 @@ impl RandomBaseRouteVistor {
             })
         }
         result
-        // random_routes
-        //     .iter()
-        //     .map(|item| RandomBaseRouteVistor {
-        //         base_route: BaseRouteVistor::from(item.base_route).await,
-        //     })
-        //     .collect::<Vec<RandomBaseRouteVistor>>()
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -336,7 +330,6 @@ impl WeightRouteVistor {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WeightBasedRouteVistor {
-    // pub indexs: Arc<RwLock<Vec<AtomicIsize>>>,
     pub routes: Vec<WeightRouteVistor>,
 }
 impl WeightBasedRouteVistor {
@@ -356,5 +349,267 @@ impl RandomRouteVistor {
         RandomRouteVistor {
             routes: RandomBaseRouteVistor::new_list(random_route.routes).await,
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::uuid::get_uuid;
+    use crate::vojo::anomaly_detection::AnomalyDetectionType;
+    use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
+    use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
+
+    use crate::vojo::health_check::BaseHealthCheckParam;
+    use crate::vojo::health_check::HttpHealthCheckParam;
+    use crate::vojo::route::HeaderValueMappingType;
+    use crate::vojo::route::RegexMatch;
+    use std::sync::atomic::AtomicIsize;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+    #[tokio::test]
+    async fn test_from_api_service_vistor_ok1() {
+        let route = RouteVistor {
+            host_name: None,
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::WeightBasedRoute(WeightBasedRouteVistor {
+                routes: vec![WeightRouteVistor {
+                    base_route: BaseRouteVistor {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                    index: 0,
+                    weight: 100,
+                }],
+            }),
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 10,
+                    interval: 10,
+                },
+                path: String::from("value"),
+            })),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 0,
+            },
+            anomaly_detection: Some(AnomalyDetectionType::Http(HttpAnomalyDetectionParam {
+                consecutive_5xx: 23,
+                base_anomaly_detection_param: BaseAnomalyDetectionParam {
+                    ejection_second: 23,
+                },
+            })),
+            allow_deny_list: None,
+            authentication: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 32,
+            }),
+
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service_vistor = ApiServiceVistor {
+            api_service_id: get_uuid(),
+            listen_port: 4486,
+            service_config: ServiceConfigVistor {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let api_services = vec![api_service_vistor];
+        let result = from_api_service_vistor(api_services).await;
+        assert!(result.is_ok())
+    }
+    #[tokio::test]
+    async fn test_from_api_service_vistor_ok2() {
+        let route = RouteVistor {
+            host_name: None,
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::HeaderBasedRoute(HeaderBasedRouteVistor {
+                routes: vec![HeaderRouteVistor {
+                    header_key: String::from("s"),
+                    header_value_mapping_type: HeaderValueMappingType::Regex(RegexMatch {
+                        value: String::from("^100*"),
+                    }),
+                    base_route: BaseRouteVistor {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                }],
+            }),
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 10,
+                    interval: 10,
+                },
+                path: String::from("value"),
+            })),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 0,
+            },
+            anomaly_detection: Some(AnomalyDetectionType::Http(HttpAnomalyDetectionParam {
+                consecutive_5xx: 23,
+                base_anomaly_detection_param: BaseAnomalyDetectionParam {
+                    ejection_second: 23,
+                },
+            })),
+            allow_deny_list: None,
+            authentication: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 32,
+            }),
+
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service_vistor = ApiServiceVistor {
+            api_service_id: get_uuid(),
+            listen_port: 4486,
+            service_config: ServiceConfigVistor {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let api_services = vec![api_service_vistor];
+        let result = from_api_service_vistor(api_services).await;
+        assert!(result.is_ok())
+    }
+    #[tokio::test]
+    async fn test_from_api_service_ok1() {
+        let route = Route {
+            host_name: None,
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    },
+                    index: Arc::new(AtomicIsize::new(0)),
+                    weight: 100,
+                }])),
+            }),
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 10,
+                    interval: 10,
+                },
+                path: String::from("value"),
+            })),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: Some(AnomalyDetectionType::Http(HttpAnomalyDetectionParam {
+                consecutive_5xx: 23,
+                base_anomaly_detection_param: BaseAnomalyDetectionParam {
+                    ejection_second: 23,
+                },
+            })),
+            allow_deny_list: None,
+            authentication: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 32,
+            }),
+
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            api_service_id: get_uuid(),
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let api_services = vec![api_service];
+        let result = from_api_service(api_services).await;
+        assert!(result.is_ok())
+    }
+    #[tokio::test]
+    async fn test_from_api_service_ok2() {
+        let route = Route {
+            host_name: None,
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
+                routes: Arc::new(RwLock::new(vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    },
+                    index: Arc::new(AtomicIsize::new(0)),
+                    weight: 100,
+                }])),
+            }),
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 10,
+                    interval: 10,
+                },
+                path: String::from("value"),
+            })),
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: 0,
+            })),
+            anomaly_detection: Some(AnomalyDetectionType::Http(HttpAnomalyDetectionParam {
+                consecutive_5xx: 23,
+                base_anomaly_detection_param: BaseAnomalyDetectionParam {
+                    ejection_second: 23,
+                },
+            })),
+            allow_deny_list: None,
+            authentication: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 32,
+            }),
+
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let api_service = ApiService {
+            api_service_id: get_uuid(),
+            listen_port: 4486,
+            service_config: ServiceConfig {
+                routes: vec![route],
+                server_type: Default::default(),
+                cert_str: Default::default(),
+                key_str: Default::default(),
+            },
+        };
+        let api_services = vec![api_service];
+        let result = from_api_service(api_services).await;
+        assert!(result.is_ok())
     }
 }

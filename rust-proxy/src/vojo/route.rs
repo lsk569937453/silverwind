@@ -114,17 +114,18 @@ impl BaseRoute {
     pub async fn update_health_check_status_with_ok(
         &self,
         liveness_status_lock: Arc<RwLock<LivenessStatus>>,
-    ) {
+    ) -> bool {
         let is_alive_lock = self.is_alive.read().await;
         let is_alive = is_alive_lock.unwrap_or(false);
         if !is_alive {
             drop(is_alive_lock);
-            self.update_ok(liveness_status_lock).await;
+            self.update_ok(liveness_status_lock).await
         } else {
             info!(
             "Update the liveness of route-{} to ok unsuccesfully,as the current status of the endpoint is alive!",
             self.endpoint.clone(),
         );
+            false
         }
     }
     pub async fn update_health_check_status_with_fail(
@@ -883,7 +884,7 @@ mod tests {
             current_liveness_count: 3,
         }));
 
-        let result = base_route
+        base_route
             .update_health_check_status_with_ok(liveness_status_lock.clone())
             .await;
         let is_alive_option = base_route.is_alive.read().await;
@@ -906,7 +907,7 @@ mod tests {
             current_liveness_count: 3,
         }));
 
-        let result = base_route
+        base_route
             .update_health_check_status_with_ok(liveness_status_lock.clone())
             .await;
         let is_alive_option = base_route.is_alive.read().await;
@@ -929,7 +930,7 @@ mod tests {
             current_liveness_count: 3,
         }));
 
-        let result = base_route
+        base_route
             .update_health_check_status_with_ok(liveness_status_lock.clone())
             .await;
         let is_alive_option = base_route.is_alive.read().await;

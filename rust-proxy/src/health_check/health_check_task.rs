@@ -4,7 +4,6 @@ use crate::proxy::http_proxy::Clients;
 use crate::vojo::app_config::Route;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
-use crate::vojo::route;
 use delay_timer::prelude::*;
 use futures;
 use futures::future::join_all;
@@ -12,7 +11,6 @@ use futures::FutureExt;
 use http::Request;
 use http::StatusCode;
 use hyper::Body;
-use mockall::predicate::ge;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -62,7 +60,7 @@ async fn get_endpoint_list(mut route: Route) -> Vec<String> {
     for item in base_route_list {
         result.push(item.endpoint);
     }
-    return result;
+    result
 }
 pub struct HealthCheck {
     pub task_id_map: HashMap<TaskKey, u64>,
@@ -209,7 +207,7 @@ async fn do_http_health_check(
                     if t.status() == StatusCode::OK {
                         base_route
                             .update_health_check_status_with_ok(route.liveness_status.clone())
-                            .await
+                            .await;
                     }
                 }
                 _ => {
