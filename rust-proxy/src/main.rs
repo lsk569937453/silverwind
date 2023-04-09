@@ -7,8 +7,8 @@ mod control_plane;
 mod health_check;
 mod monitor;
 mod proxy;
+mod utils;
 mod vojo;
-
 use crate::constants::common_constants::DEFAULT_ADMIN_PORT;
 use crate::constants::common_constants::ENV_ADMIN_PORT;
 use std::env;

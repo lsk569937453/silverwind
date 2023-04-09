@@ -2,8 +2,10 @@ use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::path;
 use crate::proxy::http_proxy::GeneralError;
-use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::ServiceType;
+use crate::vojo::app_config_vistor::from_api_service_vistor;
+use crate::vojo::app_config_vistor::ApiServiceVistor;
+use crate::vojo::app_config_vistor::AppConfigVistor;
 use crate::vojo::base_response::BaseResponse;
 use prometheus::{Encoder, TextEncoder};
 use std::convert::Infallible;
@@ -18,9 +20,17 @@ struct MethodError;
 impl reject::Reject for MethodError {}
 async fn get_app_config() -> Result<impl warp::Reply, Infallible> {
     let app_config = GLOBAL_APP_CONFIG.read().await;
+
+    let app_config_vistor_result = AppConfigVistor::from(app_config.clone()).await;
+    if app_config_vistor_result.is_err() {
+        return Ok(Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(INTERNAL_SERVER_ERROR.into())
+            .unwrap());
+    }
     let data = BaseResponse {
         response_code: 0,
-        response_object: app_config.clone(),
+        response_object: app_config_vistor_result.unwrap(),
     };
     let res = match serde_json::to_string(&data) {
         Ok(json) => Response::builder()
@@ -45,8 +55,10 @@ async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
         .map_err(|e| GeneralError(anyhow!(e.to_string())))
         .unwrap())
 }
-async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Reply, Infallible> {
-    let validata_result = api_services
+async fn post_app_config(
+    api_services_vistor: Vec<ApiServiceVistor>,
+) -> Result<impl warp::Reply, Infallible> {
+    let validata_result = api_services_vistor
         .iter()
         .filter(|s| s.service_config.server_type == ServiceType::Https)
         .map(|s| {
@@ -63,8 +75,17 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
             .unwrap());
     }
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
-    rw_global_lock.api_service_config = api_services.clone();
-    let save_result = save_config_to_file(api_services.clone());
+
+    let api_services_result = from_api_service_vistor(api_services_vistor.clone()).await;
+    if api_services_result.is_err() {
+        return Ok(Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(api_services_result.unwrap_err().to_string())
+            .unwrap());
+    }
+
+    rw_global_lock.api_service_config = api_services_result.unwrap();
+    let save_result = save_config_to_file(api_services_vistor.clone());
     if save_result.is_err() {
         error!(
             "Save config to file error,the error is:{}",
@@ -82,7 +103,7 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
         .body(json_str)
         .unwrap())
 }
-fn save_config_to_file(api_services: Vec<ApiService>) -> Result<(), anyhow::Error> {
+fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(), anyhow::Error> {
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
         let path = std::path::Path::new(DEFAULT_TEMPORARY_DIR);
@@ -95,7 +116,7 @@ fn save_config_to_file(api_services: Vec<ApiService>) -> Result<(), anyhow::Erro
         .create(true)
         .open("temporary/new_silverwind_config.yml")
         .expect("Couldn't open/create new_silverwind_config.yaml!");
-    serde_yaml::to_writer(f, &api_services)?;
+    serde_yaml::to_writer(f, &api_services_vistor)?;
     Ok(())
 }
 fn validate_tls_config(
@@ -119,7 +140,7 @@ fn validate_tls_config(
     Ok(())
 }
 
-fn json_body() -> impl Filter<Extract = (Vec<ApiService>,), Error = warp::Rejection> + Clone {
+fn json_body() -> impl Filter<Extract = (Vec<ApiServiceVistor>,), Error = warp::Rejection> + Clone {
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
 }
 

@@ -1,6 +1,10 @@
 use super::allow_deny_ip::AllowResult;
+use super::app_config_vistor::ApiServiceVistor;
+use super::app_config_vistor::ServiceConfigVistor;
 use crate::vojo::allow_deny_ip::AllowDenyObject;
 use crate::vojo::anomaly_detection::AnomalyDetectionType;
+use crate::vojo::app_config_vistor::from_loadbalancer_strategy_vistor;
+use crate::vojo::app_config_vistor::RouteVistor;
 use crate::vojo::authentication::AuthenticationStrategy;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::rate_limit::RatelimitStrategy;
@@ -8,10 +12,9 @@ use crate::vojo::route::LoadbalancerStrategy;
 use http::HeaderMap;
 use http::HeaderValue;
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::sync::RwLock;
-use uuid::Uuid;
+use tokio::sync::RwLock;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
     pub prefix: String,
@@ -21,84 +24,60 @@ pub struct Matcher {
 pub struct LivenessConfig {
     pub min_liveness_count: i32,
 }
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Clone, Deserialize, Default)]
 pub struct LivenessStatus {
     pub current_liveness_count: i32,
 }
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Route {
-    #[serde(default = "new_uuid")]
     pub route_id: String,
     pub host_name: Option<String>,
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
     pub anomaly_detection: Option<AnomalyDetectionType>,
-    #[serde(skip_serializing, skip_deserializing)]
     pub liveness_status: Arc<RwLock<LivenessStatus>>,
     pub liveness_config: Option<LivenessConfig>,
     pub health_check: Option<HealthCheckType>,
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
-    pub route_cluster: Box<dyn LoadbalancerStrategy>,
+    pub route_cluster: LoadbalancerStrategy,
 }
-impl<'de> Deserialize<'de> for Route {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Debug, Clone, Serialize, Deserialize)]
-        pub struct VistorRoute {
-            #[serde(default = "new_uuid")]
-            pub route_id: String,
-            pub host_name: Option<String>,
-            pub matcher: Option<Matcher>,
-            pub allow_deny_list: Option<Vec<AllowDenyObject>>,
-            pub authentication: Option<Box<dyn AuthenticationStrategy>>,
-            pub anomaly_detection: Option<AnomalyDetectionType>,
-
-            pub liveness_config: Option<LivenessConfig>,
-            pub health_check: Option<HealthCheckType>,
-            pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
-            pub route_cluster: Box<dyn LoadbalancerStrategy>,
-        }
-        let mut vistor_route = VistorRoute::deserialize(deserializer)?;
-        let new_matcher = vistor_route.matcher.clone();
-        if let Some(mut matcher) = new_matcher.clone() {
-            let src_prefix = matcher.prefix.clone();
+impl Route {
+    async fn from(route_vistor: RouteVistor) -> Result<Route, anyhow::Error> {
+        let cloned_cluster = route_vistor.route_cluster.clone();
+        // let new_matcher = route_vistor.matcher.clone();
+        let new_matcher = route_vistor.matcher.clone().map(|mut item| {
+            let src_prefix = item.prefix.clone();
             if !src_prefix.ends_with('/') {
-                let src_prefix_len = matcher.prefix.len();
-                matcher.prefix.insert(src_prefix_len, '/');
+                let src_prefix_len = item.prefix.len();
+                item.prefix.insert(src_prefix_len, '/');
             }
             if !src_prefix.starts_with('/') {
-                matcher.prefix.insert(0, '/')
+                item.prefix.insert(0, '/')
             }
-        }
-        let liveness_status = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: vistor_route.route_cluster.get_all_route().unwrap().len()
-                as i32,
-        }));
-        let route = Route {
-            route_id: vistor_route.route_id,
-            host_name: vistor_route.host_name,
-            matcher: new_matcher,
-            allow_deny_list: vistor_route.allow_deny_list,
-            authentication: vistor_route.authentication,
-            anomaly_detection: vistor_route.anomaly_detection,
-            liveness_status,
-            liveness_config: vistor_route.liveness_config,
-            health_check: vistor_route.health_check,
-            ratelimit: vistor_route.ratelimit,
-            route_cluster: vistor_route.route_cluster,
-        };
+            item
+        });
 
-        Ok(route)
+        let count = cloned_cluster.get_routes_len() as i32;
+
+        Ok(Route {
+            route_id: route_vistor.route_id,
+            host_name: route_vistor.host_name,
+            matcher: new_matcher,
+            allow_deny_list: route_vistor.allow_deny_list,
+            authentication: route_vistor.authentication,
+            anomaly_detection: route_vistor.anomaly_detection,
+            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                current_liveness_count: count,
+            })),
+            liveness_config: route_vistor.liveness_config,
+            health_check: route_vistor.health_check,
+            ratelimit: route_vistor.ratelimit,
+            route_cluster: from_loadbalancer_strategy_vistor(route_vistor.route_cluster),
+        })
     }
 }
 
-pub fn new_uuid() -> String {
-    let id = Uuid::new_v4();
-    id.to_string()
-}
 impl Route {
     pub fn is_matched(
         &self,
@@ -138,7 +117,7 @@ impl Route {
         }
         Ok(Some(String::from(match_res.unwrap())))
     }
-    pub fn is_allowed(
+    pub async fn is_allowed(
         &self,
         ip: String,
         headers_option: Option<HeaderMap<HeaderValue>>,
@@ -158,7 +137,7 @@ impl Route {
         if let (Some(header_map), Some(mut ratelimit_strategy)) =
             (headers_option, self.ratelimit.clone())
         {
-            is_allowed = !ratelimit_strategy.should_limit(header_map, ip)?;
+            is_allowed = !ratelimit_strategy.should_limit(header_map, ip).await?;
         }
         Ok(is_allowed)
     }
@@ -200,21 +179,43 @@ pub enum ServiceType {
     Https,
     Tcp,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct ServiceConfig {
     pub server_type: ServiceType,
     pub cert_str: Option<String>,
     pub key_str: Option<String>,
     pub routes: Vec<Route>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+impl ServiceConfig {
+    pub async fn from(service_config_vistor: ServiceConfigVistor) -> Result<Self, anyhow::Error> {
+        let mut routes = vec![];
+        for item in service_config_vistor.routes {
+            routes.push(Route::from(item).await?)
+        }
+        Ok(ServiceConfig {
+            server_type: service_config_vistor.server_type,
+            cert_str: service_config_vistor.cert_str,
+            key_str: service_config_vistor.key_str,
+            routes,
+        })
+    }
+}
+#[derive(Debug, Clone, Default)]
 pub struct ApiService {
     pub listen_port: i32,
-    #[serde(default = "new_uuid")]
     pub api_service_id: String,
     pub service_config: ServiceConfig,
 }
-
+impl ApiService {
+    pub async fn from(api_service_vistor: ApiServiceVistor) -> Result<Self, anyhow::Error> {
+        let api_service_config = ServiceConfig::from(api_service_vistor.service_config).await?;
+        Ok(ApiService {
+            listen_port: api_service_vistor.listen_port,
+            api_service_id: api_service_vistor.api_service_id,
+            service_config: api_service_config,
+        })
+    }
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct StaticConifg {
     pub access_log: Option<String>,
@@ -222,7 +223,7 @@ pub struct StaticConifg {
     pub admin_port: String,
     pub config_file_path: Option<String>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct AppConfig {
     pub static_config: StaticConifg,
     pub api_service_config: Vec<ApiService>,
@@ -230,36 +231,38 @@ pub struct AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::uuid::get_uuid;
     use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
     use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
+    use crate::vojo::app_config_vistor::BaseRouteVistor;
+    use crate::vojo::app_config_vistor::LoadbalancerStrategyVistor;
+    use crate::vojo::app_config_vistor::PollBaseRouteVistor;
+    use crate::vojo::app_config_vistor::PollRouteVistor;
+    use crate::vojo::app_config_vistor::RandomBaseRouteVistor;
+    use crate::vojo::app_config_vistor::RandomRouteVistor;
+    use crate::vojo::app_config_vistor::WeightBasedRouteVistor;
+    use crate::vojo::app_config_vistor::WeightRouteVistor;
     use crate::vojo::authentication::ApiKeyAuth;
     use crate::vojo::authentication::AuthenticationStrategy;
     use crate::vojo::authentication::BasicAuth;
-    use crate::vojo::rate_limit::*;
-    use crate::vojo::route::BaseRoute;
-    use crate::vojo::route::HeaderBasedRoute;
-    use crate::vojo::route::HeaderRoute;
-    use crate::vojo::route::PollBaseRoute;
-    use crate::vojo::route::PollRoute;
-    use crate::vojo::route::RandomBaseRoute;
-    use crate::vojo::route::RandomRoute;
-
     use crate::vojo::health_check::{BaseHealthCheckParam, HttpHealthCheckParam};
+    use crate::vojo::rate_limit::*;
     use crate::vojo::route::AnomalyDetectionStatus;
-    use crate::vojo::route::RegexMatch;
+    use crate::vojo::route::BaseRoute;
+
     use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
     use dashmap::DashMap;
     use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
     use std::sync::Mutex;
-    use std::sync::RwLock;
     use std::time::SystemTime;
+    use tokio::sync::RwLock;
     fn create_new_route_with_host_name(host_name: Option<String>) -> Route {
         Route {
             host_name,
-            route_id: new_uuid(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
@@ -328,22 +331,22 @@ mod tests {
     }
     #[test]
     fn test_serde_output_health_check() {
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(WeightBasedRoute {
-                routes: Arc::new(RwLock::new(vec![WeightRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::WeightBasedRoute(WeightBasedRouteVistor {
+                routes: vec![WeightRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
-                    index: Arc::new(AtomicIsize::new(0)),
+                    index: 0,
                     weight: 100,
-                }])),
+                }],
             }),
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
@@ -352,9 +355,9 @@ mod tests {
                 },
                 path: String::from("value"),
             })),
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: Some(AnomalyDetectionType::Http(HttpAnomalyDetectionParam {
                 consecutive_5xx: 23,
                 base_anomaly_detection_param: BaseAnomalyDetectionParam {
@@ -373,10 +376,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -390,26 +393,26 @@ mod tests {
 
     #[test]
     fn test_serde_output_weight_based_route() {
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(WeightBasedRoute {
-                routes: Arc::new(RwLock::new(vec![WeightRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::WeightBasedRoute(WeightBasedRouteVistor {
+                routes: vec![WeightRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
-                    index: Arc::new(AtomicIsize::new(0)),
+                    index: 0,
                     weight: 100,
-                }])),
+                }],
             }),
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
@@ -422,10 +425,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -439,30 +442,26 @@ mod tests {
 
     #[test]
     fn test_serde_output_header_based_route() {
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(HeaderBasedRoute {
-                routes: vec![HeaderRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::WeightBasedRoute(WeightBasedRouteVistor {
+                routes: vec![WeightRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
-                    },
-                    header_key: String::from("user-agent"),
-                    header_value_mapping_type: crate::vojo::route::HeaderValueMappingType::Regex(
-                        RegexMatch {
-                            value: String::from("^100$"),
                         },
-                    ),
+                    },
+                    index: 0,
+                    weight: 100,
                 }],
             }),
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
@@ -475,10 +474,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -489,43 +488,40 @@ mod tests {
         let yaml = serde_yaml::to_string(&t).unwrap();
         println!("{}", yaml);
     }
+
     #[test]
     fn test_serde_output_random_route() {
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(RandomRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::RandomRoute(RandomRouteVistor {
                 routes: vec![
-                    RandomBaseRoute {
-                        base_route: BaseRoute {
+                    RandomBaseRouteVistor {
+                        base_route: BaseRouteVistor {
                             endpoint: String::from("/"),
                             try_file: None,
-                            is_alive: Arc::new(RwLock::new(None)),
-                            anomaly_detection_status: Arc::new(RwLock::new(
-                                AnomalyDetectionStatus {
-                                    consecutive_5xx: 100,
-                                },
-                            )),
+                            is_alive: None,
+                            anomaly_detection_status: AnomalyDetectionStatus {
+                                consecutive_5xx: 100,
+                            },
                         },
                     },
-                    RandomBaseRoute {
-                        base_route: BaseRoute {
+                    RandomBaseRouteVistor {
+                        base_route: BaseRouteVistor {
                             endpoint: String::from("/"),
                             try_file: None,
-                            is_alive: Arc::new(RwLock::new(None)),
-                            anomaly_detection_status: Arc::new(RwLock::new(
-                                AnomalyDetectionStatus {
-                                    consecutive_5xx: 100,
-                                },
-                            )),
+                            is_alive: None,
+                            anomaly_detection_status: AnomalyDetectionStatus {
+                                consecutive_5xx: 100,
+                            },
                         },
                     },
                 ],
             }),
             liveness_config: None,
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
@@ -536,10 +532,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -553,27 +549,27 @@ mod tests {
     }
     #[test]
     fn test_serde_output_poll_route() {
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(PollRoute {
-                routes: vec![PollBaseRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::PollRoute(PollRouteVistor {
+                routes: vec![PollBaseRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
                 }],
                 // lock: Default::default(),
                 current_index: Default::default(),
             }),
             liveness_config: None,
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
@@ -584,11 +580,11 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
 
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -605,18 +601,18 @@ mod tests {
         let basic_auth: Box<dyn AuthenticationStrategy> = Box::new(BasicAuth {
             credentials: String::from("lsk:123456"),
         });
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(PollRoute {
-                routes: vec![PollBaseRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::PollRoute(PollRouteVistor {
+                routes: vec![PollBaseRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
                 }],
                 // lock: Default::default(),
@@ -626,9 +622,9 @@ mod tests {
             health_check: None,
             allow_deny_list: None,
             liveness_config: None,
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             authentication: Some(basic_auth),
             ratelimit: None,
             matcher: Some(Matcher {
@@ -636,10 +632,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
+        let api_service = ApiServiceVistor {
             listen_port: 4486,
-            api_service_id: new_uuid(),
-            service_config: ServiceConfig {
+            api_service_id: get_uuid(),
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -656,18 +652,18 @@ mod tests {
             key: String::from("api_key"),
             value: String::from("test"),
         });
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(PollRoute {
-                routes: vec![PollBaseRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::PollRoute(PollRouteVistor {
+                routes: vec![PollBaseRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
                 }],
                 // lock: Default::default(),
@@ -677,9 +673,9 @@ mod tests {
             health_check: None,
             allow_deny_list: None,
             liveness_config: None,
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             ratelimit: None,
             authentication: Some(api_key_auth),
             matcher: Some(Matcher {
@@ -687,10 +683,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -715,26 +711,26 @@ mod tests {
             last_update_time: Arc::new(RwLock::new(SystemTime::now())),
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(token_bucket_ratelimit);
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(PollRoute {
-                routes: vec![PollBaseRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::PollRoute(PollRouteVistor {
+                routes: vec![PollBaseRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
                 }],
                 // lock: Default::default(),
                 current_index: Default::default(),
             }),
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
@@ -747,10 +743,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -773,26 +769,26 @@ mod tests {
             lock: Arc::new(Mutex::new(0)),
         };
         let ratelimit: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(PollRoute {
-                routes: vec![PollBaseRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::PollRoute(PollRouteVistor {
+                routes: vec![PollBaseRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
                 }],
                 // lock: Default::default(),
                 current_index: Default::default(),
             }),
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
@@ -805,10 +801,10 @@ mod tests {
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),
@@ -826,18 +822,18 @@ mod tests {
             limit_type: crate::vojo::allow_deny_ip::AllowType::Allow,
             value: Some(String::from("sss")),
         };
-        let route = Route {
+        let route = RouteVistor {
             host_name: None,
-            route_id: new_uuid(),
-            route_cluster: Box::new(PollRoute {
-                routes: vec![PollBaseRoute {
-                    base_route: BaseRoute {
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategyVistor::PollRoute(PollRouteVistor {
+                routes: vec![PollBaseRouteVistor {
+                    base_route: BaseRouteVistor {
                         endpoint: String::from("/"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     },
                 }],
                 // lock: Default::default(),
@@ -848,19 +844,19 @@ mod tests {
             allow_deny_list: Some(vec![allow_object]),
             authentication: None,
             liveness_config: None,
-            liveness_status: Arc::new(RwLock::new(LivenessStatus {
+            liveness_status: LivenessStatus {
                 current_liveness_count: 0,
-            })),
+            },
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
                 prefix_rewrite: String::from("ssss"),
             }),
         };
-        let api_service = ApiService {
-            api_service_id: new_uuid(),
+        let api_service = ApiServiceVistor {
+            api_service_id: get_uuid(),
             listen_port: 4486,
-            service_config: ServiceConfig {
+            service_config: ServiceConfigVistor {
                 routes: vec![route],
                 server_type: Default::default(),
                 cert_str: Default::default(),

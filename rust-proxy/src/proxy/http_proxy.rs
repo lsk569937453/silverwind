@@ -26,10 +26,10 @@ use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Duration;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::time::timeout;
 use url::Url;
 #[derive(Debug)]
@@ -259,11 +259,6 @@ async fn proxy(
         .clone();
     let addr_string = remote_addr.ip().to_string();
     for item in api_service_manager.service_config.routes {
-        // let match_prefix = item
-        //     .matcher
-        //     .clone()
-        //     .ok_or(GeneralError(anyhow!("match prefix cound not be null!")))?
-        //     .prefix;
         let match_result = item
             .is_matched(backend_path, Some(req.headers().clone()))
             .map_err(GeneralError)?;
@@ -274,6 +269,7 @@ async fn proxy(
 
         let is_allowed = item
             .is_allowed(addr_string.clone(), Some(req.headers().clone()))
+            .await
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
         if !is_allowed {
             return Ok(Response::builder()
@@ -286,6 +282,7 @@ async fn proxy(
             .route_cluster
             .clone()
             .get_route(req.headers().clone())
+            .await
             .map_err(|err| GeneralError(anyhow!(err.to_string())))?;
         let endpoint = base_route.clone().endpoint;
         if !endpoint.clone().contains("http") {
@@ -327,11 +324,10 @@ async fn proxy(
                 }
                 Err(_) => true,
             };
-            let anomaly_detection_status_lock = base_route.anomaly_detection_status.read();
-            if anomaly_detection_status_lock.is_err() {
-                return response_result;
-            }
-            let consecutive_5xx = anomaly_detection_status_lock.unwrap().consecutive_5xx;
+            let temporary_base_route = base_route.clone();
+            let anomaly_detection_status_lock =
+                temporary_base_route.anomaly_detection_status.read().await;
+            let consecutive_5xx = anomaly_detection_status_lock.consecutive_5xx;
             if is_5xx || consecutive_5xx > 0 {
                 if let Err(err) = trigger_anomaly_detection(
                     anomaly_detection,
@@ -339,7 +335,9 @@ async fn proxy(
                     base_route,
                     is_5xx,
                     liveness_config,
-                ) {
+                )
+                .await
+                {
                     error!("{}", err);
                 }
             }
@@ -351,7 +349,7 @@ async fn proxy(
         .body(Body::from(common_constants::NOT_FOUND))
         .unwrap())
 }
-fn trigger_anomaly_detection(
+async fn trigger_anomaly_detection(
     anomaly_detection: AnomalyDetectionType,
     liveness_status_lock: Arc<RwLock<LivenessStatus>>,
     base_route: BaseRoute,
@@ -359,12 +357,14 @@ fn trigger_anomaly_detection(
     liveness_config: LivenessConfig,
 ) -> Result<(), anyhow::Error> {
     let AnomalyDetectionType::Http(http_anomaly_detection_param) = anomaly_detection;
-    let res = base_route.trigger_http_anomaly_detection(
-        http_anomaly_detection_param,
-        liveness_status_lock,
-        is_5xx,
-        liveness_config,
-    );
+    let res = base_route
+        .trigger_http_anomaly_detection(
+            http_anomaly_detection_param,
+            liveness_status_lock,
+            is_5xx,
+            liveness_config,
+        )
+        .await;
     if res.is_err() {
         error!(
             "trigger_http_anomaly_detection error,the error is {}",
@@ -416,10 +416,10 @@ mod tests {
     use crate::vojo::allow_deny_ip::AllowDenyObject;
     use crate::vojo::allow_deny_ip::AllowType;
 
+    use crate::utils::uuid::get_uuid;
     use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
     use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
     use crate::vojo::api_service_manager::ApiServiceManager;
-    use crate::vojo::app_config::new_uuid;
     use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::LivenessStatus;
     use crate::vojo::app_config::Matcher;
@@ -435,9 +435,9 @@ mod tests {
     use std::io::BufReader;
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;
-    use std::sync::RwLock;
     use std::{thread, time};
     use tokio::runtime::{Builder, Runtime};
+    use tokio::sync::RwLock;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -674,7 +674,7 @@ mod tests {
     #[test]
     fn test_proxy_allow_all() {
         TOKIO_RUNTIME.block_on(async {
-            let route = Box::new(RandomRoute {
+            let route = LoadbalancerStrategy::Random(RandomRoute {
                 routes: vec![RandomBaseRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("http://httpbin.org:80"),
@@ -685,7 +685,7 @@ mod tests {
                         })),
                     },
                 }],
-            }) as Box<dyn LoadbalancerStrategy>;
+            });
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
             let api_service_manager = ApiServiceManager {
@@ -696,7 +696,7 @@ mod tests {
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
-                        route_id: new_uuid(),
+                        route_id: get_uuid(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -719,7 +719,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id: new_uuid(),
+                api_service_id: get_uuid(),
                 listen_port: 9998,
                 service_config: api_service_manager.service_config.clone(),
             });
@@ -738,7 +738,7 @@ mod tests {
     #[test]
     fn test_proxy_deny_ip() {
         TOKIO_RUNTIME.block_on(async {
-            let route = Box::new(RandomRoute {
+            let route = LoadbalancerStrategy::Random(RandomRoute {
                 routes: vec![RandomBaseRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("httpbin.org:80"),
@@ -749,7 +749,7 @@ mod tests {
                         })),
                     },
                 }],
-            }) as Box<dyn LoadbalancerStrategy>;
+            });
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
             let api_service_manager = ApiServiceManager {
@@ -759,7 +759,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Tcp,
                     cert_str: None,
                     routes: vec![Route {
-                        route_id: new_uuid(),
+                        route_id: get_uuid(),
                         host_name: None,
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
@@ -783,7 +783,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id: new_uuid(),
+                api_service_id: get_uuid(),
                 listen_port: 9999,
                 service_config: api_service_manager.service_config.clone(),
             });
@@ -803,7 +803,7 @@ mod tests {
     #[test]
     fn test_proxy_turn_5xx() {
         TOKIO_RUNTIME.block_on(async {
-            let route = Box::new(RandomRoute {
+            let route = LoadbalancerStrategy::Random(RandomRoute {
                 routes: vec![RandomBaseRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("http://127.0.0.1:9851"),
@@ -814,7 +814,7 @@ mod tests {
                         })),
                     },
                 }],
-            }) as Box<dyn LoadbalancerStrategy>;
+            });
             let (sender, _) = tokio::sync::mpsc::channel(10);
 
             let api_service_manager = ApiServiceManager {
@@ -825,7 +825,7 @@ mod tests {
                     cert_str: None,
                     routes: vec![Route {
                         host_name: None,
-                        route_id: new_uuid(),
+                        route_id: get_uuid(),
                         matcher: Some(Matcher {
                             prefix: String::from("/"),
                             prefix_rewrite: String::from("test"),
@@ -854,7 +854,7 @@ mod tests {
             };
             let mut write = GLOBAL_APP_CONFIG.write().await;
             write.api_service_config.push(ApiService {
-                api_service_id: new_uuid(),
+                api_service_id: get_uuid(),
                 listen_port: 10024,
                 service_config: api_service_manager.service_config.clone(),
             });

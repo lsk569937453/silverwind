@@ -3,6 +3,7 @@ pub mod app_config;
 
 pub mod allow_deny_ip;
 pub mod anomaly_detection;
+pub mod app_config_vistor;
 pub mod authentication;
 pub mod base_response;
 pub mod health_check;

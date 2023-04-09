@@ -11,6 +11,7 @@ use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
+use crate::vojo::app_config_vistor::ApiServiceVistor;
 use dashmap::DashMap;
 use futures::FutureExt;
 use lazy_static::lazy_static;
@@ -203,17 +204,18 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
     drop(rw_app_config_read);
     let file_path = config_file_path.unwrap().clone();
     info!("the config file is in{}", file_path.clone());
-    let file = match std::fs::File::open(file_path) {
-        Ok(file) => file,
-        Err(err) => return Err(anyhow!(err.to_string())),
-    };
-    let scrape_config: Vec<ApiService> = match serde_yaml::from_reader(file) {
+    let file = std::fs::File::open(file_path)?;
+    let scrape_config: Vec<ApiServiceVistor> = match serde_yaml::from_reader(file) {
         Ok(apiservices) => apiservices,
         Err(err) => return Err(anyhow!(err.to_string())),
     };
     let mut rw_app_config_write = GLOBAL_APP_CONFIG.write().await;
 
-    rw_app_config_write.api_service_config = scrape_config;
+    let mut res = vec![];
+    for item in scrape_config {
+        res.push(ApiService::from(item).await?);
+    }
+    rw_app_config_write.api_service_config = res;
     Ok(())
 }
 
@@ -227,8 +229,8 @@ mod tests {
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use serial_test::serial;
     use std::sync::Arc;
-    use std::sync::RwLock;
     use tokio::runtime::{Builder, Runtime};
+    use tokio::sync::RwLock;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -373,7 +375,7 @@ mod tests {
             .join("test_cert.pem");
         let certificate = std::fs::read_to_string(certificate_path).unwrap();
 
-        let route = Box::new(RandomRoute {
+        let route = LoadbalancerStrategy::Random(RandomRoute {
             routes: vec![RandomBaseRoute {
                 base_route: BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
@@ -384,7 +386,7 @@ mod tests {
                     })),
                 },
             }],
-        }) as Box<dyn LoadbalancerStrategy>;
+        });
         let (sender, receiver) = tokio::sync::mpsc::channel(10);
 
         let api_service_manager = ApiServiceManager {
@@ -395,7 +397,7 @@ mod tests {
                 cert_str: Some(certificate),
                 routes: vec![Route {
                     host_name: None,
-                    route_id: crate::vojo::app_config::new_uuid(),
+                    route_id: crate::utils::uuid::get_uuid(),
                     matcher: Default::default(),
                     route_cluster: route,
                     allow_deny_list: None,

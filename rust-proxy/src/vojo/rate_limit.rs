@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::constants::common_constants::DEFAULT_FIXEDWINDOW_MAP_SIZE;
+use async_trait::async_trait;
 use core::fmt::Debug;
 use dashmap::DashMap;
 use dyn_clone::DynClone;
@@ -14,10 +15,12 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
+
 #[typetag::serde(tag = "type")]
+#[async_trait]
 pub trait RatelimitStrategy: Sync + Send + DynClone {
-    fn should_limit(
+    async fn should_limit(
         &mut self,
         headers: HeaderMap<HeaderValue>,
         remote_ip: String,
@@ -158,8 +161,9 @@ fn matched(
     };
 }
 #[typetag::serde]
+#[async_trait]
 impl RatelimitStrategy for TokenBucketRateLimit {
-    fn should_limit(
+    async fn should_limit(
         &mut self,
         headers: HeaderMap<HeaderValue>,
         remote_ip: String,
@@ -168,13 +172,13 @@ impl RatelimitStrategy for TokenBucketRateLimit {
         if !match_or_not {
             return Ok(false);
         }
-        let read_lock = self.current_count.read().unwrap();
+        let read_lock = self.current_count.read().await;
         let current_value = read_lock.fetch_sub(1, Ordering::SeqCst);
         if current_value <= 0 {
             let elapsed = self
                 .last_update_time
                 .read()
-                .unwrap()
+                .await
                 .elapsed()
                 .map_err(|err| anyhow!(err.to_string()))?;
             let elapsed_millis = elapsed.as_millis();
@@ -185,20 +189,20 @@ impl RatelimitStrategy for TokenBucketRateLimit {
                 return Ok(true);
             }
             drop(read_lock);
-            let mut write_lock = self.current_count.write().unwrap();
+            let mut write_lock = self.current_count.write().await;
             if (write_lock.load(Ordering::SeqCst) as i32) < 0 {
                 if added_count > (self.capacity as u128) {
                     added_count = self.capacity as u128;
                 }
                 *write_lock = AtomicIsize::new(added_count as isize);
-                let mut write_timestamp = self.last_update_time.write().unwrap();
+                let mut write_timestamp = self.last_update_time.write().await;
                 *write_timestamp = SystemTime::now();
             }
             drop(write_lock);
             let current_value = self
                 .current_count
                 .read()
-                .unwrap()
+                .await
                 .fetch_sub(1, Ordering::SeqCst);
             if current_value <= 0 {
                 return Ok(true);
@@ -211,6 +215,7 @@ impl RatelimitStrategy for TokenBucketRateLimit {
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+
 pub struct FixedWindowRateLimit {
     pub rate_per_unit: u128,
     pub unit: TimeUnit,
@@ -221,8 +226,10 @@ pub struct FixedWindowRateLimit {
     pub lock: Arc<Mutex<i32>>,
 }
 #[typetag::serde]
+#[async_trait]
+
 impl RatelimitStrategy for FixedWindowRateLimit {
-    fn should_limit(
+    async fn should_limit(
         &mut self,
         headers: HeaderMap<HeaderValue>,
         remote_ip: String,
@@ -263,11 +270,11 @@ impl RatelimitStrategy for FixedWindowRateLimit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::app_config::ApiService;
+    use crate::vojo::app_config_vistor::ApiServiceVistor;
     use std::{thread, time};
 
-    #[test]
-    fn test_token_bucket_rate_limit_ok1() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok1() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -281,22 +288,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res3.unwrap(),);
 
-        let res4 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res4 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(res4.unwrap(),);
     }
-    #[test]
-    fn test_token_bucket_rate_limit_ok2() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok2() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -310,23 +321,27 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("245.0.0.1"));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("245.0.0.1"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("245.255.0.1"));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("245.255.0.1"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("245.255.255.1"));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("245.255.255.1"))
+            .await;
         assert!(!res3.unwrap(),);
 
         let res4 = token_bucket_ratelimit
-            .should_limit(headermap1.clone(), String::from("245.255.255.255"));
+            .should_limit(headermap1.clone(), String::from("245.255.255.255"))
+            .await;
         assert!(res4.unwrap(),);
     }
 
-    #[test]
-    fn test_token_bucket_rate_limit_ok3() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok3() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -341,18 +356,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("lsk", "test".parse().unwrap());
-        let res1 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res3.unwrap(),);
 
-        let res4 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res4 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(res4.unwrap(),);
     }
-    #[test]
-    fn test_token_bucket_rate_limit_ok4() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok4() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -367,18 +390,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("lsk", "test1".parse().unwrap());
-        let res1 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res3.unwrap(),);
 
-        let res4 = token_bucket_ratelimit.should_limit(headermap1.clone(), String::from(""));
+        let res4 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from(""))
+            .await;
         assert!(!res4.unwrap(),);
     }
-    #[test]
-    fn test_token_bucket_rate_limit_ok5() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok5() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -392,21 +423,25 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("246.0.0.1"));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("246.0.0.1"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("246.255.0.1"));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("246.255.0.1"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("246.255.255.1"));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("246.255.255.1"))
+            .await;
         assert!(!res3.unwrap(),);
         let res4 = token_bucket_ratelimit
-            .should_limit(headermap1.clone(), String::from("246.255.255.255"));
+            .should_limit(headermap1.clone(), String::from("246.255.255.255"))
+            .await;
         assert!(!res4.unwrap(),);
     }
-    #[test]
-    fn test_token_bucket_rate_limit_ok7() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok7() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -420,22 +455,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res3.unwrap(),);
 
-        let res4 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res4 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res4.unwrap(),);
     }
-    #[test]
-    fn test_token_bucket_rate_limit_ok8() {
+    #[tokio::test]
+    async fn test_token_bucket_rate_limit_ok8() {
         let mut token_bucket_ratelimit = TokenBucketRateLimit {
             rate_per_unit: 3,
             capacity: 10000,
@@ -449,20 +488,24 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res1 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res1.unwrap());
-        let res2 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res2 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res3 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res3.unwrap());
 
         let one_second = time::Duration::from_secs(1);
         thread::sleep(one_second);
-        let res4 =
-            token_bucket_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res4 = token_bucket_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res4.unwrap(),);
     }
     #[test]
@@ -478,8 +521,8 @@ mod tests {
         let day = TimeUnit::Day;
         assert_eq!(day.get_million_second(), 86_400_000);
     }
-    #[test]
-    fn test_fixed_window_ratelimit_ok() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Minute,
@@ -491,23 +534,27 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res3.unwrap(),);
 
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(res4.unwrap());
     }
 
-    #[test]
-    fn test_fixed_window_ratelimit_ok2() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok2() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Second,
@@ -519,34 +566,41 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res3.unwrap(),);
 
         let one_second = time::Duration::from_secs(1);
         thread::sleep(one_second);
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res4.unwrap(),);
-        let res5 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res5 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res5.unwrap(),);
-        let res6 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res6 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res6.unwrap(),);
 
-        let res7 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res7 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(res7.unwrap(),);
     }
-    #[test]
-    fn test_fixed_window_ratelimit_ok3() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok3() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Hour,
@@ -559,22 +613,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(!res3.unwrap());
 
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.0"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.0"))
+            .await;
         assert!(res4.unwrap(),);
     }
-    #[test]
-    fn test_fixed_window_ratelimit_ok4() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok4() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Minute,
@@ -586,22 +644,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res1.unwrap(),);
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.2"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.3"))
+            .await;
         assert!(!res3.unwrap());
 
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.4"))
+            .await;
         assert!(res4.unwrap());
     }
-    #[test]
-    fn test_fixed_window_ratelimit_ok5() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok5() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Day,
@@ -613,22 +675,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res1.unwrap());
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.2"))
+            .await;
         assert!(!res2.unwrap());
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.3"))
+            .await;
         assert!(!res3.unwrap());
 
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.4"))
+            .await;
         assert!(res4.unwrap());
     }
-    #[test]
-    fn test_fixed_window_ratelimit_ok6() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok6() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Hour,
@@ -640,22 +706,26 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res1.unwrap());
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.2"))
+            .await;
         assert!(!res2.unwrap());
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.3"))
+            .await;
         assert!(!res3.unwrap());
 
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.4"))
+            .await;
         assert!(res4.unwrap(),);
     }
-    #[test]
-    fn test_fixed_window_ratelimit_ok7() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_ok7() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::MillionSecond,
@@ -669,20 +739,24 @@ mod tests {
         headermap1.insert("api_key", "test2".parse().unwrap());
         for _n in 0..100 {
             let _res1 = fixed_window_ratelimit
-                .should_limit(headermap1.clone(), String::from("192.168.0.1"));
+                .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+                .await;
             let _res2 = fixed_window_ratelimit
-                .should_limit(headermap1.clone(), String::from("192.168.0.2"));
+                .should_limit(headermap1.clone(), String::from("192.168.0.2"))
+                .await;
             let _res3 = fixed_window_ratelimit
-                .should_limit(headermap1.clone(), String::from("192.168.0.3"));
+                .should_limit(headermap1.clone(), String::from("192.168.0.3"))
+                .await;
 
             let _res4 = fixed_window_ratelimit
-                .should_limit(headermap1.clone(), String::from("192.168.0.4"));
+                .should_limit(headermap1.clone(), String::from("192.168.0.4"))
+                .await;
             let sleep_time = time::Duration::from_millis(2);
             thread::sleep(sleep_time);
         }
     }
-    #[test]
-    fn test_fixed_window_ratelimit_as_any_ok() {
+    #[tokio::test]
+    async fn test_fixed_window_ratelimit_as_any_ok() {
         let mut fixed_window_ratelimit = FixedWindowRateLimit {
             rate_per_unit: 3,
             unit: TimeUnit::Hour,
@@ -694,18 +768,22 @@ mod tests {
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
-        let res1 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.1"));
+        let res1 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.1"))
+            .await;
         assert!(!res1.unwrap());
-        let res2 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.2"));
+        let res2 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.2"))
+            .await;
         assert!(!res2.unwrap(),);
-        let res3 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.3"));
+        let res3 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.3"))
+            .await;
         assert!(!res3.unwrap(),);
 
-        let res4 =
-            fixed_window_ratelimit.should_limit(headermap1.clone(), String::from("192.168.0.4"));
+        let res4 = fixed_window_ratelimit
+            .should_limit(headermap1.clone(), String::from("192.168.0.4"))
+            .await;
         assert!(res4.unwrap());
     }
     #[test]
@@ -767,7 +845,7 @@ mod tests {
               }
             }
           ]"#;
-        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let api_services: Vec<ApiServiceVistor> = serde_json::from_slice(req.as_bytes()).unwrap();
         let first_api_service = api_services
             .first()
             .unwrap()
@@ -829,7 +907,7 @@ mod tests {
               }
             }
           ]"#;
-        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let api_services: Vec<ApiServiceVistor> = serde_json::from_slice(req.as_bytes()).unwrap();
         let first_api_service = api_services
             .first()
             .unwrap()

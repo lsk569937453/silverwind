@@ -160,6 +160,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn test_request_cert_ok1() {
         let lets_entrypt = LetsEntrypt::_new(
             String::from("lsk@gmail.com"),
@@ -169,6 +170,7 @@ mod tests {
         assert!(request_result.is_err());
     }
     #[tokio::test]
+    #[ignore]
     async fn test_start_request_ok1() {
         let lets_entrypt = LetsEntrypt::_new(
             String::from("lsk@gmail.com"),

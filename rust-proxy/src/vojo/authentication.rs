@@ -89,8 +89,7 @@ impl AuthenticationStrategy for ApiKeyAuth {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::app_config::ApiService;
-
+    use crate::vojo::app_config_vistor::ApiServiceVistor;
     #[test]
     fn test_basic_auth_error1() {
         let mut basic_auth: Box<dyn AuthenticationStrategy> = Box::new(BasicAuth {
@@ -190,7 +189,7 @@ mod tests {
               }
             }
           ]"#;
-        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let api_services: Vec<ApiServiceVistor> = serde_json::from_slice(req.as_bytes()).unwrap();
         let first_api_service = api_services
             .first()
             .unwrap()
@@ -245,7 +244,7 @@ mod tests {
               }
             }
           ]"#;
-        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let api_services: Vec<ApiServiceVistor> = serde_json::from_slice(req.as_bytes()).unwrap();
         let first_api_service = api_services
             .first()
             .unwrap()

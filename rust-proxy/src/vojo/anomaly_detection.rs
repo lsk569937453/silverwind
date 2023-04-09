@@ -18,12 +18,3 @@ pub struct HttpAnomalyDetectionParam {
 pub enum AnomalyDetectionType {
     Http(HttpAnomalyDetectionParam),
 }
-// impl HealthCheckType {
-//     pub fn get_base_param(&self) -> BaseHealthCheckParam {
-//         return match self {
-//             HealthCheckType::HttpGet(http_param) => http_param.base_health_check_param.clone(),
-//             HealthCheckType::Mysql(base_pram) => base_pram.clone(),
-//             HealthCheckType::Redis(base_pram) => base_pram.clone(),
-//         };
-//     }
-// }

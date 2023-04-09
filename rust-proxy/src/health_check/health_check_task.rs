@@ -4,17 +4,19 @@ use crate::proxy::http_proxy::Clients;
 use crate::vojo::app_config::Route;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
+use crate::vojo::route;
 use delay_timer::prelude::*;
-
+use futures;
+use futures::future::join_all;
 use futures::FutureExt;
 use http::Request;
 use http::StatusCode;
 use hyper::Body;
+use mockall::predicate::ge;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use url::Url;
-
 use std::time::Duration;
+use url::Url;
 
 use std::sync::Arc;
 use tokio::task::JoinSet;
@@ -36,14 +38,31 @@ impl HealthCheckClient {
 pub struct TaskKey {
     pub route_id: String,
     pub health_check_type: HealthCheckType,
+    pub endpoint_list: Vec<String>,
+    pub min_liveness_count: i32,
 }
 impl TaskKey {
-    pub fn new(route_id: String, health_check_type: HealthCheckType) -> Self {
+    pub fn new(
+        route_id: String,
+        health_check_type: HealthCheckType,
+        endpoint_list: Vec<String>,
+        min_liveness_count: i32,
+    ) -> Self {
         TaskKey {
             route_id,
             health_check_type,
+            endpoint_list,
+            min_liveness_count,
         }
     }
+}
+async fn get_endpoint_list(mut route: Route) -> Vec<String> {
+    let mut result = vec![];
+    let base_route_list = route.route_cluster.get_all_route().await.unwrap_or(vec![]);
+    for item in base_route_list {
+        result.push(item.endpoint);
+    }
+    return result;
 }
 pub struct HealthCheck {
     pub task_id_map: HashMap<TaskKey, u64>,
@@ -71,19 +90,38 @@ impl HealthCheck {
             sleep(std::time::Duration::from_secs(TIMER_WAIT_SECONDS)).await;
         }
     }
+
     async fn do_health_check(&mut self) -> Result<(), anyhow::Error> {
-        let route_list = GLOBAL_CONFIG_MAPPING
+        let handles = GLOBAL_CONFIG_MAPPING
             .iter()
             .flat_map(|item| item.service_config.routes.clone())
-            .filter(|item| item.health_check.is_some())
+            .filter(|item| item.health_check.is_some() && item.liveness_config.is_some())
             .map(|item| {
-                (
-                    TaskKey::new(item.route_id.clone(), item.health_check.clone().unwrap()),
-                    item,
-                )
+                tokio::spawn(async move {
+                    let endpoint_list = get_endpoint_list(item.clone()).await;
+                    let min_liveness_count =
+                        item.liveness_config.clone().unwrap().min_liveness_count;
+                    (
+                        TaskKey::new(
+                            item.route_id.clone(),
+                            item.health_check.clone().unwrap(),
+                            endpoint_list,
+                            min_liveness_count,
+                        ),
+                        item,
+                    )
+                })
+            });
+        let route_list = join_all(handles)
+            .await
+            .iter()
+            .filter(|item| item.is_ok())
+            .map(|item| {
+                let (a, b) = item.as_ref().unwrap();
+                (a.clone(), b.clone())
             })
             .collect::<HashMap<TaskKey, Route>>();
-        //delet the old task
+
         self.task_id_map.retain(|route_id, task_id| {
             if !route_list.contains_key(route_id) {
                 let res = self.delay_timer.remove_task(*task_id);
@@ -127,7 +165,7 @@ async fn do_http_health_check(
     timeout_number: i32,
     http_health_check_client: HealthCheckClient,
 ) -> Result<(), anyhow::Error> {
-    let route_list = route.route_cluster.get_all_route()?;
+    let route_list = route.route_cluster.get_all_route().await?;
     let http_client = http_health_check_client.http_clients.clone();
     let mut set = JoinSet::new();
     for item in route_list {
@@ -169,30 +207,19 @@ async fn do_http_health_check(
             match response_result2 {
                 Ok(Ok(t)) => {
                     if t.status() == StatusCode::OK {
-                        if let Err(err) = base_route
+                        base_route
                             .update_health_check_status_with_ok(route.liveness_status.clone())
-                        {
-                            error!("Update status error,the error is :{}", err)
-                        } else {
-                            info!(
-                                "Update the liveness of route-{} to ok succesfully!",
-                                base_route.endpoint
-                            )
-                        }
+                            .await
                     }
                 }
                 _ => {
                     if let Some(current_liveness_config) = route.liveness_config.clone() {
-                        let update_result = base_route.update_health_check_status_with_fail(
-                            route.liveness_status.clone(),
-                            current_liveness_config,
-                        );
-                        if update_result.is_err() {
-                            error!(
-                                "Update status error,the error is :{}",
-                                update_result.unwrap_err()
-                            );
-                        }
+                        let _update_result = base_route
+                            .update_health_check_status_with_fail(
+                                route.liveness_status.clone(),
+                                current_liveness_config,
+                            )
+                            .await;
                     } else {
                         error!(
                             "Can not update the route-{} to fail,as the liveness_status is empty!",
@@ -258,11 +285,13 @@ mod tests {
     use crate::vojo::app_config::ServiceConfig;
     use crate::vojo::health_check::BaseHealthCheckParam;
     use crate::vojo::route::AnomalyDetectionStatus;
+    use crate::vojo::route::LoadbalancerStrategy;
     use crate::vojo::route::{BaseRoute, WeightBasedRoute, WeightRoute};
     use lazy_static::lazy_static;
     use std::sync::atomic::AtomicIsize;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
     use tokio::runtime::{Builder, Runtime};
+    use tokio::sync::RwLock;
     use uuid::Uuid;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
@@ -280,7 +309,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
@@ -318,7 +347,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
@@ -368,7 +397,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
@@ -420,8 +449,6 @@ mod tests {
             let mut health_check = HealthCheck::new();
             let res = health_check.do_health_check().await;
             assert!(res.is_ok());
-            // let res2 = health_check.do_health_check().await;
-            // assert_eq!(res2.is_ok(), true);
         });
     }
 
@@ -432,7 +459,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("http://httpbin.org/"),
@@ -496,7 +523,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("http://127.0.0.1:9394/"),
@@ -568,7 +595,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
@@ -624,7 +651,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
@@ -680,7 +707,7 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: Box::new(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightBased(WeightBasedRoute {
                 routes: Arc::new(RwLock::new(vec![WeightRoute {
                     base_route: BaseRoute {
                         endpoint: String::from("/"),
