@@ -230,6 +230,8 @@ pub struct AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
+    use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
     use crate::vojo::authentication::ApiKeyAuth;
     use crate::vojo::authentication::AuthenticationStrategy;
     use crate::vojo::authentication::BasicAuth;
@@ -353,10 +355,17 @@ mod tests {
             liveness_status: Arc::new(RwLock::new(LivenessStatus {
                 current_liveness_count: 0,
             })),
-            anomaly_detection: None,
+            anomaly_detection: Some(AnomalyDetectionType::Http(HttpAnomalyDetectionParam {
+                consecutive_5xx: 23,
+                base_anomaly_detection_param: BaseAnomalyDetectionParam {
+                    ejection_second: 23,
+                },
+            })),
             allow_deny_list: None,
             authentication: None,
-            liveness_config: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 32,
+            }),
 
             ratelimit: None,
             matcher: Some(Matcher {

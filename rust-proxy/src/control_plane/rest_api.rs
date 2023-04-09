@@ -1,4 +1,5 @@
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
+use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::path;
 use crate::proxy::http_proxy::GeneralError;
 use crate::vojo::app_config::ApiService;
@@ -7,6 +8,7 @@ use crate::vojo::base_response::BaseResponse;
 use prometheus::{Encoder, TextEncoder};
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::Path;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 use warp::{reject, Rejection, Reply};
@@ -62,6 +64,13 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
     }
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
     rw_global_lock.api_service_config = api_services.clone();
+    let save_result = save_config_to_file(api_services.clone());
+    if save_result.is_err() {
+        error!(
+            "Save config to file error,the error is:{}",
+            save_result.unwrap_err()
+        )
+    }
     let data = BaseResponse {
         response_code: 0,
         response_object: 0,
@@ -72,6 +81,22 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
         .header("content-type", "application/json")
         .body(json_str)
         .unwrap())
+}
+fn save_config_to_file(api_services: Vec<ApiService>) -> Result<(), anyhow::Error> {
+    let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
+    if !result {
+        let path = std::path::Path::new(DEFAULT_TEMPORARY_DIR);
+        let prefix = path.parent().unwrap();
+        std::fs::create_dir_all(prefix).unwrap();
+    }
+
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("temporary/new_silverwind_config.yml")
+        .expect("Couldn't open/create new_silverwind_config.yaml!");
+    serde_yaml::to_writer(f, &api_services)?;
+    Ok(())
 }
 fn validate_tls_config(
     cert_pem_option: Option<String>,
@@ -114,8 +139,7 @@ pub async fn handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
 }
 
 pub async fn start_control_plane(port: i32) {
-    let post_app_config = warp::post()
-        .and(warp::path("appConfig"))
+    let post_app_config = warp::path("appConfig")
         .and(warp::path::end())
         .and(json_body())
         .and_then(post_app_config)
@@ -127,8 +151,11 @@ pub async fn start_control_plane(port: i32) {
     let get_request = warp::get()
         .and(get_app_config.or(get_prometheus_metrics))
         .recover(handle_not_found);
+    let post_request = warp::post()
+        .and(path().or(post_app_config))
+        .recover(handle_not_found);
 
-    let put_request = warp::put().and(path()).recover(handle_not_found);
+    // let put_request = warp::put().and(path()).recover(handle_not_found);
 
     let log = warp::log("dashbaord-svc");
 
@@ -146,9 +173,8 @@ pub async fn start_control_plane(port: i32) {
         ])
         .allow_any_origin();
     warp::serve(
-        post_app_config
+        post_request
             .or(get_request)
-            .or(put_request)
             .with(cors)
             .with(log)
             .recover(handle_custom),

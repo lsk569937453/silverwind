@@ -192,11 +192,6 @@ async fn do_http_health_check(
                                 "Update status error,the error is :{}",
                                 update_result.unwrap_err()
                             );
-                        } else {
-                            info!(
-                                "Update the liveness of route-{} to fail succesfully!",
-                                base_route.endpoint.clone()
-                            )
                         }
                     } else {
                         error!(
@@ -240,10 +235,14 @@ fn submit_task(
                 }
             }
         };
-
+        info!(
+            "The timer task has been submit,the task param is interval:{}!",
+            base_param.interval
+        );
         return task_builder
             .set_task_id(task_id)
             .set_frequency_repeated_by_seconds(base_param.interval as u64)
+            .set_maximum_parallel_runnable_num(1)
             .spawn_async_routine(task)
             .map_err(|err| anyhow!(err.to_string()));
     }

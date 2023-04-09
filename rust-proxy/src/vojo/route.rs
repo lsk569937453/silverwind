@@ -79,7 +79,6 @@ impl BaseRoute {
         liveness_status_lock: Arc<RwLock<LivenessStatus>>,
     ) -> Result<(), anyhow::Error> {
         let mut is_alive_lock = self.is_alive.write().map_err(|e| anyhow!("{}", e))?;
-        // let is_alive = is_alive_lock
         if is_alive_lock.is_none() {
             *is_alive_lock = Some(true);
         } else if !is_alive_lock.unwrap() {
@@ -111,6 +110,10 @@ impl BaseRoute {
             drop(is_alive_lock);
             self.update_ok(liveness_status_lock)?;
         }
+        info!(
+            "Update the liveness of route-{} to ok unsuccesfully,as the current status of the endpoint is  alive!",
+            self.endpoint.clone(),
+        );
         Ok(())
     }
     pub fn update_health_check_status_with_fail(
@@ -120,6 +123,12 @@ impl BaseRoute {
     ) -> Result<bool, anyhow::Error> {
         let liveness_status = liveness_status_lock.read().map_err(|e| anyhow!("{}", e))?;
         if liveness_status.current_liveness_count <= liveness_config.min_liveness_count {
+            error!(
+                "Update the liveness of route-{} to fail unsuccesfully,as the current liveness count:{} is less than the liveness count:{} in the config!",
+                self.endpoint.clone(),
+                liveness_status.current_liveness_count,
+                liveness_config.min_liveness_count
+            );
             return Ok(false);
         }
         let is_alive_lock = self.is_alive.read().map_err(|e| anyhow!("{}", e))?;
@@ -128,8 +137,16 @@ impl BaseRoute {
             drop(liveness_status);
             drop(is_alive_lock);
             self.update_fail(liveness_status_lock.clone())?;
+            info!(
+                "Update the liveness of route-{} to fail succesfully!",
+                self.endpoint.clone()
+            );
             return Ok(true);
         }
+        info!(
+            "Update the liveness of route-{} to fail unsuccesfully,as the current status of the endpoint is not alive!",
+            self.endpoint.clone(),
+        );
         Ok(false)
     }
     pub fn trigger_http_anomaly_detection(
