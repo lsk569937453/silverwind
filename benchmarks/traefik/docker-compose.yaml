@@ -1,4 +1,5 @@
 version: '3.9'
+
 services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
@@ -10,19 +11,22 @@ services:
           memory: 8192M
   backend:
     image: jmalloc/echo-server
+    ports:
+    - "9394:8080"
     deploy:
       resources:
         limits:
           cpus: "4.0"
           memory: 8192M
-    ports:
-    - "9394:8080"
-  caddy:
-    image: caddy:2.6.4
-    ports:
-      - "8050:80"
+  traefik:
+    image: traefik:v2.9.8
+    container_name: traefik
     volumes:
-      - ./caddyfile:/etc/caddy/Caddyfile
+    - ./dynamic_conf.toml:/etc/traefik/dynamic_conf.toml
+    - ./traefik.toml:/etc/traefik/traefik.toml
+    restart: unless-stopped
+    ports:
+      - 80:80
     deploy:
       resources:
         limits:

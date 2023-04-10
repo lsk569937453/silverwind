@@ -113,6 +113,7 @@ impl HttpProxy {
             })?
             .http1_preserve_header_case(true)
             .http1_title_case_headers(true)
+            // .tcp_keepalive(Some(Duration::from_secs(30)))
             .serve(make_service);
         info!("Listening on http://{}", addr);
 

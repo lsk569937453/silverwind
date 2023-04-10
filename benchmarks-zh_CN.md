@@ -1,26 +1,41 @@
 
 
-# Benchmarks
-Tests performance of various proxies/load balancers. Based on the [Proxy-Benchmarks](https://github.com/NickMRamirez/Proxy-Benchmarks).
+# 基准测试
+本次性能测试主要针对主流的代理/负载均衡。测试方法基于此项目[Proxy-Benchmarks](https://github.com/NickMRamirez/Proxy-Benchmarks).
 
-We test the following proxies:
-
+测试的代理列表如下:
 * Caddy
 * Envoy
-* NGINX
+* Nginx
 * Silverwind
+* Haproxy
+* Traefik
+## 测试环境&&测试工具
+### 测试什么
+本次基准测试主要测试各个项目作为反向代理的性能表现。
+### 测试环境
+我们将在docker容器中做性能测试。第一个优点是任何人只要安装了docker都能一键启动性能测试。第二点是在docker swarm中限制服务的cpu和内存比较方便。我们主要启动三个服务:代理服务，后端服务，测试工具服务。
 
-## Setup
-We use the **docker-compose** to do the performance test.Install the docker on your computer and confirm that the your computer have enough cpu and memory.There are three services in the docker-compose including the hey(Testing Tool),proxy and the backend.We limit **the cpu cores(4 core) and memory(8GB)** for the service. 
+### 服务配置
+每个服务的配置都是4核8G的docker容器。docker宿主机是PC(Cpu是13th Gen Intel(R) Core(TM) i5-13600K,内存是32GB)。
 
-Our testing environment is based on the PC.And the cpu of the PC is 13th Gen Intel(R) Core(TM) i5-13600K,the memory of the PC is 32GB.
-## Results using Hey
+### 测试工具
+本次测试工具使用[hey](https://github.com/rakyll/hey)。
+
+### 测试参数
+测试指令如下：
+```
+hey -n 100000 -c 250 -m GET http://proxy:80
+```
+该指令指使用250并发去请求http://proxy:80，总共请求10w次。至于为什么是250并发，为什么不是1000并发或5000并发。因为客户端使用250并发已经足以将代理服务器(4核8G)的cpu使用率压到100%。这个时候已经达到代理服务器的处理极限了。如果将并发增加到1000或者5000，则请求只会排队/被拒绝，从而使最终的数据污染(平均响应时间/平均延迟)。
+
+## 测试结果如下
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/benchmarks2/rps.png)
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/benchmarks2/avt.png)
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/benchmarks2/ld.png)
 
-Graphs created using [https://www.rapidtables.com/tools/bar-graph.html](https://www.rapidtables.com/tools/bar-graph.html)
-## Haproxy(2.7.3)
+## 使用的指令和测试数据结果
+### Haproxy(2.7.3)
 ```
  hey -n 100000 -c 250 -m GET http://haproxy:80/
 
@@ -68,7 +83,7 @@ Status code distribution:
   [200]	100000 responses
 
 ```
-## SilverWind
+### SilverWind
 ```
 hey -n 100000 -c 250 -m GET http://silverwind:6667
 
@@ -115,7 +130,7 @@ Details (average, fastest, slowest):
 Status code distribution:
   [200]	100000 responses
 ```
-## Envoy(1.22.8)
+### Envoy(1.22.8)
 ```
 hey -n 100000 -c 250 -m GET http://envoy:8050
 
@@ -162,7 +177,7 @@ Details (average, fastest, slowest):
 Status code distribution:
   [200]	100000 responses
 ```
-## Traefik(2.9.8)
+### Traefik(2.9.8)
 ```
 hey -n 100000 -c 250 -m GET http://traefik:80/
 
@@ -210,7 +225,7 @@ Status code distribution:
   [200]	100000 responses
 
 ```
-## Nginx(1.23.3)
+### Nginx(1.23.3)
 ```
  hey -n 100000 -c 250 -m GET http://nginx:80/
 
@@ -257,7 +272,7 @@ Details (average, fastest, slowest):
 Status code distribution:
   [200] 100000 responses
 ```
-## Caddy(2.6.4)
+### Caddy(2.6.4)
 ```
 hey -n 100000 -c 250 -m GET http://caddy:80/
 
@@ -304,4 +319,18 @@ Details (average, fastest, slowest):
 
 Status code distribution:
   [200]	100000 responses
+```
+
+## 我想自己复现一下测试怎么办
+所有的测试都在[测试目录](https://github.com/lsk569937453/silverwind/tree/main/benchmarks)下。以Nginx为例，可以直接进入测试目录下的[Nginx目录](https://github.com/lsk569937453/silverwind/tree/main/benchmarks/nginx)。修改Nginx文件后，然后使用如下的命令启动测试集群
+```
+docker stack deploy --compose-file docker-compose.yaml benchmark 
+```
+等测试集群启动完成，进入如下指令进入test容器。
+```
+docker exec -it xxxx /bin/bash 
+```
+然后使用如下指令启动测试
+```
+hey -n 100000 -c 250 -m GET http://nginx:80/
 ```

@@ -1,4 +1,5 @@
 version: '3.9'
+
 services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
@@ -10,19 +11,21 @@ services:
           memory: 8192M
   backend:
     image: jmalloc/echo-server
+    ports:
+    - "9394:8080"
     deploy:
       resources:
         limits:
           cpus: "4.0"
           memory: 8192M
-    ports:
-    - "9394:8080"
-  caddy:
-    image: caddy:2.6.4
-    ports:
-      - "8050:80"
+  haproxy:
+    image: haproxytech/haproxy-ubuntu:2.7.3
+    container_name: haproxy
     volumes:
-      - ./caddyfile:/etc/caddy/Caddyfile
+    - ./haproxy.cfg:/etc/haproxy/haproxy.cfg
+    restart: unless-stopped
+    ports:
+      - 80:80
     deploy:
       resources:
         limits:

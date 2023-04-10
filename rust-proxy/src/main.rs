@@ -26,8 +26,9 @@ use crate::control_plane::rest_api::start_control_plane;
 use tokio::runtime;
 
 fn main() {
+    let num = num_cpus::get();
     let rt = runtime::Builder::new_multi_thread()
-        .worker_threads(8)
+        .worker_threads(num * 2)
         .enable_all()
         .build()
         .unwrap();

@@ -1,0 +1,14 @@
+[http]
+  # Add the router
+  [http.routers]
+    [http.routers.web]
+      entryPoints = ["web"]
+      service = "service-foo"
+      rule = "Path(`/`)"
+
+    # Add the service
+    [http.services]
+      [http.services.service-foo]
+        [http.services.service-foo.loadBalancer]
+          [[http.services.service-foo.loadBalancer.servers]]
+            url = "http://backend:8080"
