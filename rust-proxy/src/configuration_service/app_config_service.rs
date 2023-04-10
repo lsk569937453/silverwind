@@ -18,7 +18,6 @@ use lazy_static::lazy_static;
 use log::Level;
 use std::collections::HashMap;
 use std::env;
-use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -33,16 +32,12 @@ pub async fn init() {
         Ok(_) => info!("Initialize app service config successfully!"),
         Err(err) => error!("{}", err.to_string()),
     }
-    tokio::task::spawn_blocking(move || {
-        Handle::current().block_on(async {
-            sync_mapping_from_global_app_config().await;
-        })
+    tokio::task::spawn(async {
+        sync_mapping_from_global_app_config().await;
     });
-    tokio::task::spawn_blocking(move || {
-        Handle::current().block_on(async {
-            let mut health_check = HealthCheck::new();
-            health_check.start_health_check_loop().await;
-        })
+    tokio::task::spawn(async {
+        let mut health_check = HealthCheck::new();
+        health_check.start_health_check_loop().await;
     });
 }
 async fn sync_mapping_from_global_app_config() {

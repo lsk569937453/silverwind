@@ -1,3 +1,10 @@
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[macro_use]
 extern crate anyhow;
 extern crate derive_builder;
@@ -15,10 +22,12 @@ use std::env;
 #[macro_use]
 extern crate log;
 use crate::control_plane::rest_api::start_control_plane;
+
 use tokio::runtime;
 
 fn main() {
     let rt = runtime::Builder::new_multi_thread()
+        .worker_threads(8)
         .enable_all()
         .build()
         .unwrap();
