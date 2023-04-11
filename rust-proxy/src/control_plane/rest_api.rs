@@ -9,6 +9,7 @@ use crate::vojo::app_config_vistor::AppConfigVistor;
 use crate::vojo::base_response::BaseResponse;
 use prometheus::{Encoder, TextEncoder};
 use std::convert::Infallible;
+use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
 use warp::http::{Response, StatusCode};
@@ -106,16 +107,15 @@ async fn post_app_config(
 fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(), anyhow::Error> {
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
-        let path = std::path::Path::new(DEFAULT_TEMPORARY_DIR);
-        let prefix = path.parent().unwrap();
-        std::fs::create_dir_all(prefix).unwrap();
+        let path = env::current_dir()?;
+        let absolute_path = path.join(DEFAULT_TEMPORARY_DIR);
+        std::fs::create_dir_all(absolute_path)?;
     }
 
     let f = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open("temporary/new_silverwind_config.yml")
-        .expect("Couldn't open/create new_silverwind_config.yaml!");
+        .open("temporary/new_silverwind_config.yml")?;
     serde_yaml::to_writer(f, &api_services_vistor)?;
     Ok(())
 }

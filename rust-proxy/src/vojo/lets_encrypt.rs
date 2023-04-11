@@ -1,10 +1,10 @@
+use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use acme_lib::persist::FilePersist;
 use acme_lib::{create_p384_key, Certificate};
 use acme_lib::{Directory, DirectoryUrl, Error};
 use dashmap::DashMap;
-
-use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::net::TcpListener;
 use std::path::Path;
 use std::sync::Arc;
@@ -124,9 +124,9 @@ impl LetsEntrypt {
     pub fn request_cert(&self, directory_url: DirectoryUrl) -> Result<Certificate, Error> {
         let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
         if !result {
-            let path = std::path::Path::new(DEFAULT_TEMPORARY_DIR);
-            let prefix = path.parent().unwrap();
-            std::fs::create_dir_all(prefix).unwrap();
+            let path = env::current_dir()?;
+            let absolute_path = path.join(DEFAULT_TEMPORARY_DIR);
+            std::fs::create_dir_all(absolute_path)?;
         }
         let persist = FilePersist::new(DEFAULT_TEMPORARY_DIR);
         let dir = Directory::from_url(persist, directory_url)?;
