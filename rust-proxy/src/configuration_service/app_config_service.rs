@@ -1,17 +1,23 @@
 use crate::configuration_service::logger;
 use crate::constants;
+use crate::constants::common_constants::ENV_ACCESS_LOG;
+use crate::constants::common_constants::ENV_ADMIN_PORT;
+use crate::constants::common_constants::ENV_CONFIG_FILE_PATH;
+use crate::constants::common_constants::ENV_DATABASE_URL;
+use crate::constants::common_constants::TIMER_WAIT_SECONDS;
+use crate::health_check::health_check_task::HealthCheck;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
+use crate::vojo::app_config_vistor::ApiServiceVistor;
 use dashmap::DashMap;
 use futures::FutureExt;
 use lazy_static::lazy_static;
 use log::Level;
 use std::collections::HashMap;
 use std::env;
-use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -26,10 +32,12 @@ pub async fn init() {
         Ok(_) => info!("Initialize app service config successfully!"),
         Err(err) => error!("{}", err.to_string()),
     }
-    tokio::task::spawn_blocking(move || {
-        Handle::current().block_on(async {
-            sync_mapping_from_global_app_config().await;
-        })
+    tokio::task::spawn(async {
+        sync_mapping_from_global_app_config().await;
+    });
+    tokio::task::spawn(async {
+        let mut health_check = HealthCheck::new();
+        health_check.start_health_check_loop().await;
     });
 }
 async fn sync_mapping_from_global_app_config() {
@@ -40,7 +48,7 @@ async fn sync_mapping_from_global_app_config() {
         if async_result.is_err() {
             error!("sync_mapping_from_global_app_config catch panic successfully!");
         }
-        sleep(std::time::Duration::from_secs(5)).await;
+        sleep(std::time::Duration::from_secs(TIMER_WAIT_SECONDS)).await;
     }
 }
 /**
@@ -57,11 +65,7 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
         .iter()
         .map(|s| {
             (
-                format!(
-                    "{}-{}",
-                    s.listen_port.clone(),
-                    s.service_config.server_type.to_string()
-                ),
+                format!("{}-{}", s.listen_port.clone(), s.service_config.server_type),
                 s.service_config.clone(),
             )
         })
@@ -105,16 +109,15 @@ async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
                 key.clone(),
                 ApiServiceManager {
                     service_config: value.clone(),
-                    sender: sender,
+                    sender,
                 },
             );
-            let item_list: Vec<&str> = key.split("-").collect();
+            let item_list: Vec<&str> = key.split('-').collect();
             let port_str = item_list.first().unwrap();
             let port: i32 = port_str.parse().unwrap();
 
             tokio::task::spawn(async move {
-                if let Err(err) =
-                    start_proxy(port.clone(), receiver, value.server_type, key.clone()).await
+                if let Err(err) = start_proxy(port, receiver, value.server_type, key.clone()).await
                 {
                     error!("{}", err.to_string());
                 }
@@ -130,14 +133,14 @@ pub async fn start_proxy(
     server_type: ServiceType,
     mapping_key: String,
 ) -> Result<(), anyhow::Error> {
-    if server_type == ServiceType::HTTP {
+    if server_type == ServiceType::Http {
         let mut http_proxy = HttpProxy {
-            port: port,
-            channel: channel,
+            port,
+            channel,
             mapping_key: mapping_key.clone(),
         };
         http_proxy.start_http_server().await
-    } else if server_type == ServiceType::HTTPS {
+    } else if server_type == ServiceType::Https {
         let key_clone = mapping_key.clone();
         let service_config = GLOBAL_CONFIG_MAPPING
             .get(&key_clone)
@@ -147,42 +150,43 @@ pub async fn start_proxy(
         let pem_str = service_config.cert_str.unwrap();
         let key_str = service_config.key_str.unwrap();
         let mut http_proxy = HttpProxy {
-            port: port,
-            channel: channel,
+            port,
+            channel,
             mapping_key: mapping_key.clone(),
         };
         http_proxy.start_https_server(pem_str, key_str).await
     } else {
         let mut tcp_proxy = TcpProxy {
-            port: port,
-            mapping_key: mapping_key,
-            channel: channel,
+            port,
+            mapping_key,
+            channel,
         };
         tcp_proxy.start_proxy().await
     }
 }
 async fn init_static_config() {
-    let database_url_result = env::var("DATABASE_URL");
-    let api_port =
-        env::var("ADMIN_PORT").unwrap_or(String::from(constants::constants::DEFAULT_API_PORT));
-    let access_log_result = env::var("ACCESS_LOG");
-    let config_file_path_result = env::var("CONFIG_FILE_PATH");
+    let database_url_result = env::var(ENV_DATABASE_URL);
+    let api_port = env::var(ENV_ADMIN_PORT).unwrap_or(String::from(
+        constants::common_constants::DEFAULT_ADMIN_PORT,
+    ));
+    let access_log_result = env::var(ENV_ACCESS_LOG);
+    let config_file_path_result = env::var(ENV_CONFIG_FILE_PATH);
 
     let mut global_app_config = GLOBAL_APP_CONFIG.write().await;
 
     if let Ok(database_url) = database_url_result {
-        (*global_app_config).static_config.database_url = Some(database_url);
+        global_app_config.static_config.database_url = Some(database_url);
     }
     global_app_config.static_config.admin_port = api_port.clone();
 
     logger::start_logger();
 
     if let Ok(access_log) = access_log_result {
-        (*global_app_config).static_config.access_log = Some(access_log);
+        global_app_config.static_config.access_log = Some(access_log);
     }
 
     if let Ok(config_file_path) = config_file_path_result {
-        (*global_app_config).static_config.config_file_path = Some(config_file_path);
+        global_app_config.static_config.config_file_path = Some(config_file_path);
     }
 }
 async fn init_app_service_config() -> Result<(), anyhow::Error> {
@@ -195,17 +199,18 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
     drop(rw_app_config_read);
     let file_path = config_file_path.unwrap().clone();
     info!("the config file is in{}", file_path.clone());
-    let file = match std::fs::File::open(file_path) {
-        Ok(file) => file,
-        Err(err) => return Err(anyhow!(err.to_string())),
-    };
-    let scrape_config: Vec<ApiService> = match serde_yaml::from_reader(file) {
+    let file = std::fs::File::open(file_path)?;
+    let scrape_config: Vec<ApiServiceVistor> = match serde_yaml::from_reader(file) {
         Ok(apiservices) => apiservices,
         Err(err) => return Err(anyhow!(err.to_string())),
     };
     let mut rw_app_config_write = GLOBAL_APP_CONFIG.write().await;
 
-    (*rw_app_config_write).api_service_config = scrape_config;
+    let mut res = vec![];
+    for item in scrape_config {
+        res.push(ApiService::from(item).await?);
+    }
+    rw_app_config_write.api_service_config = res;
     Ok(())
 }
 
@@ -213,10 +218,14 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
 mod tests {
 
     use super::*;
+    use crate::vojo::app_config::LivenessStatus;
     use crate::vojo::app_config::Route;
+    use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::{BaseRoute, LoadbalancerStrategy, RandomBaseRoute, RandomRoute};
     use serial_test::serial;
+    use std::sync::Arc;
     use tokio::runtime::{Builder, Runtime};
+    use tokio::sync::RwLock;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -269,10 +278,7 @@ mod tests {
                 current.static_config.access_log,
                 Some(String::from(access_log))
             );
-            assert_eq!(
-                current.static_config.admin_port,
-                String::from(port.to_string())
-            );
+            assert_eq!(current.static_config.admin_port, port.to_string());
             assert_eq!(
                 current.static_config.access_log,
                 Some(String::from(access_log))
@@ -296,9 +302,9 @@ mod tests {
             env::set_var("CONFIG_FILE_PATH", current_dir);
             init_static_config().await;
             let res = init_app_service_config().await;
-            assert_eq!(res.is_ok(), true);
+            assert!(res.is_ok());
             let app_config = GLOBAL_APP_CONFIG.read().await.clone();
-            let api_services = app_config.api_service_config.clone();
+            let api_services = app_config.api_service_config;
             assert!(api_services.len() <= 5);
             let api_service = api_services.first().cloned().unwrap();
             assert_eq!(api_service.listen_port, 4486);
@@ -314,9 +320,9 @@ mod tests {
             before_test().await;
             init_static_config().await;
             let res_init_app_service_config = init_app_service_config().await;
-            assert_eq!(res_init_app_service_config.is_err(), false);
+            assert!(res_init_app_service_config.is_ok());
             let res_update_config_mapping = update_mapping_from_global_appconfig().await;
-            assert_eq!(res_update_config_mapping.is_err(), false);
+            assert!(res_update_config_mapping.is_ok());
             assert!(GLOBAL_CONFIG_MAPPING.len() < 4);
         });
     }
@@ -334,8 +340,7 @@ mod tests {
             env::set_var("CONFIG_FILE_PATH", current_dir);
             init_static_config().await;
             let res_init_app_service_config = init_app_service_config().await;
-            assert_eq!(res_init_app_service_config.is_err(), false);
-
+            assert!(res_init_app_service_config.is_ok());
             let _res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
             // assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
@@ -365,37 +370,47 @@ mod tests {
             .join("test_cert.pem");
         let certificate = std::fs::read_to_string(certificate_path).unwrap();
 
-        let route = Box::new(RandomRoute {
+        let route = LoadbalancerStrategy::Random(RandomRoute {
             routes: vec![RandomBaseRoute {
                 base_route: BaseRoute {
                     endpoint: String::from("httpbin.org:80"),
                     try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
                 },
             }],
-        }) as Box<dyn LoadbalancerStrategy>;
+        });
         let (sender, receiver) = tokio::sync::mpsc::channel(10);
 
         let api_service_manager = ApiServiceManager {
-            sender: sender,
+            sender,
             service_config: ServiceConfig {
                 key_str: Some(private_key),
-                server_type: crate::vojo::app_config::ServiceType::HTTPS,
+                server_type: crate::vojo::app_config::ServiceType::Https,
                 cert_str: Some(certificate),
                 routes: vec![Route {
                     host_name: None,
-                    route_id: crate::vojo::app_config::new_uuid(),
+                    route_id: crate::utils::uuid::get_uuid(),
                     matcher: Default::default(),
                     route_cluster: route,
                     allow_deny_list: None,
                     authentication: None,
                     ratelimit: None,
+                    health_check: None,
+                    anomaly_detection: None,
+                    liveness_config: None,
+                    liveness_status: Arc::new(RwLock::new(LivenessStatus {
+                        current_liveness_count: 0,
+                    })),
                 }],
             },
         };
         GLOBAL_CONFIG_MAPPING.insert(String::from("test"), api_service_manager);
         TOKIO_RUNTIME.spawn(async {
             let _result =
-                start_proxy(2256, receiver, ServiceType::HTTPS, String::from("test")).await;
+                start_proxy(2256, receiver, ServiceType::Https, String::from("test")).await;
         });
     }
 }

@@ -1,6 +1,6 @@
 - listen_port: 4486
   service_config:
-    server_type: HTTP
+    server_type: Http
     routes:
     - matcher:
         prefix: /
@@ -13,7 +13,7 @@
             try_file: null
 - listen_port: 9969
   service_config:
-    server_type: HTTP
+    server_type: Http
     routes:
     - matcher:
         prefix: /

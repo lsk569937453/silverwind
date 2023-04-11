@@ -23,10 +23,18 @@ static_resources:
                   prefix: "/"
                 route:
                   cluster: some_service
+                  timeout: 100s
   clusters:
   - name: some_service
     connect_timeout: 30s
-    type: LOGICAL_DNS
+    type: strict_dns
+    lb_policy: round_robin
+    circuit_breakers:
+      thresholds:
+        max_connections: 10000
+        max_pending_requests: 10000
+        max_requests: 100000
+    # type: LOGICAL_DNS
     load_assignment:
       cluster_name: service_envoyproxy_io
       endpoints:

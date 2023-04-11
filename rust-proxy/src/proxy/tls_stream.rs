@@ -28,13 +28,11 @@ impl TlsStream {
         match &self.state {
             State::Handshaking(accept) => {
                 let addr_option = accept.get_ref();
-                let socket_addr = addr_option.unwrap().remote_addr();
-                return socket_addr;
+                addr_option.unwrap().remote_addr()
             }
             State::Streaming(stream) => {
                 let (addr_stream, _) = stream.get_ref();
-                let socket_addr = addr_stream.remote_addr();
-                return socket_addr;
+                addr_stream.remote_addr()
             }
         }
     }

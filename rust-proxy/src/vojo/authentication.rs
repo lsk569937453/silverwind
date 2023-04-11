@@ -23,7 +23,7 @@ dyn_clone::clone_trait_object!(AuthenticationStrategy);
 
 impl Debug for dyn AuthenticationStrategy {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let routes = self.get_debug().clone();
+        let routes = self.get_debug();
         write!(f, "{{{}}}", routes)
     }
 }
@@ -37,7 +37,7 @@ impl AuthenticationStrategy for BasicAuth {
         &mut self,
         headers: HeaderMap<HeaderValue>,
     ) -> Result<bool, anyhow::Error> {
-        if headers.len() == 0 || !headers.contains_key("Authorization") {
+        if headers.is_empty() || !headers.contains_key("Authorization") {
             return Ok(false);
         }
         let value = headers
@@ -45,7 +45,7 @@ impl AuthenticationStrategy for BasicAuth {
             .unwrap()
             .to_str()
             .map_err(|err| anyhow!(err.to_string()))?;
-        let split_list: Vec<_> = value.split(" ").collect();
+        let split_list: Vec<_> = value.split(' ').collect();
         if split_list.len() != 2 || split_list[0] != "Basic" {
             return Ok(false);
         }
@@ -72,7 +72,7 @@ impl AuthenticationStrategy for ApiKeyAuth {
         &mut self,
         headers: HeaderMap<HeaderValue>,
     ) -> Result<bool, anyhow::Error> {
-        if headers.len() == 0 || !headers.contains_key(self.key.clone()) {
+        if headers.is_empty() || !headers.contains_key(self.key.clone()) {
             return Ok(false);
         }
         let header_value = headers
@@ -89,8 +89,7 @@ impl AuthenticationStrategy for ApiKeyAuth {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::app_config::ApiService;
-
+    use crate::vojo::app_config_vistor::ApiServiceVistor;
     #[test]
     fn test_basic_auth_error1() {
         let mut basic_auth: Box<dyn AuthenticationStrategy> = Box::new(BasicAuth {
@@ -99,7 +98,7 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
         let res1 = basic_auth.check_authentication(headermap1);
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
     }
     #[test]
     fn test_basic_auth_error2() {
@@ -109,7 +108,7 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("Authorization", "BasicbHNrOjEyMzQ=".parse().unwrap());
         let res1 = basic_auth.check_authentication(headermap1);
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
     }
     #[test]
     fn test_basic_auth_error3() {
@@ -119,7 +118,7 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("Authorization", "Basic test".parse().unwrap());
         let res1 = basic_auth.check_authentication(headermap1);
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
     }
     #[test]
     fn test_basic_auth_ok() {
@@ -129,7 +128,7 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("Authorization", "Basic bHNrOnBhc3N3b3Jk".parse().unwrap());
         let res1 = basic_auth.check_authentication(headermap1);
-        assert_eq!(res1.unwrap(), true);
+        assert!(res1.unwrap());
     }
     #[test]
     fn test_api_key_auth_error() {
@@ -140,7 +139,7 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("Authorization", "Basic bHNrOnBhc3N3b3Jk".parse().unwrap());
         let res1 = basic_auth.check_authentication(headermap1);
-        assert_eq!(res1.unwrap(), false);
+        assert!(!res1.unwrap());
     }
 
     #[test]
@@ -152,7 +151,7 @@ mod tests {
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
         let res1 = basic_auth.check_authentication(headermap1);
-        assert_eq!(res1.unwrap(), true);
+        assert!(res1.unwrap());
     }
     #[test]
     fn test_basic_auth_as_any() {
@@ -160,7 +159,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -190,7 +189,7 @@ mod tests {
               }
             }
           ]"#;
-        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let api_services: Vec<ApiServiceVistor> = serde_json::from_slice(req.as_bytes()).unwrap();
         let first_api_service = api_services
             .first()
             .unwrap()
@@ -214,7 +213,7 @@ mod tests {
             {
               "listen_port": 4486,
               "service_config": {
-                "server_type": "HTTP",
+                "server_type": "Http",
                 "cert_str": null,
                 "key_str": null,
                 "routes": [
@@ -245,7 +244,7 @@ mod tests {
               }
             }
           ]"#;
-        let api_services: Vec<ApiService> = serde_json::from_slice(req.as_bytes()).unwrap();
+        let api_services: Vec<ApiServiceVistor> = serde_json::from_slice(req.as_bytes()).unwrap();
         let first_api_service = api_services
             .first()
             .unwrap()

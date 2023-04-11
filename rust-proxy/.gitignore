@@ -13,3 +13,4 @@ Cargo.lock
 rust-proxy
 .vscode
 *log
+temporary

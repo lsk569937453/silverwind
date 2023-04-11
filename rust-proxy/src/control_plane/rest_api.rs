@@ -1,11 +1,16 @@
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
+use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
+use crate::control_plane::lets_encrypt::path;
 use crate::proxy::http_proxy::GeneralError;
-use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::ServiceType;
-use crate::vojo::vojo::BaseResponse;
+use crate::vojo::app_config_vistor::from_api_service_vistor;
+use crate::vojo::app_config_vistor::ApiServiceVistor;
+use crate::vojo::app_config_vistor::AppConfigVistor;
+use crate::vojo::base_response::BaseResponse;
 use prometheus::{Encoder, TextEncoder};
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::Path;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 use warp::{reject, Rejection, Reply};
@@ -15,9 +20,17 @@ struct MethodError;
 impl reject::Reject for MethodError {}
 async fn get_app_config() -> Result<impl warp::Reply, Infallible> {
     let app_config = GLOBAL_APP_CONFIG.read().await;
+
+    let app_config_vistor_result = AppConfigVistor::from(app_config.clone()).await;
+    if app_config_vistor_result.is_err() {
+        return Ok(Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(INTERNAL_SERVER_ERROR.into())
+            .unwrap());
+    }
     let data = BaseResponse {
         response_code: 0,
-        response_object: app_config.clone(),
+        response_object: app_config_vistor_result.unwrap(),
     };
     let res = match serde_json::to_string(&data) {
         Ok(json) => Response::builder()
@@ -42,16 +55,17 @@ async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
         .map_err(|e| GeneralError(anyhow!(e.to_string())))
         .unwrap())
 }
-
-async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Reply, Infallible> {
-    let validata_result = api_services
+async fn post_app_config(
+    api_services_vistor: Vec<ApiServiceVistor>,
+) -> Result<impl warp::Reply, Infallible> {
+    let validata_result = api_services_vistor
         .iter()
-        .filter(|s| s.service_config.server_type == ServiceType::HTTPS)
+        .filter(|s| s.service_config.server_type == ServiceType::Https)
         .map(|s| {
-            return validate_tls_config(
+            validate_tls_config(
                 s.service_config.cert_str.clone(),
                 s.service_config.key_str.clone(),
-            );
+            )
         })
         .collect::<Result<Vec<()>, anyhow::Error>>();
     if let Err(err) = validata_result {
@@ -61,7 +75,23 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
             .unwrap());
     }
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
-    (*rw_global_lock).api_service_config = api_services.clone();
+
+    let api_services_result = from_api_service_vistor(api_services_vistor.clone()).await;
+    if api_services_result.is_err() {
+        return Ok(Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(api_services_result.unwrap_err().to_string())
+            .unwrap());
+    }
+
+    rw_global_lock.api_service_config = api_services_result.unwrap();
+    let save_result = save_config_to_file(api_services_vistor.clone());
+    if save_result.is_err() {
+        error!(
+            "Save config to file error,the error is:{}",
+            save_result.unwrap_err()
+        )
+    }
     let data = BaseResponse {
         response_code: 0,
         response_object: 0,
@@ -73,6 +103,22 @@ async fn post_app_config(api_services: Vec<ApiService>) -> Result<impl warp::Rep
         .body(json_str)
         .unwrap())
 }
+fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(), anyhow::Error> {
+    let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
+    if !result {
+        let path = std::path::Path::new(DEFAULT_TEMPORARY_DIR);
+        let prefix = path.parent().unwrap();
+        std::fs::create_dir_all(prefix).unwrap();
+    }
+
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .open("temporary/new_silverwind_config.yml")
+        .expect("Couldn't open/create new_silverwind_config.yaml!");
+    serde_yaml::to_writer(f, &api_services_vistor)?;
+    Ok(())
+}
 fn validate_tls_config(
     cert_pem_option: Option<String>,
     key_pem_option: Option<String>,
@@ -83,7 +129,7 @@ fn validate_tls_config(
     let cert_pem = cert_pem_option.unwrap();
     let mut cer_reader = std::io::BufReader::new(cert_pem.as_bytes());
     let result_certs = rustls_pemfile::certs(&mut cer_reader);
-    if result_certs.is_err() || result_certs.unwrap().len() == 0 {
+    if result_certs.is_err() || result_certs.unwrap().is_empty() {
         return Err(anyhow!("Can not parse the certs pem."));
     }
     let key_pem = key_pem_option.unwrap();
@@ -94,9 +140,10 @@ fn validate_tls_config(
     Ok(())
 }
 
-fn json_body() -> impl Filter<Extract = (Vec<ApiService>,), Error = warp::Rejection> + Clone {
+fn json_body() -> impl Filter<Extract = (Vec<ApiServiceVistor>,), Error = warp::Rejection> + Clone {
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
 }
+
 pub async fn handle_not_found(reject: Rejection) -> Result<impl Reply, Rejection> {
     if reject.is_not_found() {
         Ok(StatusCode::NOT_FOUND)
@@ -113,18 +160,23 @@ pub async fn handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
 }
 
 pub async fn start_control_plane(port: i32) {
-    let post_app_config = warp::post()
-        .and(warp::path("appConfig"))
+    let post_app_config = warp::path("appConfig")
         .and(warp::path::end())
         .and(json_body())
         .and_then(post_app_config)
         .recover(handle_not_found);
     let get_app_config = warp::path("appConfig").and_then(get_app_config);
+
     let get_prometheus_metrics = warp::path("metrics").and_then(get_prometheus_metrics);
 
     let get_request = warp::get()
         .and(get_app_config.or(get_prometheus_metrics))
         .recover(handle_not_found);
+    let post_request = warp::post()
+        .and(path().or(post_app_config))
+        .recover(handle_not_found);
+
+    // let put_request = warp::put().and(path()).recover(handle_not_found);
 
     let log = warp::log("dashbaord-svc");
 
@@ -142,7 +194,7 @@ pub async fn start_control_plane(port: i32) {
         ])
         .allow_any_origin();
     warp::serve(
-        post_app_config
+        post_request
             .or(get_request)
             .with(cors)
             .with(log)
@@ -198,7 +250,7 @@ mod tests {
             {
                 "listen_port": 4486,
                 "service_config": {
-                    "server_type": "HTTP",
+                    "server_type": "Http",
                     "routes": [
                         {
                             "matcher": {
@@ -238,7 +290,7 @@ mod tests {
 
             assert_eq!(res.status(), StatusCode::OK);
             let body_bytes = res.body();
-            let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
+            let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
             assert_eq!(base_response.response_code, 0);
         })
     }
@@ -257,7 +309,7 @@ mod tests {
         let certificate = std::fs::read_to_string(certificate_path).unwrap();
 
         let validation_res = validate_tls_config(Some(certificate), Some(private_key));
-        assert_eq!(validation_res.is_ok(), true);
+        assert!(validation_res.is_ok());
     }
     #[test]
     fn test_validate_tls_config_error_with_private_key() {
@@ -269,7 +321,7 @@ mod tests {
 
         let private_key = String::from("private key");
         let validation_res = validate_tls_config(Some(certificate), Some(private_key));
-        assert_eq!(validation_res.is_err(), true);
+        assert!(validation_res.is_err());
     }
     #[test]
     fn test_validate_tls_config_error_with_certificate() {
@@ -281,7 +333,7 @@ mod tests {
         let certificate = String::from("test");
 
         let validation_res = validate_tls_config(Some(certificate), Some(private_key));
-        assert_eq!(validation_res.is_err(), true);
+        assert!(validation_res.is_err());
     }
     #[test]
     fn test_response_not_found() {
@@ -305,7 +357,7 @@ mod tests {
             {
                 "listen_port": 4486,
                 "service_config": {
-                    "server_type": "HTTP",
+                    "server_type": "Http",
                     "routes": [
                         {
                             "matcher": {
@@ -343,8 +395,9 @@ mod tests {
                 .await;
             assert_eq!(res.status(), StatusCode::OK);
             let body_bytes = res.body();
-            let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
+            let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
             assert_eq!(base_response.response_code, 0);
+            assert_eq!(base_response.response_object, 0);
         })
     }
     #[test]
