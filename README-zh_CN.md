@@ -8,13 +8,13 @@ docker-compose.yaml的文件如下所示
 version: "3.9"
 services:
   silverwind-dashboard:
-    image: lsk569937453/silverwind-dashboard:0.0.4
+    image: lsk569937453/silverwind-dashboard:0.0.6
     container_name: silverwind-dashboard
     ports:
       - "4486:4486"
 
   silverwind:
-      image: lsk569937453/silverwind:0.0.4
+      image: lsk569937453/silverwind:0.0.6
       container_name: silverwind
       ports:
         - "6980:6980"
@@ -167,6 +167,45 @@ Content-Length: 1752
 GET /appConfig HTTP/1.1
 Host: 127.0.0.1:8870
 ```
+### 更新路由
+```
+PUT /route HTTP/1.1
+Host: 127.0.0.1:8870
+Content-Type: application/json
+Content-Length: 629
+
+{
+    "route_id": "90c66439-5c87-4902-aebb-1c2c9443c154",
+    "host_name": null,
+    "matcher": {
+        "prefix": "/",
+        "prefix_rewrite": "ssss"
+    },
+    "allow_deny_list": null,
+    "authentication": null,
+    "anomaly_detection": null,
+    "liveness_config": null,
+    "health_check": null,
+    "ratelimit": null,
+    "route_cluster": {
+        "type": "RandomRoute",
+        "routes": [
+            {
+                "base_route": {
+                    "endpoint": "http://127.0.0.1:10000",
+                    "try_file": null,
+                    "is_alive": null
+                }
+            }
+        ]
+    }
+}
+```
+### 删除路由
+```
+DELETE /route/90c66439-5c87-4902-aebb-1c2c9443c154 HTTP/1.1
+Host: 127.0.0.1:8870
+```
 ## <span id="api-gateway">API网关中的基础功能</span>
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/api-gateway.png)
 ## Silverwind已经实现了如下功能
@@ -176,6 +215,8 @@ Host: 127.0.0.1:8870
 * 路由
 * 负载均衡(论询，随机，基于权重,基于Header)
 * 动态配置(Rest Api)
+* 健康检查&异常检测
+* 免费Https证书
 * 控制面板
 * 监控(Prometheus)
 ## 将来会实现的功能
