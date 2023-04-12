@@ -368,4 +368,4 @@ hey -n 100000 -c 250 -m GET http://nginx:80/
 ## 后记
 我一共做了两次大的测试，这次的结果和上次不一样。
 上次的测试环境是windows 10下安装docker容器，然后启动测试。这次的测试环境是ubuntu 22.04安装docker容器，然后启动测试。  
-两次测试结果的不同点是nginx的性能有所下降，envoy和silverWind的性能有略微上升。
+两次测试结果的不同点是nginx的性能有所下降，envoy和silverWind的性能有略微上升。猜测可能是ubuntu和windows的底层使用的虚拟化技术不一样导致的。
