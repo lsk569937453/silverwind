@@ -24,7 +24,7 @@ services:
 您执行**docker-compose up** 命令后，可以在浏览器中打开[主页](http://localhost:4486/index.html)来查看Silverwind的仪表盘。
 ## 为什么我们选择 Silverwind&&Silverwind的优点
 ### 基准测试
-我们针对当前主流的代理/负载均衡器(NGINX, Envoy, and Caddy)做了性能测试。测试结果在[这里](https://github.com/lsk569937453/silverwind/blob/main/benchmarks.md)。
+我们针对当前主流的代理/负载均衡器(NGINX, Envoy, and Caddy)做了性能测试。测试结果在[这里](https://github.com/lsk569937453/silverwind/blob/main/benchmarks-zh_CN.md)。
 测试结果表明在相同的机器配置下(4核8G),在某些指标上(每秒请求数,平均响应时间),Silverwind的数据与NGINX, Envoy水平接近。
 在请求延迟上，Silverwind的数据要明显好于NGINX和Envoy。
 

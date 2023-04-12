@@ -14,7 +14,7 @@
 ### 测试什么
 本次基准测试主要测试各个项目作为反向代理的性能表现。
 ### 测试环境
-我们将在docker容器中做性能测试。第一个优点是任何人只要安装了docker都能一键启动性能测试。第二点是在docker swarm中限制服务的cpu和内存比较方便。我们主要启动三个服务:代理服务，后端服务，测试工具服务。
+我们将在docker容器中做性能测试。第一个优点是任何人只要安装了docker都能一键启动性能测试。第二点是在docker swarm中限制服务的cpu和内存比较方便。我们主要启动三个服务:代理服务，后端服务，测试工具服务。这样三个服务都部署在docker容器中，三者相互访问时减少了网络通信的延迟。
 
 ### 服务配置
 每个服务的配置都是4核8G的docker容器。docker宿主机是PC(Cpu是13th Gen Intel(R) Core(TM) i5-13600K,内存是32GB)。
@@ -27,9 +27,10 @@
 ```
 hey -n 100000 -c 250 -m GET http://proxy:80
 ```
-该指令指使用250并发去请求http://proxy:80，总共请求10w次。至于为什么是250并发，为什么不是1000并发或5000并发。因为客户端使用250并发已经足以将代理服务器(4核8G)的cpu使用率压到100%。这个时候已经达到代理服务器的处理极限了。如果将并发增加到1000或者5000，则请求只会排队/被拒绝，从而使最终的数据污染(平均响应时间/平均延迟)。
+该指令指使用250并发去请求[http://proxy:80]，总共请求10w次。我们会在同一台机器上执行该指令多次，只统计数据最好的那一个。
 
 ## 测试结果如下
+Caddy的测试结果太差，图表中不再展示。在下一章中有全部的测试数据结果(文本)。
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/benchmarks2/rps.png)
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/benchmarks2/avt.png)
 ![alt tag](https://raw.githubusercontent.com/lsk569937453/image_repo/main/benchmarks2/ld.png)
@@ -83,6 +84,11 @@ Status code distribution:
   [200]	100000 responses
 
 ```
+```
+启动内存:78MB
+波峰内存:82MB
+波谷内存:81MB
+```
 ### SilverWind
 ```
 hey -n 100000 -c 250 -m GET http://silverwind:6667
@@ -130,6 +136,11 @@ Details (average, fastest, slowest):
 Status code distribution:
   [200]	100000 responses
 ```
+```
+启动内存:4MB
+波峰内存:35MB
+波谷内存:30MB
+```
 ### Envoy(1.22.8)
 ```
 hey -n 100000 -c 250 -m GET http://envoy:8050
@@ -176,6 +187,11 @@ Details (average, fastest, slowest):
 
 Status code distribution:
   [200]	100000 responses
+```
+```
+启动内存:17MB
+波峰内存:36MB
+波谷内存:33MB
 ```
 ### Traefik(2.9.8)
 ```
@@ -225,6 +241,11 @@ Status code distribution:
   [200]	100000 responses
 
 ```
+```
+启动内存:22MB
+波峰内存:135MB
+波谷内存:120MB
+```
 ### Nginx(1.23.3)
 ```
  hey -n 100000 -c 250 -m GET http://nginx:80/
@@ -271,6 +292,11 @@ Details (average, fastest, slowest):
 
 Status code distribution:
   [200] 100000 responses
+```
+```
+启动内存:29MB
+波峰内存:37MB
+波谷内存:34MB
 ```
 ### Caddy(2.6.4)
 ```
@@ -319,8 +345,13 @@ Details (average, fastest, slowest):
 
 Status code distribution:
   [200]	100000 responses
-```
 
+```
+```
+启动内存:10MB
+波峰内存:60MB
+波谷内存:41MB
+```
 ## 我想自己复现一下测试怎么办
 所有的测试都在[测试目录](https://github.com/lsk569937453/silverwind/tree/main/benchmarks)下。以Nginx为例，可以直接进入测试目录下的[Nginx目录](https://github.com/lsk569937453/silverwind/tree/main/benchmarks/nginx)。修改Nginx文件后，然后使用如下的命令启动测试集群
 ```
@@ -334,3 +365,7 @@ docker exec -it xxxx /bin/bash
 ```
 hey -n 100000 -c 250 -m GET http://nginx:80/
 ```
+## 后记
+我一共做了两次大的测试，这次的结果和上次不一样。
+上次的测试环境是windows 10下安装docker容器，然后启动测试。这次的测试环境是ubuntu 22.04安装docker容器，然后启动测试。  
+两次测试结果的不同点是nginx的性能有所下降，envoy和silverWind的性能有略微上升。
