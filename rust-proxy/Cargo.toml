@@ -29,7 +29,7 @@ rpath = false
 #debug = true
 
 ##Optimize For Size
-strip = false
+strip = true
 
 
 [dependencies]

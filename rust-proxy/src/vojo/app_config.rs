@@ -43,9 +43,8 @@ pub struct Route {
     pub route_cluster: LoadbalancerStrategy,
 }
 impl Route {
-    async fn from(route_vistor: RouteVistor) -> Result<Route, anyhow::Error> {
+    pub async fn from(route_vistor: RouteVistor) -> Result<Route, anyhow::Error> {
         let cloned_cluster = route_vistor.route_cluster.clone();
-        // let new_matcher = route_vistor.matcher.clone();
         let new_matcher = route_vistor.matcher.clone().map(|mut item| {
             let src_prefix = item.prefix.clone();
             if !src_prefix.ends_with('/') {
