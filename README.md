@@ -7,9 +7,9 @@ English  [简体中文](./README-zh_CN.md)
 
 The Silverwind is a high-performance reverse proxy/load balancer. And it could be also used as the ingress
 controller in the k8s.
-## Sivlverwind-Dashboard
+## Silverwind-Dashboard
 ###
-Start the Sivlverwind-Dashboard over docker-compose.  
+Start the Silverwind-Dashboard over docker-compose.  
 The docker-compose.yaml is like following:
 ```
 version: "3.9"
@@ -29,7 +29,7 @@ services:
         ADMIN_PORT: 6980
 ```
 You could check the [main page](http://localhost:4486/index.html) for Silverwind -Dashboard after you execute the **docker-compose up** command.
-## Why we chose Sivlverwind
+## Why we chose Silverwind
 ### Benchmarks
 We do the performance testing between several popular proxies including NGINX, Envoy, and Caddy. The benchmarks show [here](https://github.com/lsk569937453/silverwind/blob/main/benchmarks.md).
 
