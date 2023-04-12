@@ -25,6 +25,7 @@ pub enum LoadbalancerStrategy {
     Random(RandomRoute),
     WeightBased(WeightBasedRoute),
 }
+
 impl LoadbalancerStrategy {
     pub async fn get_route(
         &mut self,
@@ -321,7 +322,7 @@ impl HeaderBasedRoute {
                 alive_cluster.push(item.clone());
             }
         }
-        for item in self.routes.iter() {
+        for item in alive_cluster.iter() {
             let headers_contais_key = headers.contains_key(item.header_key.clone());
             if !headers_contais_key {
                 continue;
@@ -366,7 +367,7 @@ impl HeaderBasedRoute {
         }
         error!("Can not find the route!And siverWind has selected the first route!");
 
-        let first = self.routes.first().unwrap().base_route.clone();
+        let first = alive_cluster.first().unwrap().base_route.clone();
         Ok(first)
     }
 }
@@ -412,7 +413,6 @@ impl RandomRoute {
         let mut alive_cluster: Vec<BaseRoute> = vec![];
         for item in self.routes.clone() {
             let is_alve_result = item.base_route.is_alive.read().await;
-            // let is_alive_option = is_alve_result.unwrap();
             let is_alive = is_alve_result.unwrap_or(true);
             if is_alive {
                 alive_cluster.push(item.base_route.clone());
@@ -457,7 +457,7 @@ impl PollRoute {
     async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
         Ok(self
             .routes
-            .iter()
+            .iter_mut()
             .map(|item| item.base_route.clone())
             .collect::<Vec<BaseRoute>>())
     }
@@ -477,7 +477,7 @@ impl PollRoute {
         let older = self.current_index.fetch_add(1, Ordering::SeqCst);
         let len = alive_cluster.len();
         let current_index = older % len;
-        let dst = self.routes[current_index].clone();
+        let dst = alive_cluster[current_index].clone();
         if log_enabled!(Level::Debug) {
             debug!("PollRoute current index:{}", current_index as i32);
         }
@@ -513,10 +513,12 @@ impl WeightBasedRoute {
         _headers: HeaderMap<HeaderValue>,
     ) -> Result<BaseRoute, anyhow::Error> {
         let cluster_read_lock = self.routes.read().await;
+        let mut all_cluster_dead = true;
         for (pos, e) in cluster_read_lock.iter().enumerate() {
             let is_alive_option_lock = e.base_route.is_alive.read().await;
             let is_alive = is_alive_option_lock.unwrap_or(true);
             if is_alive {
+                all_cluster_dead = false;
                 let old_value = e.index.fetch_sub(1, Ordering::SeqCst);
                 if old_value > 0 {
                     if log_enabled!(Level::Debug) {
@@ -526,8 +528,11 @@ impl WeightBasedRoute {
                 }
             }
         }
-        drop(cluster_read_lock);
 
+        drop(cluster_read_lock);
+        if all_cluster_dead {
+            return Err(anyhow!("There are no alive host!"));
+        }
         let mut new_lock = self.routes.write().await;
         let index_is_alive = new_lock.iter().any(|f| {
             let tt = f.index.load(Ordering::SeqCst);
