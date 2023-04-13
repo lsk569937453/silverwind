@@ -3,3 +3,4 @@ pub use http_proxy::HttpProxy;
 pub mod tcp_proxy;
 pub mod tls_acceptor;
 pub mod tls_stream;
+pub mod websocket_proxy;

@@ -93,3 +93,5 @@ jemallocator = "0.3.2"
 
 
 num_cpus = "1.0"
+sha-1= "0.10.1"
+hyper-tls= "0.5.0"

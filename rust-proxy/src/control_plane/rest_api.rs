@@ -2,7 +2,6 @@ use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::path;
 use crate::proxy::http_proxy::GeneralError;
-use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceType;
 use crate::vojo::app_config_vistor::from_api_service_vistor;

@@ -7,6 +7,7 @@ use crate::constants::common_constants::ENV_DATABASE_URL;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::health_check::health_check_task::HealthCheck;
 use crate::proxy::tcp_proxy::TcpProxy;
+use crate::proxy::websocket_proxy::WebsocketProxy;
 use crate::proxy::HttpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
@@ -155,13 +156,35 @@ pub async fn start_proxy(
             mapping_key: mapping_key.clone(),
         };
         http_proxy.start_https_server(pem_str, key_str).await
-    } else {
+    } else if server_type == ServiceType::Tcp {
         let mut tcp_proxy = TcpProxy {
             port,
             mapping_key,
             channel,
         };
         tcp_proxy.start_proxy().await
+    } else if server_type == ServiceType::WebsocketTls {
+        let key_clone = mapping_key.clone();
+        let service_config = GLOBAL_CONFIG_MAPPING
+            .get(&key_clone)
+            .unwrap()
+            .service_config
+            .clone();
+        let pem_str = service_config.cert_str.unwrap();
+        let key_str = service_config.key_str.unwrap();
+        let mut websocket_proxy = WebsocketProxy {
+            port,
+            mapping_key,
+            channel,
+        };
+        websocket_proxy.start_tls_proxy(pem_str, key_str).await
+    } else {
+        let mut websocket_proxy = WebsocketProxy {
+            port,
+            mapping_key,
+            channel,
+        };
+        websocket_proxy.start_proxy().await
     }
 }
 async fn init_static_config() {
