@@ -1,14 +1,11 @@
-use clap::builder::Str;
 use futures::TryFutureExt;
-use std::str;
 use tokio::io;
 
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
-use crate::proxy::tls_stream::TlsStream;
-use crate::utils::uuid::get_uuid;
+
 use base64::{engine::general_purpose, Engine as _};
 use http::HeaderMap;
-use hyper::header::{HeaderValue, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
+use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
 use hyper::server::conn::AddrIncoming;
 
 use crate::proxy::tls_acceptor::TlsAcceptor;
@@ -19,9 +16,8 @@ use sha1::{Digest, Sha1};
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 
 #[derive(Debug)]
 pub struct WebsocketProxy {
@@ -89,7 +85,7 @@ async fn server_upgrade(
     let proxy_addr = get_route_cluster(mapping_key).await?;
     let mut new_request = Request::builder()
         .method(req.method().clone())
-        .uri(format!("{}", proxy_addr))
+        .uri(proxy_addr)
         .body(Body::empty())?;
 
     let new_header = new_request.headers_mut();
@@ -98,15 +94,14 @@ async fn server_upgrade(
     });
     info!("print req:{:?}", new_request);
 
-    let mut outbound_res = Default::default();
-    if req.uri().to_string().contains("https") {
+    let outbound_res = if req.uri().to_string().contains("https") {
         let https = HttpsConnector::new();
         let client = Client::builder().build::<_, hyper::Body>(https);
-        outbound_res = client.request(new_request).await?;
+        client.request(new_request).await?
     } else {
         let client = Client::new();
-        outbound_res = client.request(new_request).await?;
-    }
+        client.request(new_request).await?
+    };
     if outbound_res.status() != StatusCode::SWITCHING_PROTOCOLS {
         return Err(anyhow!("Request error!"));
     }
@@ -211,5 +206,109 @@ impl WebsocketProxy {
             eprintln!("server error: {}", e);
         }
         Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::uuid::get_uuid;
+    use lazy_static::lazy_static;
+    use regex::Regex;
+    use std::env;
+    use std::fs::File;
+    use std::io::BufReader;
+    use std::net::{IpAddr, Ipv4Addr};
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::runtime::{Builder, Runtime};
+    use tokio::sync::RwLock;
+    use tokio::time::sleep;
+    lazy_static! {
+        pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
+            .worker_threads(4)
+            .thread_name("my-custom-name")
+            .thread_stack_size(3 * 1024 * 1024)
+            .max_blocking_threads(1000)
+            .enable_all()
+            .build()
+            .unwrap();
+    }
+    #[tokio::test]
+    async fn test_https_client_ok() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_key.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let ca_certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_key.pem");
+        let ca_certificate = std::fs::read_to_string(ca_certificate_path).unwrap();
+
+        tokio::spawn(async {
+            let (_, receiver) = tokio::sync::mpsc::channel(10);
+
+            let mut http_proxy = WebsocketProxy {
+                port: 1223,
+                channel: receiver,
+                mapping_key: String::from("random key"),
+            };
+            let _result = http_proxy
+                .start_tls_proxy(ca_certificate, private_key)
+                .await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let mut req = Request::builder()
+            .uri("https://localhost:1223/")
+            .body(Body::empty())
+            .unwrap();
+        req.headers_mut().insert(
+            SEC_WEBSOCKET_KEY,
+            HeaderValue::from_static("fXBc01czvBdpDJEZtq7D4w=="),
+        );
+        req.headers_mut()
+            .insert(CONNECTION, HeaderValue::from_static("Upgrade"));
+        req.headers_mut()
+            .insert(UPGRADE, HeaderValue::from_static("websocket"));
+        let https = HttpsConnector::new();
+        let client = Client::builder().build::<_, hyper::Body>(https);
+
+        let outbound_res = client.request(req).await.unwrap_or_default();
+        assert_eq!(outbound_res.status(), StatusCode::OK);
+    }
+    #[tokio::test]
+    async fn test_http_client_ok() {
+        tokio::spawn(async {
+            let (_, receiver) = tokio::sync::mpsc::channel(10);
+
+            let mut http_proxy = WebsocketProxy {
+                port: 1489,
+                channel: receiver,
+                mapping_key: String::from("random key"),
+            };
+            let _result = http_proxy.start_proxy().await;
+            assert!(_result.is_ok());
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let mut req = Request::builder()
+            .uri("http://localhost:1489/")
+            .body(Body::empty())
+            .unwrap();
+        req.headers_mut().insert(
+            SEC_WEBSOCKET_KEY,
+            HeaderValue::from_static("fXBc01czvBdpDJEZtq7D4w=="),
+        );
+        req.headers_mut()
+            .insert(CONNECTION, HeaderValue::from_static("Upgrade"));
+        req.headers_mut()
+            .insert(UPGRADE, HeaderValue::from_static("websocket"));
+        let client = Client::new();
+        let mut outbound_res = client.request(req).await.unwrap_or_default();
+
+        assert_eq!(outbound_res.status(), StatusCode::OK)
     }
 }
