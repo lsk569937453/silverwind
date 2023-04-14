@@ -6,6 +6,7 @@ use crate::constants::common_constants::ENV_CONFIG_FILE_PATH;
 use crate::constants::common_constants::ENV_DATABASE_URL;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::health_check::health_check_task::HealthCheck;
+use crate::proxy::grpc_proxy::GrpcProxy;
 use crate::proxy::tcp_proxy::TcpProxy;
 use crate::proxy::websocket_proxy::WebsocketProxy;
 use crate::proxy::HttpProxy;
@@ -178,13 +179,20 @@ pub async fn start_proxy(
             channel,
         };
         websocket_proxy.start_tls_proxy(pem_str, key_str).await
-    } else {
+    } else if server_type == ServiceType::Websocket {
         let mut websocket_proxy = WebsocketProxy {
             port,
             mapping_key,
             channel,
         };
         websocket_proxy.start_proxy().await
+    } else {
+        let mut grpc_proxy = GrpcProxy {
+            port,
+            mapping_key,
+            channel,
+        };
+        grpc_proxy.start_proxy().await
     }
 }
 async fn init_static_config() {

@@ -47,7 +47,7 @@ bb8 = "0.8.0"
 tokio-util = { version = "0.7.7",  features = ["full","time"] }
 http-body = "1.0.0-rc.2"
 http-body-util = { version = "0.1.0-rc.2"}
-hyper = { version = "0.14",  features = ["full"] }
+hyper = { version = "0.14.25",  features = ["full"] }
 http = "0.2.9"
 oas3 = "0.2.1"
 warp = "0.3.4"
@@ -95,3 +95,4 @@ jemallocator = "0.3.2"
 num_cpus = "1.0"
 sha-1= "0.10.1"
 hyper-tls= "0.5.0"
+h2 = "0.3.16"
