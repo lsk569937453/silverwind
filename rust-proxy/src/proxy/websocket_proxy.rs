@@ -2,22 +2,31 @@ use futures::TryFutureExt;
 use tokio::io;
 
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
+use crate::proxy::tls_stream::TlsStream;
 
+use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
+use crate::proxy::http_client::HttpClients;
+use crate::proxy::proxy_trait::{self, CheckTrait, CommonCheckRequest};
+use crate::proxy::tls_acceptor::TlsAcceptor;
 use base64::{engine::general_purpose, Engine as _};
 use http::HeaderMap;
+use hyper::client::HttpConnector;
 use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
 use hyper::server::conn::AddrIncoming;
-
-use crate::proxy::tls_acceptor::TlsAcceptor;
+use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
+use hyper::Uri;
 use hyper::{Body, Client, Request, Response, Server, StatusCode};
 use hyper_tls::HttpsConnector;
+use native_tls::TlsConnector;
 use sha1::{Digest, Sha1};
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
+use tokio::time::timeout;
 
 #[derive(Debug)]
 pub struct WebsocketProxy {
@@ -51,23 +60,15 @@ async fn server_upgraded_io(
 
     Ok(())
 }
-async fn get_route_cluster(mapping_key: String) -> Result<String, anyhow::Error> {
-    let value = GLOBAL_CONFIG_MAPPING
-        .get(&mapping_key)
-        .ok_or("Can not get apiservice from global_mapping")
-        .map_err(|err| anyhow!(err.to_string()))?;
-    let service_config = &value.service_config.routes.clone();
-    let service_config_clone = service_config.clone();
-    if service_config_clone.is_empty() {
-        return Err(anyhow!("The len of routes is 0"));
-    }
-    let mut route = service_config_clone.first().unwrap().route_cluster.clone();
-    route.get_route(HeaderMap::new()).await.map(|s| s.endpoint)
-}
+
 async fn server_upgrade(
     req: Request<Body>,
     mapping_key: String,
+    remote_addr: SocketAddr,
+    check_trait: impl CheckTrait,
+    http_client: HttpClients,
 ) -> Result<Response<Body>, anyhow::Error> {
+    debug!("The source request:{:?}.", req);
     let mut res = Response::new(Body::empty());
     if !req.headers().contains_key(UPGRADE) {
         *res.status_mut() = StatusCode::BAD_REQUEST;
@@ -81,27 +82,51 @@ async fn server_upgrade(
         .ok_or(anyhow!("Can not get the websocket key!"))?
         .to_str()?
         .to_string();
-
-    let proxy_addr = get_route_cluster(mapping_key).await?;
+    let source_uri = req.uri();
+    let check_result = check_trait
+        .check_before_request(
+            mapping_key,
+            header_map.clone(),
+            source_uri.clone(),
+            remote_addr,
+        )
+        .await?;
+    if check_result.is_none() {
+        return Err(anyhow!("The request has been denied by the proxy!"));
+    }
+    let request_path = check_result.unwrap();
     let mut new_request = Request::builder()
         .method(req.method().clone())
-        .uri(proxy_addr)
+        .uri(request_path.clone())
         .body(Body::empty())?;
 
     let new_header = new_request.headers_mut();
     header_map.iter().for_each(|(key, value)| {
         new_header.insert(key, value.clone());
     });
-    info!("print req:{:?}", new_request);
+    debug!("The new request is:{:?}", new_request);
 
-    let outbound_res = if req.uri().to_string().contains("https") {
-        let https = HttpsConnector::new();
-        let client = Client::builder().build::<_, hyper::Body>(https);
-        client.request(new_request).await?
+    let request_future = if new_request.uri().to_string().contains("https") {
+        http_client.request_https(new_request)
+
+        // let mut http_connector = HttpConnector::new();
+        // http_connector.enforce_http(false);
+        // let tls_connector = TlsConnector::builder()
+        //     .danger_accept_invalid_certs(true)
+        //     .build()?;
+        // let https_connector = HttpsConnector::from((http_connector, tls_connector.into()));
+        // let client = Client::builder().build::<_, hyper::Body>(https_connector);
+        // client.request(new_request).await?
     } else {
-        let client = Client::new();
-        client.request(new_request).await?
+        http_client.request_http(new_request)
+        // let client = Client::new();
+        // client.request(new_request).await?
     };
+    let outbound_res =
+        match timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT), request_future).await {
+            Ok(response) => response.map_err(|e| anyhow!(e.to_string())),
+            Err(_) => Err(anyhow!("Request time out,the uri is {}", request_path)),
+        }?;
     if outbound_res.status() != StatusCode::SWITCHING_PROTOCOLS {
         return Err(anyhow!("Request error!"));
     }
@@ -131,11 +156,21 @@ impl WebsocketProxy {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let mapping_key = self.mapping_key.clone();
-        let make_service = make_service_fn(move |_| {
+        let http_client = HttpClients::new();
+        let make_service = make_service_fn(move |incoming: &AddrStream| {
+            let addr = incoming.remote_addr();
             let mapping_key1 = mapping_key.clone();
-            async {
+            let http_client_cloned = http_client.clone();
+            async move {
                 Ok::<_, hyper::Error>(service_fn(move |req| {
-                    server_upgrade(req, mapping_key1.clone()).map_err(|e| {
+                    server_upgrade(
+                        req,
+                        mapping_key1.clone(),
+                        addr,
+                        CommonCheckRequest::new(),
+                        http_client_cloned.clone(),
+                    )
+                    .map_err(|e| {
                         error!("{}", e);
                         e
                     })
@@ -162,11 +197,20 @@ impl WebsocketProxy {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let mapping_key = self.mapping_key.clone();
-        let make_service = make_service_fn(move |_| {
+        let http_client = HttpClients::new();
+        let make_service = make_service_fn(move |tls_stream: &TlsStream| {
             let mapping_key1 = mapping_key.clone();
-            async {
+            let addr = tls_stream.remote_addr();
+            let http_client_cloned = http_client.clone();
+            async move {
                 Ok::<_, hyper::Error>(service_fn(move |req| {
-                    server_upgrade(req, mapping_key1.clone())
+                    server_upgrade(
+                        req,
+                        mapping_key1.clone(),
+                        addr,
+                        CommonCheckRequest::new(),
+                        http_client_cloned.clone(),
+                    )
                 }))
             }
         });
@@ -211,17 +255,11 @@ impl WebsocketProxy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::uuid::get_uuid;
+    use async_trait::async_trait;
     use lazy_static::lazy_static;
-    use regex::Regex;
     use std::env;
-    use std::fs::File;
-    use std::io::BufReader;
-    use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::Arc;
     use std::time::Duration;
     use tokio::runtime::{Builder, Runtime};
-    use tokio::sync::RwLock;
     use tokio::time::sleep;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
@@ -233,6 +271,20 @@ mod tests {
             .build()
             .unwrap();
     }
+    struct MockProvider();
+    #[async_trait]
+    impl CheckTrait for MockProvider {
+        async fn check_before_request(
+            &self,
+            mapping_key: String,
+            headers: HeaderMap,
+            uri: Uri,
+            peer_addr: SocketAddr,
+        ) -> Result<Option<String>, anyhow::Error> {
+            Ok(Some(String::from("test")))
+        }
+    }
+
     #[tokio::test]
     async fn test_https_client_ok() {
         let private_key_path = env::current_dir()
@@ -307,8 +359,33 @@ mod tests {
         req.headers_mut()
             .insert(UPGRADE, HeaderValue::from_static("websocket"));
         let client = Client::new();
-        let mut outbound_res = client.request(req).await.unwrap_or_default();
+        let outbound_res = client.request(req).await.unwrap_or_default();
 
         assert_eq!(outbound_res.status(), StatusCode::OK)
+    }
+    #[tokio::test]
+    async fn test_server_upgrade_ok1() {
+        let mut req = Request::builder()
+            .uri("http://localhost:1489/")
+            .body(Body::empty())
+            .unwrap();
+        req.headers_mut().insert(
+            SEC_WEBSOCKET_KEY,
+            HeaderValue::from_static("fXBc01czvBdpDJEZtq7D4w=="),
+        );
+        req.headers_mut()
+            .insert(CONNECTION, HeaderValue::from_static("Upgrade"));
+        req.headers_mut()
+            .insert(UPGRADE, HeaderValue::from_static("websocket"));
+        let addr = SocketAddr::from(([0, 0, 0, 0], 8086));
+        let res = server_upgrade(
+            req,
+            String::from("test"),
+            addr,
+            MockProvider {},
+            HttpClients::new(),
+        )
+        .await;
+        assert!(res.is_err())
     }
 }

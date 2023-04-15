@@ -186,13 +186,28 @@ pub async fn start_proxy(
             channel,
         };
         websocket_proxy.start_proxy().await
-    } else {
+    } else if server_type == ServiceType::Grpc {
         let mut grpc_proxy = GrpcProxy {
             port,
             mapping_key,
             channel,
         };
         grpc_proxy.start_proxy().await
+    } else {
+        let key_clone = mapping_key.clone();
+        let service_config = GLOBAL_CONFIG_MAPPING
+            .get(&key_clone)
+            .unwrap()
+            .service_config
+            .clone();
+        let pem_str = service_config.cert_str.unwrap();
+        let key_str = service_config.key_str.unwrap();
+        let mut grpc_proxy = GrpcProxy {
+            port,
+            mapping_key,
+            channel,
+        };
+        grpc_proxy.start_tls_proxy(pem_str, key_str).await
     }
 }
 async fn init_static_config() {

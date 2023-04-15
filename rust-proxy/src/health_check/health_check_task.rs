@@ -1,6 +1,6 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
-use crate::proxy::http_proxy::Clients;
+use crate::proxy::http_client::HttpClients;
 use crate::vojo::app_config::Route;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
@@ -23,12 +23,12 @@ use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct HealthCheckClient {
-    pub http_clients: Clients,
+    pub http_clients: HttpClients,
 }
 impl HealthCheckClient {
     pub fn new() -> Self {
         HealthCheckClient {
-            http_clients: Clients::new(),
+            http_clients: HttpClients::new(),
         }
     }
 }

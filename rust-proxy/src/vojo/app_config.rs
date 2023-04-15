@@ -180,6 +180,7 @@ pub enum ServiceType {
     Websocket,
     WebsocketTls,
     Grpc,
+    GrpcTls,
 }
 #[derive(Debug, Clone, Default)]
 pub struct ServiceConfig {

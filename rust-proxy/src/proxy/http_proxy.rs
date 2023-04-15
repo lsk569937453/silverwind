@@ -3,6 +3,7 @@ use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::constants::common_constants;
 use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::monitor::prometheus_exporter::{get_timer_list, inc};
+use crate::proxy::http_client::HttpClients;
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use crate::proxy::tls_stream::TlsStream;
 use crate::vojo::anomaly_detection::AnomalyDetectionType;
@@ -31,7 +32,6 @@ use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
-
 use url::Url;
 #[derive(Debug)]
 pub struct GeneralError(pub anyhow::Error);
@@ -52,47 +52,12 @@ pub struct HttpProxy {
     pub channel: mpsc::Receiver<()>,
     pub mapping_key: String,
 }
-#[derive(Clone)]
-pub struct Clients {
-    pub http_client: Client<HttpConnector>,
-    pub https_client: Client<hyper_rustls::HttpsConnector<HttpConnector>>,
-}
-impl Clients {
-    pub fn new() -> Clients {
-        let http_client = Client::builder()
-            .http1_title_case_headers(true)
-            .http1_preserve_header_case(true)
-            .build_http();
-
-        let tls = rustls::ClientConfig::builder()
-            .with_safe_defaults()
-            .with_webpki_roots()
-            .with_no_client_auth();
-
-        let https = hyper_rustls::HttpsConnectorBuilder::new()
-            .with_tls_config(tls)
-            .https_or_http()
-            .enable_http1()
-            .build();
-        let https_client = Client::builder().build::<_, hyper::Body>(https);
-        Clients {
-            http_client,
-            https_client,
-        }
-    }
-    pub fn request_http(&self, req: Request<Body>) -> ResponseFuture {
-        self.http_client.request(req)
-    }
-    pub fn request_https(&self, req: Request<Body>) -> ResponseFuture {
-        self.https_client.request(req)
-    }
-}
 
 impl HttpProxy {
     pub async fn start_http_server(&mut self) -> Result<(), anyhow::Error> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
-        let client = Clients::new();
+        let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
         let make_service = make_service_fn(move |socket: &AddrStream| {
             let client = client.clone();
@@ -135,7 +100,7 @@ impl HttpProxy {
     ) -> Result<(), anyhow::Error> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
-        let client = Clients::new();
+        let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
 
         let make_service = make_service_fn(move |socket: &TlsStream| {
@@ -191,7 +156,7 @@ impl HttpProxy {
 }
 
 async fn proxy_adapter(
-    client: Clients,
+    client: HttpClients,
     req: Request<Body>,
     mapping_key: String,
     remote_addr: SocketAddr,
@@ -242,7 +207,7 @@ async fn proxy_adapter(
 }
 
 async fn proxy(
-    client: Clients,
+    client: HttpClients,
     mut req: Request<Body>,
     mapping_key: String,
     remote_addr: SocketAddr,
@@ -503,7 +468,7 @@ mod tests {
         let sleep_time = time::Duration::from_millis(100);
         thread::sleep(sleep_time);
         TOKIO_RUNTIME.spawn(async {
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://127.0.0.1:9987/get")
                 .body(Body::empty())
@@ -548,7 +513,7 @@ mod tests {
         let sleep_time = time::Duration::from_millis(100);
         thread::sleep(sleep_time);
         TOKIO_RUNTIME.spawn(async {
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("https://localhost:4450/get")
                 .body(Body::empty())
@@ -568,7 +533,7 @@ mod tests {
     #[test]
     fn test_proxy_adapter_error() {
         TOKIO_RUNTIME.spawn(async {
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("https://localhost:4450/get")
                 .body(Body::empty())
@@ -582,7 +547,7 @@ mod tests {
     #[test]
     fn test_proxy_error() {
         TOKIO_RUNTIME.spawn(async {
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
                 .body(Body::empty())
@@ -726,7 +691,7 @@ mod tests {
                 service_config: api_service_manager.service_config.clone(),
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("9998-HTTP"), api_service_manager);
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
                 .body(Body::empty())
@@ -790,7 +755,7 @@ mod tests {
                 service_config: api_service_manager.service_config.clone(),
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("9999-HTTP"), api_service_manager);
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
                 .body(Body::empty())
@@ -861,7 +826,7 @@ mod tests {
                 service_config: api_service_manager.service_config.clone(),
             });
             GLOBAL_CONFIG_MAPPING.insert(String::from("10024-HTTP"), api_service_manager);
-            let client = Clients::new();
+            let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:10024/get")
                 .body(Body::empty())

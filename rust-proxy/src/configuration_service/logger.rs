@@ -1,3 +1,4 @@
+use crate::constants::common_constants::DEFAULT_LOGER_LEVEL;
 use log::LevelFilter;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
@@ -48,13 +49,13 @@ pub fn start_logger() {
             Logger::builder()
                 .appender("app")
                 .additive(false)
-                .build("app", LevelFilter::Info),
+                .build("app", DEFAULT_LOGER_LEVEL),
         )
         .build(
             Root::builder()
                 .appender("stdout")
                 .appender("common")
-                .build(LevelFilter::Info),
+                .build(DEFAULT_LOGER_LEVEL),
         )
         .unwrap();
 
