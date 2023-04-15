@@ -1,24 +1,19 @@
 use futures::TryFutureExt;
 use tokio::io;
 
-use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::proxy::tls_stream::TlsStream;
 
 use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::proxy::http_client::HttpClients;
-use crate::proxy::proxy_trait::{self, CheckTrait, CommonCheckRequest};
+use crate::proxy::proxy_trait::{CheckTrait, CommonCheckRequest};
 use crate::proxy::tls_acceptor::TlsAcceptor;
 use base64::{engine::general_purpose, Engine as _};
-use http::HeaderMap;
-use hyper::client::HttpConnector;
 use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
 use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::Uri;
-use hyper::{Body, Client, Request, Response, Server, StatusCode};
-use hyper_tls::HttpsConnector;
-use native_tls::TlsConnector;
+use hyper::{Body, Request, Response, Server, StatusCode};
+
 use sha1::{Digest, Sha1};
 use std::io::BufReader;
 use std::net::SocketAddr;
@@ -148,7 +143,7 @@ async fn server_upgrade(
         HeaderValue::from_str(encoded.as_str())?,
     );
     res.headers_mut()
-        .insert("Connection", HeaderValue::from_str("Upgrade")?);
+        .insert(CONNECTION, HeaderValue::from_str("Upgrade")?);
     Ok(res)
 }
 impl WebsocketProxy {
@@ -198,6 +193,7 @@ impl WebsocketProxy {
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let mapping_key = self.mapping_key.clone();
         let http_client = HttpClients::new();
+
         let make_service = make_service_fn(move |tls_stream: &TlsStream| {
             let mapping_key1 = mapping_key.clone();
             let addr = tls_stream.remote_addr();
@@ -256,6 +252,8 @@ impl WebsocketProxy {
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use hyper::HeaderMap;
+    use hyper::Uri;
     use lazy_static::lazy_static;
     use std::env;
     use std::time::Duration;
@@ -276,10 +274,10 @@ mod tests {
     impl CheckTrait for MockProvider {
         async fn check_before_request(
             &self,
-            mapping_key: String,
-            headers: HeaderMap,
-            uri: Uri,
-            peer_addr: SocketAddr,
+            _mapping_key: String,
+            _headers: HeaderMap,
+            _uri: Uri,
+            _peer_addr: SocketAddr,
         ) -> Result<Option<String>, anyhow::Error> {
             Ok(Some(String::from("test")))
         }
@@ -325,10 +323,8 @@ mod tests {
             .insert(CONNECTION, HeaderValue::from_static("Upgrade"));
         req.headers_mut()
             .insert(UPGRADE, HeaderValue::from_static("websocket"));
-        let https = HttpsConnector::new();
-        let client = Client::builder().build::<_, hyper::Body>(https);
-
-        let outbound_res = client.request(req).await.unwrap_or_default();
+        let http_clients = HttpClients::new();
+        let outbound_res = http_clients.request_https(req).await.unwrap_or_default();
         assert_eq!(outbound_res.status(), StatusCode::OK);
     }
     #[tokio::test]
@@ -358,8 +354,8 @@ mod tests {
             .insert(CONNECTION, HeaderValue::from_static("Upgrade"));
         req.headers_mut()
             .insert(UPGRADE, HeaderValue::from_static("websocket"));
-        let client = Client::new();
-        let outbound_res = client.request(req).await.unwrap_or_default();
+        let http_client = HttpClients::new();
+        let outbound_res = http_client.request_http(req).await.unwrap_or_default();
 
         assert_eq!(outbound_res.status(), StatusCode::OK)
     }

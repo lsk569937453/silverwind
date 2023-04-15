@@ -5,7 +5,6 @@ use hyper::Client;
 use hyper::Request;
 use hyper_rustls::ConfigBuilderExt;
 use rustls::{OwnedTrustAnchor, RootCertStore};
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct HttpClients {
@@ -30,10 +29,6 @@ impl HttpClients {
             .with_safe_defaults()
             .with_webpki_roots()
             .with_no_client_auth();
-
-        // .with_webpki_roots()
-        // .with_no_client_auth();
-
         let https = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(tls)
             .https_or_http()

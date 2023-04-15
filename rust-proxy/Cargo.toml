@@ -63,7 +63,7 @@ dashmap = "5.4.0"
 regex = "1"
 serial_test = "1.0.0"
 hyper-rustls = {version="0.23.2",features=["webpki-roots"]}
-rustls = { version = "0.20.1", default-features = false, features = ["tls12","dangerous_configuration"] }
+rustls = { version = "0.20.1", default-features = false, features = ["tls12"] }
 tokio-rustls = { version = "0.23", default-features = false }
 futures-util = { version = "0.3.1", default-features = false }
 rustls-pemfile = "1.0.2"
@@ -98,5 +98,4 @@ hyper-tls= "0.5.0"
 h2 = "0.3.16"
 mockall="0.11.4"
 webpki-roots = "0.23.0"
-tokio-native-tls = "0.3.1"
-native-tls = "0.2"
+# native-tls = "0.2.11"

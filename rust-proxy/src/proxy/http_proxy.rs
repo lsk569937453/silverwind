@@ -11,13 +11,11 @@ use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
 use crate::vojo::route::BaseRoute;
 use http::uri::InvalidUri;
 use http::{StatusCode, Uri};
-use hyper::client::HttpConnector;
-use hyper::client::ResponseFuture;
+
 use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Client, Request, Response, Server};
-use hyper_rustls::ConfigBuilderExt;
+use hyper::{Body, Request, Response, Server};
 use hyper_staticfile::Static;
 use log::Level;
 use prometheus::HistogramTimer;

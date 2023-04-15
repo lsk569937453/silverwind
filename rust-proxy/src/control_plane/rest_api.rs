@@ -244,7 +244,7 @@ pub async fn handle_not_found(reject: Rejection) -> Result<impl Reply, Rejection
         Err(reject)
     }
 }
-pub async fn handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
+pub async fn _handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
     if reject.find::<MethodError>().is_some() {
         Ok(StatusCode::METHOD_NOT_ALLOWED)
     } else {
@@ -298,7 +298,7 @@ pub async fn start_control_plane(port: i32) {
             .or(delete_request)
             .with(cors)
             .with(log)
-            .recover(handle_custom),
+            .recover(handle_not_found),
     )
     .run(addr)
     .await;
