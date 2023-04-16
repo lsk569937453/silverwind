@@ -4,6 +4,7 @@ use crate::control_plane::lets_encrypt::path;
 use crate::proxy::http_proxy::GeneralError;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceType;
+use crate::vojo::app_config_vistor::from_api_service;
 use crate::vojo::app_config_vistor::from_api_service_vistor;
 use crate::vojo::app_config_vistor::ApiServiceVistor;
 use crate::vojo::app_config_vistor::AppConfigVistor;
@@ -16,6 +17,8 @@ use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 use warp::{reject, Rejection, Reply};
@@ -88,13 +91,11 @@ async fn post_app_config(
     }
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
     rw_global_lock.api_service_config = api_services_result.unwrap();
-    let save_result = save_config_to_file(api_services_vistor.clone());
-    if save_result.is_err() {
-        error!(
-            "Save config to file error,the error is:{}",
-            save_result.unwrap_err()
-        )
-    }
+    tokio::spawn(async {
+        if let Err(err) = save_config_to_file().await {
+            error!("Save file error,the error is {}!", err);
+        }
+    });
     let data = BaseResponse {
         response_code: 0,
         response_object: 0,
@@ -119,6 +120,11 @@ async fn delete_route(route_id: String) -> Result<impl warp::Reply, Infallible> 
         }
     }
     rw_global_lock.api_service_config = api_services;
+    tokio::spawn(async {
+        if let Err(err) = save_config_to_file().await {
+            error!("Save file error,the error is {}!", err);
+        }
+    });
 
     let data = BaseResponse {
         response_code: 0,
@@ -187,14 +193,22 @@ async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, anyh
             }
         }
     }
-
+    tokio::spawn(async {
+        if let Err(err) = save_config_to_file().await {
+            error!("Save file error,the error is {}!", err);
+        }
+    });
     let data = BaseResponse {
         response_code: 0,
         response_object: 0,
     };
     Ok(serde_json::to_string(&data).unwrap())
 }
-fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(), anyhow::Error> {
+async fn save_config_to_file() -> Result<(), anyhow::Error> {
+    let read_global_lock = GLOBAL_APP_CONFIG.read().await;
+    let data = read_global_lock.clone();
+    drop(read_global_lock);
+    let api_services_vistor = from_api_service(data.api_service_config.clone()).await?;
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
         let path = env::current_dir()?;
@@ -202,11 +216,14 @@ fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(),
         std::fs::create_dir_all(absolute_path)?;
     }
 
-    let f = std::fs::OpenOptions::new()
+    let mut f = tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open("temporary/new_silverwind_config.yml")?;
-    serde_yaml::to_writer(f, &api_services_vistor)?;
+        .truncate(true)
+        .open("temporary/new_silverwind_config.yml")
+        .await?;
+    let api_service_str = serde_yaml::to_string(&api_services_vistor)?;
+    f.write_all(api_service_str.as_bytes()).await?;
     Ok(())
 }
 fn validate_tls_config(
