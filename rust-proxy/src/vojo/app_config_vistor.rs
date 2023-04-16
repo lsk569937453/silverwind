@@ -46,7 +46,7 @@ pub struct ServiceConfigVistor {
     pub key_str: Option<String>,
     pub routes: Vec<RouteVistor>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RouteVistor {
     #[serde(default = "new_uuid")]
     pub route_id: String,
@@ -146,6 +146,11 @@ pub enum LoadbalancerStrategyVistor {
     HeaderBasedRoute(HeaderBasedRouteVistor),
     RandomRoute(RandomRouteVistor),
     WeightBasedRoute(WeightBasedRouteVistor),
+}
+impl Default for LoadbalancerStrategyVistor {
+    fn default() -> Self {
+        LoadbalancerStrategyVistor::RandomRoute(Default::default())
+    }
 }
 impl LoadbalancerStrategyVistor {
     pub fn get_routes_len(self) -> usize {
@@ -340,7 +345,7 @@ impl WeightBasedRouteVistor {
         }
     }
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RandomRouteVistor {
     pub routes: Vec<RandomBaseRouteVistor>,
 }

@@ -199,7 +199,7 @@ async fn request_outbound(
     if check_result.is_none() {
         return Err(anyhow!("The request has been denied by the proxy!"));
     }
-    let request_path = check_result.unwrap();
+    let request_path = check_result.unwrap().request_path;
     let url = Url::parse(&request_path)?;
     let cloned_url = url.clone();
     let host = cloned_url.host().ok_or(anyhow!("Parse host error!"))?;
@@ -300,11 +300,12 @@ async fn request_outbound(
 mod tests {
     use super::*;
     use crate::proxy::http_client::HttpClients;
+    use crate::proxy::proxy_trait::CheckResult;
+    use crate::vojo::app_config::Route;
     use async_trait::async_trait;
     use hyper::HeaderMap;
     use hyper::Uri;
 
-    use super::*;
     use hyper::Body;
     use hyper::StatusCode;
     use lazy_static::lazy_static;
@@ -321,8 +322,13 @@ mod tests {
             _headers: HeaderMap,
             _uri: Uri,
             _peer_addr: SocketAddr,
-        ) -> Result<Option<String>, anyhow::Error> {
-            Ok(Some(String::from("http://127.0.0.1:50051")))
+        ) -> Result<Option<CheckResult>, anyhow::Error> {
+            let route = Route::from(Default::default()).await?;
+            Ok(Some(CheckResult {
+                request_path: String::from("http://127.0.0.1:50051"),
+                route,
+                base_route: Default::default(),
+            }))
         }
     }
 
@@ -339,18 +345,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_grpc_ok() {
-        let private_key_path = env::current_dir()
-            .unwrap()
-            .join("config")
-            .join("test_key.pem");
-        let private_key = std::fs::read_to_string(private_key_path).unwrap();
-
-        let ca_certificate_path = env::current_dir()
-            .unwrap()
-            .join("config")
-            .join("test_key.pem");
-        let ca_certificate = std::fs::read_to_string(ca_certificate_path).unwrap();
-
         tokio::spawn(async {
             let (_, receiver) = tokio::sync::mpsc::channel(10);
 
@@ -372,8 +366,11 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let http_clients = HttpClients::new();
-        let outbound_res = http_clients.request_http(request).await.unwrap_or_default();
-        assert_eq!(outbound_res.status(), StatusCode::OK);
+        let outbound_res = http_clients.request_http(request, 3).await;
+
+        if let Ok(Ok(response)) = outbound_res {
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
     #[tokio::test]
     async fn test_grpc_tls_ok() {
@@ -412,7 +409,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let http_clients = HttpClients::new();
-        let outbound_res = http_clients.request_http(request).await.unwrap_or_default();
-        assert_eq!(outbound_res.status(), StatusCode::OK);
+        let outbound_res = http_clients.request_http(request, 3).await;
+        if let Ok(Ok(response)) = outbound_res {
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
 }

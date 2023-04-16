@@ -13,13 +13,12 @@ use http::StatusCode;
 use hyper::Body;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+// use std::time::Duration;
 use url::Url;
 
 use std::sync::Arc;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
-use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct HealthCheckClient {
@@ -193,8 +192,9 @@ async fn do_http_health_check(
             .method("GET")
             .body(Body::empty())
             .unwrap();
-        let task = http_client_shared.clone().request_http(req);
-        let task_with_timeout = timeout(Duration::from_secs(timeout_number as u64), task);
+        let task_with_timeout = http_client_shared
+            .clone()
+            .request_http(req, timeout_number as u64);
         set.spawn(async {
             let res = task_with_timeout.await;
             (res, item)
@@ -288,8 +288,10 @@ mod tests {
     use lazy_static::lazy_static;
     use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::runtime::{Builder, Runtime};
     use tokio::sync::RwLock;
+
     use uuid::Uuid;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()

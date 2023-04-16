@@ -5,7 +5,9 @@ use hyper::Client;
 use hyper::Request;
 use hyper_rustls::ConfigBuilderExt;
 use rustls::{OwnedTrustAnchor, RootCertStore};
-
+use std::time::Duration;
+use tokio::time::timeout;
+use tokio::time::Timeout;
 #[derive(Clone)]
 pub struct HttpClients {
     pub http_client: Client<HttpConnector>,
@@ -40,10 +42,12 @@ impl HttpClients {
             https_client,
         }
     }
-    pub fn request_http(&self, req: Request<Body>) -> ResponseFuture {
-        self.http_client.request(req)
+    pub fn request_http(&self, req: Request<Body>, time_out: u64) -> Timeout<ResponseFuture> {
+        let request_future = self.http_client.request(req);
+        timeout(Duration::from_secs(time_out), request_future)
     }
-    pub fn request_https(&self, req: Request<Body>) -> ResponseFuture {
-        self.https_client.request(req)
+    pub fn request_https(&self, req: Request<Body>, time_out: u64) -> Timeout<ResponseFuture> {
+        let request_future = self.https_client.request(req);
+        timeout(Duration::from_secs(time_out), request_future)
     }
 }

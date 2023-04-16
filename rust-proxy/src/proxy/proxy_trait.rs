@@ -1,10 +1,11 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
+use crate::vojo::app_config::Route;
+use crate::vojo::route::BaseRoute;
 use async_trait::async_trait;
 use http::HeaderMap;
 use hyper::Uri;
 use std::net::SocketAddr;
 use url::Url;
-
 #[async_trait]
 pub trait CheckTrait {
     async fn check_before_request(
@@ -13,7 +14,7 @@ pub trait CheckTrait {
         headers: HeaderMap,
         uri: Uri,
         peer_addr: SocketAddr,
-    ) -> Result<Option<String>, anyhow::Error>;
+    ) -> Result<Option<CheckResult>, anyhow::Error>;
 }
 pub struct CommonCheckRequest;
 impl CommonCheckRequest {
@@ -21,6 +22,13 @@ impl CommonCheckRequest {
         CommonCheckRequest {}
     }
 }
+#[derive(Debug, Clone)]
+pub struct CheckResult {
+    pub request_path: String,
+    pub route: Route,
+    pub base_route: BaseRoute,
+}
+
 #[async_trait]
 impl CheckTrait for CommonCheckRequest {
     async fn check_before_request(
@@ -29,7 +37,7 @@ impl CheckTrait for CommonCheckRequest {
         headers: HeaderMap,
         uri: Uri,
         peer_addr: SocketAddr,
-    ) -> Result<Option<String>, anyhow::Error> {
+    ) -> Result<Option<CheckResult>, anyhow::Error> {
         let backend_path = uri.path();
         let api_service_manager = GLOBAL_CONFIG_MAPPING
             .get(&mapping_key)
@@ -55,12 +63,16 @@ impl CheckTrait for CommonCheckRequest {
                 .clone()
                 .get_route(headers.clone())
                 .await?;
-            let endpoint = base_route.endpoint;
+            let endpoint = base_route.endpoint.clone();
             let host = Url::parse(endpoint.as_str())?;
             let rest_path = match_result.unwrap();
 
             let request_path = host.join(rest_path.as_str())?.to_string();
-            return Ok(Some(request_path));
+            return Ok(Some(CheckResult {
+                request_path,
+                route: item,
+                base_route,
+            }));
         }
         Ok(None)
     }
