@@ -30,19 +30,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-#[derive(Debug)]
-pub struct GeneralError(pub anyhow::Error);
-impl std::error::Error for GeneralError {}
-impl std::fmt::Display for GeneralError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl GeneralError {
-    pub fn _from(err: hyper::Error) -> Self {
-        GeneralError(anyhow!(err.to_string()))
-    }
-}
+
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
@@ -257,7 +245,7 @@ async fn proxy(
         }
         *req.uri_mut() = request_path
             .parse()
-            .map_err(|err: InvalidUri| GeneralError(anyhow!(err.to_string())))?;
+            .map_err(|err: InvalidUri| anyhow!(err.to_string()))?;
         let request_future = if request_path.contains("https") {
             client.request_https(req, DEFAULT_HTTP_TIMEOUT)
         } else {
@@ -606,25 +594,6 @@ mod tests {
             let res = route_file(base_route, request).await;
             assert!(res.is_ok());
         });
-    }
-    #[test]
-    fn test_generate_error_ok() {
-        TOKIO_RUNTIME.spawn(async {
-            let request = hyper::Request::builder()
-                .method(hyper::Method::POST)
-                .uri("http://xxtpbin.org/xxx")
-                .header("content-type", "application/json")
-                .body(hyper::Body::from(r#"{"library":"hyper"}"#))
-                .unwrap();
-            let client = hyper::Client::new();
-            let response = client.request(request).await;
-            let err = response.unwrap_err();
-            let error_message = err.to_string();
-            let general_error = GeneralError::_from(err);
-            assert_eq!(error_message, general_error.to_string());
-        });
-        let sleep_time = time::Duration::from_millis(1000);
-        thread::sleep(sleep_time);
     }
 
     #[test]

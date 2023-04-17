@@ -1,12 +1,10 @@
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::path;
-use crate::proxy::http1::http_proxy::GeneralError;
 use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceType;
 use crate::vojo::app_config_vistor::from_api_service;
-use crate::vojo::app_config_vistor::from_api_service_vistor;
 use crate::vojo::app_config_vistor::ApiServiceVistor;
 use crate::vojo::app_config_vistor::AppConfigVistor;
 use crate::vojo::app_config_vistor::RouteVistor;
@@ -60,7 +58,7 @@ async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .body(String::from_utf8(buffer).unwrap_or(String::from("value")))
-        .map_err(|e| GeneralError(anyhow!(e.to_string())))
+        .map_err(|e| anyhow!(e.to_string()))
         .unwrap())
 }
 async fn post_app_config(
