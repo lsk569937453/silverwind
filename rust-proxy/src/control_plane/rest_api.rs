@@ -2,6 +2,7 @@ use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::path;
 use crate::proxy::http1::http_proxy::GeneralError;
+use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceType;
 use crate::vojo::app_config_vistor::from_api_service;
@@ -63,33 +64,43 @@ async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
         .unwrap())
 }
 async fn post_app_config(
-    api_services_vistor: Vec<ApiServiceVistor>,
+    api_services_vistor: ApiServiceVistor,
 ) -> Result<impl warp::Reply, Infallible> {
-    let validata_result = api_services_vistor
-        .iter()
-        .filter(|s| s.service_config.server_type == ServiceType::Https)
-        .map(|s| {
-            validate_tls_config(
-                s.service_config.cert_str.clone(),
-                s.service_config.key_str.clone(),
-            )
-        })
-        .collect::<Result<Vec<()>, anyhow::Error>>();
-    if let Err(err) = validata_result {
-        return Ok(Response::builder()
+    match post_app_config_with_error(api_services_vistor).await {
+        Ok(r) => Ok(r),
+        Err(err) => Ok(Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(err.to_string())
-            .unwrap());
+            .unwrap()),
     }
-    let api_services_result = from_api_service_vistor(api_services_vistor.clone()).await;
-    if api_services_result.is_err() {
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(api_services_result.unwrap_err().to_string())
-            .unwrap());
+}
+async fn post_app_config_with_error(
+    api_services_vistor: ApiServiceVistor,
+) -> Result<Response<String>, anyhow::Error> {
+    let current_type = api_services_vistor.service_config.server_type.clone();
+    if current_type == ServiceType::Https || current_type == ServiceType::Http2Tls {
+        validate_tls_config(
+            api_services_vistor.service_config.cert_str.clone(),
+            api_services_vistor.service_config.key_str.clone(),
+        )?;
     }
+    let api_service = ApiService::from(api_services_vistor).await?;
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
-    rw_global_lock.api_service_config = api_services_result.unwrap();
+    match rw_global_lock
+        .api_service_config
+        .iter_mut()
+        .find(|item| item.listen_port == api_service.listen_port)
+    {
+        Some(data) => data.service_config.routes.push(
+            api_service
+                .service_config
+                .routes
+                .first()
+                .ok_or(anyhow!("The route is empty!"))?
+                .clone(),
+        ),
+        None => rw_global_lock.api_service_config.push(api_service),
+    };
     tokio::spawn(async {
         if let Err(err) = save_config_to_file().await {
             error!("Save file error,the error is {}!", err);
@@ -246,7 +257,7 @@ fn validate_tls_config(
     Ok(())
 }
 
-fn json_body() -> impl Filter<Extract = (Vec<ApiServiceVistor>,), Error = warp::Rejection> + Clone {
+fn json_body() -> impl Filter<Extract = (ApiServiceVistor,), Error = warp::Rejection> + Clone {
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
 }
 fn route_json_body() -> impl Filter<Extract = (RouteVistor,), Error = warp::Rejection> + Clone {

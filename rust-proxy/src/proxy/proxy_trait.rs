@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use http::HeaderMap;
 use hyper::Uri;
 use std::net::SocketAddr;
+use std::path::Path;
 use url::Url;
 #[async_trait]
 pub trait CheckTrait {
@@ -65,15 +66,26 @@ impl CheckTrait for CommonCheckRequest {
                 .await?;
             let endpoint = base_route.endpoint.clone();
             debug!("The endpoint is {}", endpoint);
-            let host = Url::parse(endpoint.as_str())?;
-            let rest_path = match_result.unwrap();
+            if endpoint.contains("http") {
+                let host = Url::parse(endpoint.as_str())?;
+                let rest_path = match_result.unwrap();
 
-            let request_path = host.join(rest_path.as_str())?.to_string();
-            return Ok(Some(CheckResult {
-                request_path,
-                route: item,
-                base_route,
-            }));
+                let request_path = host.join(rest_path.as_str())?.to_string();
+                return Ok(Some(CheckResult {
+                    request_path,
+                    route: item,
+                    base_route,
+                }));
+            } else {
+                let path = Path::new(&endpoint);
+                let rest_path = match_result.unwrap();
+                let request_path = path.join(rest_path);
+                return Ok(Some(CheckResult {
+                    request_path: String::from(request_path.to_str().unwrap_or_default()),
+                    route: item,
+                    base_route,
+                }));
+            }
         }
         Ok(None)
     }
@@ -81,7 +93,6 @@ impl CheckTrait for CommonCheckRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::app_config_vistor::ApiServiceVistor;
     #[test]
     fn test_url_parse() {
         let host = Url::parse("http://127.0.0.1:8080");

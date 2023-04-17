@@ -9,7 +9,7 @@ use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
 use crate::vojo::route::BaseRoute;
 use http::uri::InvalidUri;
 use http::{StatusCode, Uri};
-use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
+use hyper::header::{CONNECTION, SEC_WEBSOCKET_KEY};
 
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
