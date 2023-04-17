@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 struct LetsEncryptResponse {
     key_perm: String,

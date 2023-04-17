@@ -54,6 +54,14 @@ impl Route {
             if !src_prefix.starts_with('/') {
                 item.prefix.insert(0, '/')
             }
+            let path_rewrite = item.prefix_rewrite.clone();
+            // if !path_rewrite.ends_with('/') {
+            //     let src_prefix_rewrite_len = item.prefix_rewrite.len();
+            //     item.prefix_rewrite.insert(src_prefix_rewrite_len, '/');
+            // }
+            if !path_rewrite.starts_with('/') {
+                item.prefix_rewrite.insert(0, '/')
+            }
             item
         });
 
@@ -83,19 +91,17 @@ impl Route {
         path: &str,
         headers_option: Option<HeaderMap<HeaderValue>>,
     ) -> Result<Option<String>, anyhow::Error> {
-        let match_prefix = self
+        let matcher = self
             .clone()
             .matcher
             .ok_or("The matcher counld not be none for http")
-            .map_err(|err| anyhow!(err))?
-            .prefix;
+            .map_err(|err| anyhow!(err))?;
 
-        // let re = Regex::new(match_prefix.as_str()).unwrap();
-        // let match_res = re.captures(path);
-        let match_res = path.strip_prefix(match_prefix.as_str());
+        let match_res = path.strip_prefix(matcher.prefix.as_str());
         if match_res.is_none() {
             return Ok(None);
         }
+        let final_path = format!("{}{}", matcher.prefix_rewrite, match_res.unwrap());
         if let Some(real_host_name) = &self.host_name {
             if headers_option.is_none() {
                 return Ok(None);
@@ -112,9 +118,9 @@ impl Route {
             let host_name_regex = Regex::new(real_host_name.as_str())?;
             return host_name_regex
                 .captures(host_result.unwrap())
-                .map_or(Ok(None), |_| Ok(Some(String::from(match_res.unwrap()))));
+                .map_or(Ok(None), |_| Ok(Some(final_path)));
         }
-        Ok(Some(String::from(match_res.unwrap())))
+        Ok(Some(final_path))
     }
     pub async fn is_allowed(
         &self,
@@ -177,6 +183,8 @@ pub enum ServiceType {
     Http,
     Https,
     Tcp,
+    Http2,
+    Http2Tls,
 }
 #[derive(Debug, Clone, Default)]
 pub struct ServiceConfig {

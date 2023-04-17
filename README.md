@@ -15,13 +15,13 @@ The docker-compose.yaml is like following:
 version: "3.9"
 services:
   silverwind-dashboard:
-    image: lsk569937453/silverwind-dashboard:0.0.6
+    image: lsk569937453/silverwind-dashboard:0.0.7
     container_name: silverwind-dashboard
     ports:
       - "4486:4486"
 
   silverwind:
-      image: lsk569937453/silverwind:0.0.6
+      image: lsk569937453/silverwind:0.0.7
       container_name: silverwind
       ports:
         - "6980:6980"
@@ -113,61 +113,37 @@ Or you could start without the config file like the following:
 .\rust-proxy.exe
 ```
 ## Rest Api
-### Change the routes
+### Create the routes
 ```
 POST /appConfig HTTP/1.1
 Host: 127.0.0.1:8870
 Content-Type: application/json
 Content-Length: 1752
 
-[
-    {
-        "listen_port": 4486,
-        "service_config": {
-            "server_type": "HTTP",
-            "cert_str": null,
-            "key_str": null,
-            "routes": [
-                {
-                    "matcher": {
-                        "prefix": "ss",
-                        "prefix_rewrite": "ssss"
-                    },
-                    "allow_deny_list": null,
-                    "route_cluster": {
-                        "type": "WeightBasedRoute",
-                        "routes": [
-                            {
-                                "base_route": {
-                                    "endpoint": "http://localhost:10000",
-                                    "try_file": null
-                                }
-                            }
-                        ]
-                    }
+{
+    "listen_port": 3001,
+    "service_config": {
+        "server_type": "Http",
+        "routes": [
+            {
+                "matcher": {
+                    "prefix": "/",
+                    "prefix_rewrite": "/"
                 },
-                {
-                    "matcher": {
-                        "prefix": "sst",
-                        "prefix_rewrite": "ssss"
-                    },
-                    "allow_deny_list": null,
-                    "route_cluster": {
-                        "type": "WeightBasedRoute",
-                        "routes": [
-                            {
-                                "base_route": {
-                                    "endpoint": "http://localhost:9898",
-                                    "try_file": null
-                                }
+                "route_cluster": {
+                    "type": "PollRoute",
+                    "routes": [
+                        {
+                            "base_route": {
+                                "endpoint": "https://httpbin.org/get"
                             }
-                        ]
-                    }
+                        }
+                    ]
                 }
-            ]
-        }
+            }
+        ]
     }
-]
+}
 ```
 ### Get the appConfig
 ```

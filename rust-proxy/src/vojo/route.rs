@@ -474,6 +474,9 @@ impl PollRoute {
                 alive_cluster.push(item.clone());
             }
         }
+        if alive_cluster.is_empty() {
+            return Err(anyhow!("Can not find alive host in the clusters"));
+        }
         let older = self.current_index.fetch_add(1, Ordering::SeqCst);
         let len = alive_cluster.len();
         let current_index = older % len;

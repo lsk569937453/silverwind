@@ -1,11 +1,10 @@
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::path;
-use crate::proxy::http_proxy::GeneralError;
-use crate::vojo::app_config::AppConfig;
+use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceType;
-use crate::vojo::app_config_vistor::from_api_service_vistor;
+use crate::vojo::app_config_vistor::from_api_service;
 use crate::vojo::app_config_vistor::ApiServiceVistor;
 use crate::vojo::app_config_vistor::AppConfigVistor;
 use crate::vojo::app_config_vistor::RouteVistor;
@@ -17,6 +16,7 @@ use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
+use tokio::io::AsyncWriteExt;
 use warp::http::{Response, StatusCode};
 use warp::Filter;
 use warp::{reject, Rejection, Reply};
@@ -58,44 +58,52 @@ async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .body(String::from_utf8(buffer).unwrap_or(String::from("value")))
-        .map_err(|e| GeneralError(anyhow!(e.to_string())))
+        .map_err(|e| anyhow!(e.to_string()))
         .unwrap())
 }
 async fn post_app_config(
-    api_services_vistor: Vec<ApiServiceVistor>,
+    api_services_vistor: ApiServiceVistor,
 ) -> Result<impl warp::Reply, Infallible> {
-    let validata_result = api_services_vistor
-        .iter()
-        .filter(|s| s.service_config.server_type == ServiceType::Https)
-        .map(|s| {
-            validate_tls_config(
-                s.service_config.cert_str.clone(),
-                s.service_config.key_str.clone(),
-            )
-        })
-        .collect::<Result<Vec<()>, anyhow::Error>>();
-    if let Err(err) = validata_result {
-        return Ok(Response::builder()
+    match post_app_config_with_error(api_services_vistor).await {
+        Ok(r) => Ok(r),
+        Err(err) => Ok(Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(err.to_string())
-            .unwrap());
+            .unwrap()),
     }
-    let api_services_result = from_api_service_vistor(api_services_vistor.clone()).await;
-    if api_services_result.is_err() {
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(api_services_result.unwrap_err().to_string())
-            .unwrap());
+}
+async fn post_app_config_with_error(
+    api_services_vistor: ApiServiceVistor,
+) -> Result<Response<String>, anyhow::Error> {
+    let current_type = api_services_vistor.service_config.server_type.clone();
+    if current_type == ServiceType::Https || current_type == ServiceType::Http2Tls {
+        validate_tls_config(
+            api_services_vistor.service_config.cert_str.clone(),
+            api_services_vistor.service_config.key_str.clone(),
+        )?;
     }
+    let api_service = ApiService::from(api_services_vistor).await?;
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
-    rw_global_lock.api_service_config = api_services_result.unwrap();
-    let save_result = save_config_to_file(api_services_vistor.clone());
-    if save_result.is_err() {
-        error!(
-            "Save config to file error,the error is:{}",
-            save_result.unwrap_err()
-        )
-    }
+    match rw_global_lock
+        .api_service_config
+        .iter_mut()
+        .find(|item| item.listen_port == api_service.listen_port)
+    {
+        Some(data) => data.service_config.routes.push(
+            api_service
+                .service_config
+                .routes
+                .first()
+                .ok_or(anyhow!("The route is empty!"))?
+                .clone(),
+        ),
+        None => rw_global_lock.api_service_config.push(api_service),
+    };
+    tokio::spawn(async {
+        if let Err(err) = save_config_to_file().await {
+            error!("Save file error,the error is {}!", err);
+        }
+    });
     let data = BaseResponse {
         response_code: 0,
         response_object: 0,
@@ -120,6 +128,11 @@ async fn delete_route(route_id: String) -> Result<impl warp::Reply, Infallible> 
         }
     }
     rw_global_lock.api_service_config = api_services;
+    tokio::spawn(async {
+        if let Err(err) = save_config_to_file().await {
+            error!("Save file error,the error is {}!", err);
+        }
+    });
 
     let data = BaseResponse {
         response_code: 0,
@@ -188,14 +201,22 @@ async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, anyh
             }
         }
     }
-
+    tokio::spawn(async {
+        if let Err(err) = save_config_to_file().await {
+            error!("Save file error,the error is {}!", err);
+        }
+    });
     let data = BaseResponse {
         response_code: 0,
         response_object: 0,
     };
     Ok(serde_json::to_string(&data).unwrap())
 }
-fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(), anyhow::Error> {
+async fn save_config_to_file() -> Result<(), anyhow::Error> {
+    let read_global_lock = GLOBAL_APP_CONFIG.read().await;
+    let data = read_global_lock.clone();
+    drop(read_global_lock);
+    let api_services_vistor = from_api_service(data.api_service_config.clone()).await?;
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
         let path = env::current_dir()?;
@@ -203,11 +224,14 @@ fn save_config_to_file(api_services_vistor: Vec<ApiServiceVistor>) -> Result<(),
         std::fs::create_dir_all(absolute_path)?;
     }
 
-    let f = std::fs::OpenOptions::new()
+    let mut f = tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
-        .open("temporary/new_silverwind_config.yml")?;
-    serde_yaml::to_writer(f, &api_services_vistor)?;
+        .truncate(true)
+        .open("temporary/new_silverwind_config.yml")
+        .await?;
+    let api_service_str = serde_yaml::to_string(&api_services_vistor)?;
+    f.write_all(api_service_str.as_bytes()).await?;
     Ok(())
 }
 fn validate_tls_config(
@@ -231,7 +255,7 @@ fn validate_tls_config(
     Ok(())
 }
 
-fn json_body() -> impl Filter<Extract = (Vec<ApiServiceVistor>,), Error = warp::Rejection> + Clone {
+fn json_body() -> impl Filter<Extract = (ApiServiceVistor,), Error = warp::Rejection> + Clone {
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
 }
 fn route_json_body() -> impl Filter<Extract = (RouteVistor,), Error = warp::Rejection> + Clone {
@@ -245,7 +269,7 @@ pub async fn handle_not_found(reject: Rejection) -> Result<impl Reply, Rejection
         Err(reject)
     }
 }
-pub async fn handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
+pub async fn _handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
     if reject.find::<MethodError>().is_some() {
         Ok(StatusCode::METHOD_NOT_ALLOWED)
     } else {
@@ -299,7 +323,7 @@ pub async fn start_control_plane(port: i32) {
             .or(delete_request)
             .with(cors)
             .with(log)
-            .recover(handle_custom),
+            .recover(handle_not_found),
     )
     .run(addr)
     .await;

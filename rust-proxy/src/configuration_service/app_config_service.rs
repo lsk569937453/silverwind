@@ -6,8 +6,9 @@ use crate::constants::common_constants::ENV_CONFIG_FILE_PATH;
 use crate::constants::common_constants::ENV_DATABASE_URL;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::health_check::health_check_task::HealthCheck;
-use crate::proxy::tcp_proxy::TcpProxy;
-use crate::proxy::HttpProxy;
+use crate::proxy::http1::http_proxy::HttpProxy;
+use crate::proxy::http2::grpc_proxy::GrpcProxy;
+use crate::proxy::tcp::tcp_proxy::TcpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
@@ -155,13 +156,35 @@ pub async fn start_proxy(
             mapping_key: mapping_key.clone(),
         };
         http_proxy.start_https_server(pem_str, key_str).await
-    } else {
+    } else if server_type == ServiceType::Tcp {
         let mut tcp_proxy = TcpProxy {
             port,
             mapping_key,
             channel,
         };
         tcp_proxy.start_proxy().await
+    } else if server_type == ServiceType::Http2 {
+        let mut grpc_proxy = GrpcProxy {
+            port,
+            mapping_key,
+            channel,
+        };
+        grpc_proxy.start_proxy().await
+    } else {
+        let key_clone = mapping_key.clone();
+        let service_config = GLOBAL_CONFIG_MAPPING
+            .get(&key_clone)
+            .unwrap()
+            .service_config
+            .clone();
+        let pem_str = service_config.cert_str.unwrap();
+        let key_str = service_config.key_str.unwrap();
+        let mut grpc_proxy = GrpcProxy {
+            port,
+            mapping_key,
+            channel,
+        };
+        grpc_proxy.start_tls_proxy(pem_str, key_str).await
     }
 }
 async fn init_static_config() {
@@ -310,7 +333,7 @@ mod tests {
             assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
             assert_eq!(api_service_routes.matcher.clone().unwrap().prefix, "/");
-            assert_eq!(api_service_routes.matcher.unwrap().prefix_rewrite, "ssss");
+            assert_eq!(api_service_routes.matcher.unwrap().prefix_rewrite, "/");
         });
     }
     #[test]
@@ -343,7 +366,6 @@ mod tests {
             assert!(res_init_app_service_config.is_ok());
             let _res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
-            // assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
             assert!(GLOBAL_CONFIG_MAPPING.len() <= 5);
             let api_service_manager_list = GLOBAL_CONFIG_MAPPING
                 .iter()

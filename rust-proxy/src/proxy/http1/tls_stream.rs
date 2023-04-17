@@ -95,7 +95,7 @@ impl AsyncWrite for TlsStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proxy::tls_acceptor::TlsAcceptor;
+    use crate::proxy::http1::tls_acceptor::TlsAcceptor;
     use hyper::server::conn::AddrIncoming;
     use hyper::service::{make_service_fn, service_fn};
     use hyper::{Body, Response, Server};
