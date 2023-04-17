@@ -54,6 +54,14 @@ impl Route {
             if !src_prefix.starts_with('/') {
                 item.prefix.insert(0, '/')
             }
+            let path_rewrite = item.prefix_rewrite.clone();
+            if !path_rewrite.ends_with('/') {
+                let src_prefix_rewrite_len = item.prefix_rewrite.len();
+                item.prefix_rewrite.insert(src_prefix_rewrite_len, '/');
+            }
+            if !path_rewrite.starts_with('/') {
+                item.prefix_rewrite.insert(0, '/')
+            }
             item
         });
 
