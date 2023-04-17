@@ -1,9 +1,4 @@
-pub mod http_proxy;
-pub use http_proxy::HttpProxy;
-pub mod grpc_proxy;
-pub mod http_client;
+pub mod http1;
+pub mod http2;
 pub mod proxy_trait;
-pub mod tcp_proxy;
-pub mod tls_acceptor;
-pub mod tls_stream;
-pub mod websocket_proxy;
+pub mod tcp;

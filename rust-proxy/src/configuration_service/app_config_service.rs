@@ -6,10 +6,9 @@ use crate::constants::common_constants::ENV_CONFIG_FILE_PATH;
 use crate::constants::common_constants::ENV_DATABASE_URL;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::health_check::health_check_task::HealthCheck;
-use crate::proxy::grpc_proxy::GrpcProxy;
-use crate::proxy::tcp_proxy::TcpProxy;
-use crate::proxy::websocket_proxy::WebsocketProxy;
-use crate::proxy::HttpProxy;
+use crate::proxy::http1::http_proxy::HttpProxy;
+use crate::proxy::http2::grpc_proxy::GrpcProxy;
+use crate::proxy::tcp::tcp_proxy::TcpProxy;
 use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
@@ -164,29 +163,7 @@ pub async fn start_proxy(
             channel,
         };
         tcp_proxy.start_proxy().await
-    } else if server_type == ServiceType::WebsocketTls {
-        let key_clone = mapping_key.clone();
-        let service_config = GLOBAL_CONFIG_MAPPING
-            .get(&key_clone)
-            .unwrap()
-            .service_config
-            .clone();
-        let pem_str = service_config.cert_str.unwrap();
-        let key_str = service_config.key_str.unwrap();
-        let mut websocket_proxy = WebsocketProxy {
-            port,
-            mapping_key,
-            channel,
-        };
-        websocket_proxy.start_tls_proxy(pem_str, key_str).await
-    } else if server_type == ServiceType::Websocket {
-        let mut websocket_proxy = WebsocketProxy {
-            port,
-            mapping_key,
-            channel,
-        };
-        websocket_proxy.start_proxy().await
-    } else if server_type == ServiceType::Grpc {
+    } else if server_type == ServiceType::Http2 {
         let mut grpc_proxy = GrpcProxy {
             port,
             mapping_key,

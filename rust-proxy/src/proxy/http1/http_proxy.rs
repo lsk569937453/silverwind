@@ -1,15 +1,17 @@
 use crate::constants::common_constants;
 use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::monitor::prometheus_exporter::{get_timer_list, inc};
-use crate::proxy::http_client::HttpClients;
-use crate::proxy::tls_acceptor::TlsAcceptor;
-use crate::proxy::tls_stream::TlsStream;
+use crate::proxy::http1::http_client::HttpClients;
+use crate::proxy::http1::tls_acceptor::TlsAcceptor;
+use crate::proxy::http1::tls_stream::TlsStream;
 use crate::vojo::anomaly_detection::AnomalyDetectionType;
 use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
 use crate::vojo::route::BaseRoute;
 use http::uri::InvalidUri;
 use http::{StatusCode, Uri};
+use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
 
+use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
 use hyper::server::conn::AddrIncoming;
@@ -28,7 +30,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-
 #[derive(Debug)]
 pub struct GeneralError(pub anyhow::Error);
 impl std::error::Error for GeneralError {}
@@ -174,6 +175,7 @@ async fn proxy_adapter(
     )
     .await
     .unwrap_or_else(|err| {
+        error!("The error is {}.", err);
         let json_value = json!({
             "response_code": -1,
             "response_object": format!("{}", err)
@@ -220,7 +222,12 @@ async fn proxy(
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
     let check_result = check_trait
-        .check_before_request(mapping_key.clone(), inbound_headers, uri, remote_addr)
+        .check_before_request(
+            mapping_key.clone(),
+            inbound_headers.clone(),
+            uri,
+            remote_addr,
+        )
         .await?;
     if check_result.is_none() {
         return Ok(Response::builder()
@@ -228,6 +235,16 @@ async fn proxy(
             .body(Body::from(common_constants::DENY_RESPONSE))
             .unwrap());
     }
+    if inbound_headers.clone().contains_key(CONNECTION)
+        && inbound_headers.contains_key(SEC_WEBSOCKET_KEY)
+    {
+        debug!(
+            "The request has been updated to websocket,the req is {:?}!",
+            req
+        );
+        return server_upgrade(req, check_result, client).await;
+    }
+
     if let Some(check_request) = check_result {
         let request_path = check_request.request_path;
         let base_route = check_request.base_route;

@@ -1,7 +1,7 @@
-use super::proxy_trait::CommonCheckRequest;
 use crate::constants::common_constants::GRPC_STATUS_HEADER;
 use crate::constants::common_constants::GRPC_STATUS_OK;
 use crate::proxy::proxy_trait::CheckTrait;
+use crate::proxy::proxy_trait::CommonCheckRequest;
 use h2::client;
 use h2::server;
 use h2::server::SendResponse;
@@ -299,7 +299,7 @@ async fn request_outbound(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::proxy::http_client::HttpClients;
+    use crate::proxy::http1::http_client::HttpClients;
     use crate::proxy::proxy_trait::CheckResult;
     use crate::vojo::app_config::Route;
     use async_trait::async_trait;

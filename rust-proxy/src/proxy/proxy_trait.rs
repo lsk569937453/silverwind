@@ -64,6 +64,7 @@ impl CheckTrait for CommonCheckRequest {
                 .get_route(headers.clone())
                 .await?;
             let endpoint = base_route.endpoint.clone();
+            debug!("The endpoint is {}", endpoint);
             let host = Url::parse(endpoint.as_str())?;
             let rest_path = match_result.unwrap();
 
@@ -75,5 +76,15 @@ impl CheckTrait for CommonCheckRequest {
             }));
         }
         Ok(None)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vojo::app_config_vistor::ApiServiceVistor;
+    #[test]
+    fn test_url_parse() {
+        let host = Url::parse("http://127.0.0.1:8080");
+        assert!(host.is_ok());
     }
 }
