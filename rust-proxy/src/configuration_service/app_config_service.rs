@@ -356,7 +356,7 @@ mod tests {
             assert_eq!(api_service.listen_port, 4486);
             let api_service_routes = api_service.service_config.routes.first().cloned().unwrap();
             assert_eq!(api_service_routes.matcher.clone().unwrap().prefix, "/");
-            assert_eq!(api_service_routes.matcher.unwrap().prefix_rewrite, "ssss");
+            assert_eq!(api_service_routes.matcher.unwrap().prefix_rewrite, "/");
         });
     }
     #[test]
@@ -389,7 +389,6 @@ mod tests {
             assert!(res_init_app_service_config.is_ok());
             let _res_update_mapping_from_global_appconfig =
                 update_mapping_from_global_appconfig().await;
-            // assert_eq!(res_update_mapping_from_global_appconfig.is_ok(), true);
             assert!(GLOBAL_CONFIG_MAPPING.len() <= 5);
             let api_service_manager_list = GLOBAL_CONFIG_MAPPING
                 .iter()
