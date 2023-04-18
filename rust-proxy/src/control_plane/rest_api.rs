@@ -371,7 +371,7 @@ mod tests {
     }
     #[test]
     fn test_api_post_response_ok() {
-        let req = r#"[
+        let req = r#"
             {
                 "listen_port": 4486,
                 "service_config": {
@@ -397,7 +397,7 @@ mod tests {
                     ]
                 }
             }
-        ]"#;
+        "#;
         TOKIO_RUNTIME.block_on(async {
             let post_app_config = warp::post()
                 .and(warp::path("appConfig"))
@@ -478,7 +478,7 @@ mod tests {
     }
     #[test]
     fn test_post_response_ok() {
-        let body = r#"[
+        let body = r#"
             {
                 "listen_port": 4486,
                 "service_config": {
@@ -504,7 +504,7 @@ mod tests {
                     ]
                 }
             }
-        ]"#;
+        "#;
         TOKIO_RUNTIME.block_on(async {
             let post_app_config = warp::post()
                 .and(warp::path("appConfig"))
