@@ -58,5 +58,5 @@ jobs:
           
       - uses: actions/upload-artifact@v3
         with:
-          name: my-artifact
+          name: silverwind
           path: rust-proxy/target/release/silverwind # or path/to/artifactsilverwind
