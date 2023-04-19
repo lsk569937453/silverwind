@@ -65,12 +65,14 @@ jobs:
         continue-on-error: true
         run: |
           cd rust-proxy
+          cargo clean
           cargo test
 
       - name: Build silverwind
         continue-on-error: true
         run: |
           cd rust-proxy
+          cargo clean
           cargo build --release
 
       - uses: actions/upload-artifact@v3
