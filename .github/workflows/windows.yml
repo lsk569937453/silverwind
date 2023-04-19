@@ -11,8 +11,9 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - stable
-          - nightly
+          - 1.68.0
+          # - stable
+          # - nightly
 
     name: ${{ matrix.version }} - x86_64-pc-windows-msvc
     runs-on: windows-latest
