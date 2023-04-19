@@ -51,6 +51,7 @@ jobs:
       - name: Build silverwind
         continue-on-error: true
         run: |
+          cd rust-proxy
           cargo build --release
 
       - uses: actions/upload-artifact@v3
