@@ -24,22 +24,22 @@ jobs:
           profile: minimal
           override: true
 
-      - name: Generate Cargo.lock
-        uses: actions-rs/cargo@v1
-        with:
-          command: generate-lockfile
+      # - name: Generate Cargo.lock
+      #   uses: actions-rs/cargo@v1
+      #   with:
+      #     command: generate-lockfile
 
-      - name: Cache cargo registry
-        uses: actions/cache@v1
-        with:
-          path: ~/.cargo/registry
-          key: ${{ matrix.version }}-x86_64-apple-darwin-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      # - name: Cache cargo registry
+      #   uses: actions/cache@v1
+      #   with:
+      #     path: ~/.cargo/registry
+      #     key: ${{ matrix.version }}-x86_64-apple-darwin-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache cargo index
-        uses: actions/cache@v1
-        with:
-          path: ~/.cargo/git
-          key: ${{ matrix.version }}-x86_64-apple-darwin-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      # - name: Cache cargo index
+      #   uses: actions/cache@v1
+      #   with:
+      #     path: ~/.cargo/git
+      #     key: ${{ matrix.version }}-x86_64-apple-darwin-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Run silverwind tests
         timeout-minutes: 40
@@ -56,4 +56,4 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: my-artifact
-          path: rust-proxy/target/release/silverwind # or path/to/artifactsilverwind
+          path: silverwind/rust-proxy/target/release/silverwind # or path/to/artifactsilverwind
