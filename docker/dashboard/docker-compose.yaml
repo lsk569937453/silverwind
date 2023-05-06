@@ -1,13 +1,13 @@
 version: "3.9"
 services:
   silverwind-dashboard:
-    image: lsk569937453/silverwind-dashboard:0.0.6
+    image: lsk569937453/silverwind-dashboard:0.0.7
     container_name: silverwind-dashboard
     ports:
       - "4486:4486"
 
   silverwind:
-      image: lsk569937453/silverwind:0.0.6
+      image: lsk569937453/silverwind:0.0.7
       container_name: silverwind
       ports:
         - "6980:6980"
