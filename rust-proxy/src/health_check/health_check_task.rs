@@ -330,6 +330,8 @@ mod tests {
             health_check: None,
             liveness_config: None,
             allow_deny_list: None,
+            rewrite_headers: None,
+
             authentication: None,
             ratelimit: None,
             matcher: Some(Matcher {
@@ -373,6 +375,7 @@ mod tests {
             })),
             anomaly_detection: None,
             liveness_config: None,
+            rewrite_headers: None,
 
             allow_deny_list: None,
             authentication: None,
@@ -420,6 +423,8 @@ mod tests {
             })),
             anomaly_detection: None,
             liveness_config: None,
+            rewrite_headers: None,
+
             liveness_status: Arc::new(RwLock::new(LivenessStatus {
                 current_liveness_count: 0,
             })),
@@ -483,6 +488,8 @@ mod tests {
             allow_deny_list: None,
             anomaly_detection: None,
             liveness_config: None,
+            rewrite_headers: None,
+
             liveness_status: Arc::new(RwLock::new(LivenessStatus {
                 current_liveness_count: 0,
             })),
@@ -546,6 +553,8 @@ mod tests {
             })),
             allow_deny_list: None,
             anomaly_detection: None,
+            rewrite_headers: None,
+
             liveness_config: Some(LivenessConfig {
                 min_liveness_count: 3,
             }),
@@ -620,6 +629,8 @@ mod tests {
             liveness_status: Arc::new(RwLock::new(LivenessStatus {
                 current_liveness_count: 0,
             })),
+            rewrite_headers: None,
+
             anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
@@ -676,6 +687,8 @@ mod tests {
             allow_deny_list: None,
             authentication: None,
             liveness_config: None,
+            rewrite_headers: None,
+
             liveness_status: Arc::new(RwLock::new(LivenessStatus {
                 current_liveness_count: 0,
             })),
@@ -734,6 +747,8 @@ mod tests {
             anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
+            rewrite_headers: None,
+
             liveness_config: None,
             ratelimit: None,
             matcher: Some(Matcher {

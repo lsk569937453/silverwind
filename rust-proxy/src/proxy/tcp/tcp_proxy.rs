@@ -193,6 +193,8 @@ mod tests {
                         ratelimit: None,
                         health_check: None,
                         anomaly_detection: None,
+                        rewrite_headers: None,
+
                         liveness_config: None,
                         liveness_status: Arc::new(RwLock::new(LivenessStatus {
                             current_liveness_count: 0,
@@ -251,6 +253,8 @@ mod tests {
                     authentication: None,
                     ratelimit: None,
                     health_check: None,
+                    rewrite_headers: None,
+
                     anomaly_detection: None,
                     liveness_status: Arc::new(RwLock::new(LivenessStatus {
                         current_liveness_count: 0,
@@ -309,6 +313,7 @@ mod tests {
                     health_check: None,
                     ratelimit: None,
                     anomaly_detection: None,
+                    rewrite_headers: None,
                     liveness_config: None,
                     liveness_status: Arc::new(RwLock::new(LivenessStatus {
                         current_liveness_count: 0,

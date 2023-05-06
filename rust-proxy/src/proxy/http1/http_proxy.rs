@@ -14,6 +14,8 @@ use hyper::header::{CONNECTION, SEC_WEBSOCKET_KEY};
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
+use http::header::HeaderName;
+use http::header::HeaderValue;
 use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -26,11 +28,11 @@ use std::convert::Infallible;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
@@ -205,7 +207,7 @@ async fn proxy(
     check_trait: impl CheckTrait,
 ) -> Result<Response<Body>, anyhow::Error> {
     if log_enabled!(Level::Debug) {
-        debug!("req: {:?}", req);
+        debug!("old req: {:?}", req);
     }
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
@@ -222,6 +224,15 @@ async fn proxy(
             .status(StatusCode::FORBIDDEN)
             .body(Body::from(common_constants::DENY_RESPONSE))
             .unwrap());
+    }
+    if let Some(check_result) = check_result.clone() {
+        if let Some(new_headers) = check_result.route.rewrite_headers {
+            for (key, value) in new_headers.iter() {
+                let header_value = HeaderValue::from_str(value)?;
+                let header_name = HeaderName::from_str(key)?;
+                req.headers_mut().insert(header_name, header_value);
+            }
+        }
     }
     if inbound_headers.clone().contains_key(CONNECTION)
         && inbound_headers.contains_key(SEC_WEBSOCKET_KEY)
@@ -246,6 +257,10 @@ async fn proxy(
         *req.uri_mut() = request_path
             .parse()
             .map_err(|err: InvalidUri| anyhow!(err.to_string()))?;
+
+        if log_enabled!(Level::Debug) {
+            debug!("new req: {:?}", req);
+        }
         let request_future = if request_path.contains("https") {
             client.request_https(req, DEFAULT_HTTP_TIMEOUT)
         } else {
@@ -634,6 +649,8 @@ mod tests {
                         authentication: None,
                         anomaly_detection: None,
                         liveness_config: None,
+                        rewrite_headers: None,
+
                         liveness_status: Arc::new(RwLock::new(LivenessStatus {
                             current_liveness_count: 0,
                         })),
@@ -703,6 +720,8 @@ mod tests {
                         }]),
                         authentication: None,
                         ratelimit: None,
+                        rewrite_headers: None,
+
                         liveness_status: Arc::new(RwLock::new(LivenessStatus {
                             current_liveness_count: 0,
                         })),
@@ -771,6 +790,8 @@ mod tests {
                         route_cluster: route,
                         allow_deny_list: None,
                         authentication: None,
+                        rewrite_headers: None,
+
                         anomaly_detection: Some(AnomalyDetectionType::Http(
                             HttpAnomalyDetectionParam {
                                 consecutive_5xx: 3,

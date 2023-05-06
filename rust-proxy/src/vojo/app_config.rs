@@ -13,6 +13,7 @@ use http::HeaderMap;
 use http::HeaderValue;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -37,6 +38,7 @@ pub struct Route {
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
     pub anomaly_detection: Option<AnomalyDetectionType>,
     pub liveness_status: Arc<RwLock<LivenessStatus>>,
+    pub rewrite_headers: Option<HashMap<String, String>>,
     pub liveness_config: Option<LivenessConfig>,
     pub health_check: Option<HealthCheckType>,
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
@@ -77,6 +79,7 @@ impl Route {
             liveness_status: Arc::new(RwLock::new(LivenessStatus {
                 current_liveness_count: count,
             })),
+            rewrite_headers: route_vistor.rewrite_headers,
             liveness_config: route_vistor.liveness_config,
             health_check: route_vistor.health_check,
             ratelimit: route_vistor.ratelimit,
@@ -291,7 +294,7 @@ mod tests {
             allow_deny_list: None,
             authentication: None,
             liveness_config: None,
-
+            rewrite_headers: None,
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("/"),
@@ -373,6 +376,8 @@ mod tests {
             })),
             allow_deny_list: None,
             authentication: None,
+            rewrite_headers: None,
+
             liveness_config: Some(LivenessConfig {
                 min_liveness_count: 32,
             }),
@@ -425,6 +430,7 @@ mod tests {
             allow_deny_list: None,
             authentication: None,
             liveness_config: None,
+            rewrite_headers: None,
 
             ratelimit: None,
             matcher: Some(Matcher {
@@ -475,6 +481,7 @@ mod tests {
             authentication: None,
             ratelimit: None,
             liveness_config: None,
+            rewrite_headers: None,
 
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -529,6 +536,8 @@ mod tests {
             liveness_status: LivenessStatus {
                 current_liveness_count: 0,
             },
+            rewrite_headers: None,
+
             anomaly_detection: None,
             allow_deny_list: None,
             authentication: None,
@@ -581,6 +590,8 @@ mod tests {
             health_check: None,
             allow_deny_list: None,
             authentication: None,
+            rewrite_headers: None,
+
             ratelimit: None,
             matcher: Some(Matcher {
                 prefix: String::from("ss"),
@@ -629,6 +640,8 @@ mod tests {
             health_check: None,
             allow_deny_list: None,
             liveness_config: None,
+            rewrite_headers: None,
+
             liveness_status: LivenessStatus {
                 current_liveness_count: 0,
             },
@@ -680,6 +693,8 @@ mod tests {
             health_check: None,
             allow_deny_list: None,
             liveness_config: None,
+            rewrite_headers: None,
+
             liveness_status: LivenessStatus {
                 current_liveness_count: 0,
             },
@@ -742,6 +757,7 @@ mod tests {
             health_check: None,
             allow_deny_list: None,
             liveness_config: None,
+            rewrite_headers: None,
 
             authentication: None,
             ratelimit: Some(ratelimit),
@@ -796,6 +812,8 @@ mod tests {
             liveness_status: LivenessStatus {
                 current_liveness_count: 0,
             },
+            rewrite_headers: None,
+
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
@@ -848,6 +866,8 @@ mod tests {
             }),
             anomaly_detection: None,
             health_check: None,
+            rewrite_headers: None,
+
             allow_deny_list: Some(vec![allow_object]),
             authentication: None,
             liveness_config: None,
