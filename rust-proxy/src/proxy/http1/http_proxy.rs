@@ -14,6 +14,7 @@ use hyper::header::{CONNECTION, SEC_WEBSOCKET_KEY};
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
+use http::uri::PathAndQuery;
 use hyper::server::conn::AddrIncoming;
 use hyper::server::conn::AddrStream;
 use hyper::service::{make_service_fn, service_fn};
@@ -30,7 +31,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
-
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
@@ -147,10 +147,13 @@ async fn proxy_adapter(
 ) -> Result<Response<Body>, Infallible> {
     let method = req.method().clone();
     let uri = req.uri().clone();
-    let path = uri.path();
+    let path = uri
+        .path_and_query()
+        .unwrap_or(&PathAndQuery::from_static("/hello?world"))
+        .to_string();
     let headers = req.headers().clone();
     let current_time = SystemTime::now();
-    let monitor_timer_list = get_timer_list(mapping_key.clone(), String::from(path))
+    let monitor_timer_list = get_timer_list(mapping_key.clone(), path.clone())
         .iter()
         .map(|item| item.start_timer())
         .collect::<Vec<HistogramTimer>>();
@@ -184,7 +187,7 @@ async fn proxy_adapter(
     monitor_timer_list
         .into_iter()
         .for_each(|item| item.observe_duration());
-    inc(mapping_key.clone(), String::from(path), status);
+    inc(mapping_key.clone(), path.clone(), status);
     info!(target: "app",
         "{}$${}$${}$${}$${}$${}",
         remote_addr.to_string(),

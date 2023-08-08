@@ -39,7 +39,7 @@ impl CheckTrait for CommonCheckRequest {
         uri: Uri,
         peer_addr: SocketAddr,
     ) -> Result<Option<CheckResult>, anyhow::Error> {
-        let backend_path = uri.path();
+        let backend_path = uri.path_and_query().ok_or(anyhow!(""))?.to_string();
         let api_service_manager = GLOBAL_CONFIG_MAPPING
             .get(&mapping_key)
             .ok_or(anyhow!(format!(
@@ -49,7 +49,8 @@ impl CheckTrait for CommonCheckRequest {
             .clone();
         let addr_string = peer_addr.ip().to_string();
         for item in api_service_manager.service_config.routes {
-            let match_result = item.is_matched(backend_path, Some(headers.clone()))?;
+            let back_path_clone = backend_path.clone();
+            let match_result = item.is_matched(back_path_clone, Some(headers.clone()))?;
             if match_result.clone().is_none() {
                 continue;
             }

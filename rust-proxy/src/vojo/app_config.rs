@@ -88,7 +88,7 @@ impl Route {
 impl Route {
     pub fn is_matched(
         &self,
-        path: &str,
+        path: String,
         headers_option: Option<HeaderMap<HeaderValue>>,
     ) -> Result<Option<String>, anyhow::Error> {
         let matcher = self
@@ -102,6 +102,7 @@ impl Route {
             return Ok(None);
         }
         let final_path = format!("{}{}", matcher.prefix_rewrite, match_res.unwrap());
+        // info!("final_path:{}", final_path);
         if let Some(real_host_name) = &self.host_name {
             if headers_option.is_none() {
                 return Ok(None);
@@ -304,7 +305,7 @@ mod tests {
         let route = create_new_route_with_host_name(None);
         let mut headermap = HeaderMap::new();
         headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
-        let allow_result = route.is_matched("/test", Some(headermap));
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
         assert!(allow_result.is_ok());
         assert!(allow_result.unwrap().is_some());
     }
@@ -314,7 +315,7 @@ mod tests {
         let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
         let mut headermap = HeaderMap::new();
         headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
-        let allow_result = route.is_matched("/test", Some(headermap));
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
         assert!(allow_result.is_ok());
         assert!(allow_result.unwrap().is_none());
     }
@@ -323,7 +324,7 @@ mod tests {
         let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
         let mut headermap = HeaderMap::new();
         headermap.insert("Host", "Basic bHNrOjEyMzQ=".parse().unwrap());
-        let allow_result = route.is_matched("/test", Some(headermap));
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
         assert!(allow_result.is_ok());
         assert!(allow_result.unwrap().is_none());
     }
@@ -332,7 +333,7 @@ mod tests {
         let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
         let mut headermap = HeaderMap::new();
         headermap.insert("Host", "www.test.com".parse().unwrap());
-        let allow_result = route.is_matched("/test", Some(headermap));
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
         assert!(allow_result.is_ok());
         assert!(allow_result.unwrap().is_some());
     }
