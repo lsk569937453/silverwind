@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@master
       - name: Install dependencies
         run: |
-           apt-get -y update && apt-get -y install pkg-config libssl-dev
+          sudo apt-get -y update && apt-get -y install pkg-config libssl-dev
       
       - name: Compile and release
         uses: rust-build/rust-build.action@v1.4.3
