@@ -5,7 +5,6 @@ use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_config::LivenessConfig;
 use crate::vojo::app_config::LivenessStatus;
 use crate::vojo::app_config::Matcher;
-
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::ServiceType;
@@ -21,6 +20,7 @@ use crate::vojo::route::{
     HeaderBasedRoute, PollBaseRoute, PollRoute, RandomBaseRoute, RandomRoute, WeightBasedRoute,
     WeightRoute,
 };
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
@@ -57,6 +57,7 @@ pub struct RouteVistor {
     pub anomaly_detection: Option<AnomalyDetectionType>,
     #[serde(skip_serializing, skip_deserializing)]
     pub liveness_status: LivenessStatus,
+    pub rewrite_headers: Option<HashMap<String, String>>,
     pub liveness_config: Option<LivenessConfig>,
     pub health_check: Option<HealthCheckType>,
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
@@ -71,6 +72,7 @@ impl RouteVistor {
             route_id: route.route_id,
             host_name: route.host_name,
             matcher: route.matcher,
+            rewrite_headers: route.rewrite_headers,
             allow_deny_list: route.allow_deny_list,
             authentication: route.authentication,
             anomaly_detection: route.anomaly_detection,
@@ -406,6 +408,7 @@ mod tests {
                     ejection_second: 23,
                 },
             })),
+            rewrite_headers: None,
             allow_deny_list: None,
             authentication: None,
             liveness_config: Some(LivenessConfig {
@@ -469,6 +472,8 @@ mod tests {
                     ejection_second: 23,
                 },
             })),
+            rewrite_headers: None,
+
             allow_deny_list: None,
             authentication: None,
             liveness_config: Some(LivenessConfig {
@@ -530,6 +535,8 @@ mod tests {
                     ejection_second: 23,
                 },
             })),
+            rewrite_headers: None,
+
             allow_deny_list: None,
             authentication: None,
             liveness_config: Some(LivenessConfig {
@@ -591,6 +598,8 @@ mod tests {
                     ejection_second: 23,
                 },
             })),
+            rewrite_headers: None,
+
             allow_deny_list: None,
             authentication: None,
             liveness_config: Some(LivenessConfig {

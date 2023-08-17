@@ -420,6 +420,8 @@ mod tests {
                     allow_deny_list: None,
                     authentication: None,
                     ratelimit: None,
+                    rewrite_headers: None,
+
                     health_check: None,
                     anomaly_detection: None,
                     liveness_config: None,
