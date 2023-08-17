@@ -31,6 +31,10 @@ rpath = false
 ##Optimize For Size
 strip = true
 
+[package.metadata.cross.target.x86_64-unknown-linux-musl]
+xargo = false
+# dockerfile = "./Dockerfile"
+pre-build = [" apt-get -y update && apt-get -y install pkg-config libssl-dev"]
 
 [dependencies]
 log = "0.4"
