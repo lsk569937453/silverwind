@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - 1.68.0
+          - 1.72.0
           # - stable
           # - nightly
 
@@ -78,4 +78,4 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           name: silverwind
-          path: rust-proxy/target/release/silverwind # or path/to/artifactsilverwind
+          path: rust-proxy/target/release/silverwind.exe # or path/to/artifactsilverwind
