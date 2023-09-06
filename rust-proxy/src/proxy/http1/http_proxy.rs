@@ -623,6 +623,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Http,
                     cert_str: None,
                     routes: vec![Route {
+                        rewrite_headers: None,
                         host_name: None,
                         route_id: get_uuid(),
                         matcher: Some(Matcher {
@@ -693,6 +694,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Tcp,
                     cert_str: None,
                     routes: vec![Route {
+                        rewrite_headers: None,
                         route_id: get_uuid(),
                         host_name: None,
                         matcher: Some(Matcher {
@@ -765,6 +767,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Http,
                     cert_str: None,
                     routes: vec![Route {
+                        rewrite_headers: None,
                         host_name: None,
                         route_id: get_uuid(),
                         matcher: Some(Matcher {
