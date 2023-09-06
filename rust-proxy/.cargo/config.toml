@@ -13,3 +13,12 @@ rustflags = [
 # [target.stable-x86_64-pc-windows-msvc]
 # rustc-link-search = ["C:\\Program Files\\PostgreSQL\\15\\lib"]
 # rustc-link-lib = ["libpq"]
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "target-feature=+crt-static",
+  "-C", "link-arg=-Wl,-Bstatic",
+  "-C", "link-arg=-Wl,-Bdynamic",
+]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
