@@ -54,6 +54,19 @@ The second disadvantage is that every time Envoy is requested, it will use grpc 
 You could change the configuration over the rest API. And the new configuration will have an effect **in 5 seconds**.
 
 ## Compile or Download the release
+
+### Install the openssl
+#### Mac & Linux
+https://docs.rs/openssl/latest/openssl/
+
+#### Windows
+Install openssl as following:
+```
+> git clone https://github.com/microsoft/vcpkg
+> .\vcpkg\bootstrap-vcpkg.bat
+> .\vcpkg.exe install openssl
+```
+Install strawberryperl from  https://strawberryperl.com/.
 ### Compile
 You have to install the rust first.
 ```

@@ -45,15 +45,29 @@ Envoy没有内嵌限流功能。Envoy提供了限流接口让用户自己实现�
 
 ## 动态配置
 您可以通过Rest API更改配置。并且新配置将在**5 秒内**生效。
-## 编译或者下载发行版
-### 编译
+## 编译 
+
+### 安装Openssl
+#### Mac & Linux
+https://docs.rs/openssl/latest/openssl/
+
+#### Windows
+通过vcpkg安装openssl。
+```
+> git clone https://github.com/microsoft/vcpkg
+> .\vcpkg\bootstrap-vcpkg.bat
+> .\vcpkg.exe install openssl
+``` 
+从https://strawberryperl.com/ 
+下载安装strawberryperl.
+### 开始编译
 请先安装rust，然后执行下面的命令。
 ```
 cd rust-proxy
 cargo build --release
 ```
 你可以在target/release目录下找到Silverwind.
-### 下载发行版
+## 下载发行版
 从[这里](https://github.com/lsk569937453/silverwind/releases)下载发行版.
 ## 配置文件介绍
 ### 配置Silverwind作为http代理
