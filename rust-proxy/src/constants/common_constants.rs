@@ -16,6 +16,5 @@ pub const ENV_CONFIG_FILE_PATH: &str = "CONFIG_FILE_PATH";
 pub const TIMER_WAIT_SECONDS: u64 = 5;
 pub const DEFAULT_HTTP_TIMEOUT: u64 = 10;
 pub const DEFAULT_TEMPORARY_DIR: &str = "temporary";
-pub const DEFAULT_LOGER_LEVEL: LevelFilter = LevelFilter::Info;
 pub const GRPC_STATUS_HEADER: &str = "grpc-status";
 pub const GRPC_STATUS_OK: &str = "0";
