@@ -37,20 +37,20 @@ xargo = false
 pre-build = [" apt-get -y update && apt-get -y install pkg-config libssl-dev"]
 
 [dependencies]
-log = "0.4"
-clap = { version = "4.1.1", features = ["derive"] }
-backtrace = "0.3.67"
-anyhow = { version = "1.0", default-features = false }
+log = "0.4.20"
+clap = { version = "4.5.1", features = ["derive"] }
+backtrace = "0.3.69"
+anyhow = { version = "1.0.80", default-features = false }
 
 
 
-async-trait = "0.1.66"
-tokio = { version = "1.27.0",  features = ["full", "tracing"] }
-futures = { version = "0.3.0", features = ["thread-pool"]}
-bb8 = "0.8.0"
-tokio-util = { version = "0.7.7",  features = ["full","time"] }
-http-body = "1.0.0-rc.2"
-http-body-util = { version = "0.1.0-rc.2"}
+async-trait = "0.1.77"
+tokio = { version = "1.36.0",  features = ["full", "tracing"] }
+futures = { version = "0.3.30", features = ["thread-pool"]}
+bb8 = "0.8.3"
+tokio-util = { version = "0.7.10",  features = ["full","time"] }
+http-body = "1.0.0"
+http-body-util = { version = "0.1.0"}
 hyper = { version = "0.14.25",  features = ["full"] }
 http = "0.2.9"
 oas3 = "0.2.1"
@@ -100,7 +100,7 @@ h2 = "0.3.16"
 #mockall="0.11.4"
 webpki-roots = "0.23.0"
 openssl = { version = "0.10.57", features = ["vendored"] }
-env_logger= "0.10"
+env_logger= "0.11.2"
 # native-tls = "0.2.11"
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = "0.3.2"
