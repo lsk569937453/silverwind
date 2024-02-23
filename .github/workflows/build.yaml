@@ -62,7 +62,7 @@ jobs:
           file: rust-proxy/target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
           asset_name: ${{ matrix.platform.name }}
           tag: ${{ github.ref }}
-          draft: true
+          # draft: true
         #   - name: 'Login to GitHub Container Registry'
         #   uses: docker/login-action@v1
         #   with:
