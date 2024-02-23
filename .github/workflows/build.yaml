@@ -58,14 +58,11 @@ jobs:
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         with:
-          repo_name: lsk569937453/silverwind
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: rust-proxy/target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
-          asset_name: silverwind
+          asset_name: ${{ matrix.platform.name }}
           tag: ${{ github.ref }}
-          overwrite: true
           draft: true
-          body: "This is my release text"
         #   - name: 'Login to GitHub Container Registry'
         #   uses: docker/login-action@v1
         #   with:
