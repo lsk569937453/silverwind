@@ -22,6 +22,7 @@ use std::env;
 #[macro_use]
 extern crate log;
 use crate::control_plane::rest_api::start_control_plane;
+use env_logger::Env;
 
 use tokio::runtime;
 

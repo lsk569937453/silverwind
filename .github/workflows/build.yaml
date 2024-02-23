@@ -1,0 +1,91 @@
+name: 'release'
+
+# This will trigger the action on each push to the `release` branch.
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+  packages: write
+jobs:
+  release:
+    strategy:
+      matrix:
+        platform:
+          - release_for: linux-x86_64
+            os: ubuntu-20.04
+            target: x86_64-unknown-linux-gnu
+            bin: silverwind
+            name: silverwind-x86_64-unknown-linux-gnu
+            command: build
+
+          - release_for: Windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: silverwind.exe
+            name: silverwind-Windows-x86_64.exe
+            command: build
+
+          - release_for: macOS-x86_64
+            os: macOS-latest
+            target: x86_64-apple-darwin
+            bin: silverwind
+            name: silverwind-Darwin-x86_64
+            command: build
+          - release_for: macOS-arm64
+            os: macOS-latest
+            target: aarch64-apple-darwin	
+            bin: silverwind
+            name: silverwind-aarch64-apple-darwin
+            command: build
+
+
+
+    runs-on: ${{ matrix.platform.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: ${{ matrix.platform.command }}
+          target: ${{ matrix.platform.target }}
+          working-directory: rust-proxy
+          args: "--release"
+          strip: true
+      - name: 'Login to GitHub Container Registry'
+        if: matrix.platform.target == 'x86_64-unknown-linux-gnu'
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
+      - name: Build the docker image
+        if: matrix.platform.target == 'x86_64-unknown-linux-gnu'
+        run: |-
+          cp rust-proxy/target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} ./docker/silverwind
+          cd docker/silverwind
+          docker build -t ghcr.io/lsk569937453/silverwind:${{ github.ref_name }} .
+          docker push ghcr.io/lsk569937453/silverwind:${{ github.ref_name }}
+
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: rust-proxy/target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
+          asset_name: ${{ matrix.platform.name }}
+          tag: ${{ github.ref }}
+          # draft: true
+        #   - name: 'Login to GitHub Container Registry'
+        #   uses: docker/login-action@v1
+        #   with:
+        #     registry: ghcr.io
+        #     username: ${{github.actor}}
+        #     password: ${{secrets.GITHUB_TOKEN}}
+
+        # - name: 'Build Inventory Image'
+        #   run: |
+        #     docker build . --tag ghcr.io/<your-GitHub-username>/store:latest
+        #     docker push ghcr.io/<your-GitHub-username>/store:latest

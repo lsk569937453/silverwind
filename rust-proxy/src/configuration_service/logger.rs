@@ -1,4 +1,4 @@
-use crate::constants::common_constants::DEFAULT_LOGER_LEVEL;
+use env_logger::{Env, Logger as Logger2};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller;
 use log4rs::append::rolling_file::policy::compound::trigger::size::SizeTrigger;
@@ -7,6 +7,8 @@ use log4rs::append::rolling_file::RollingFileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 use log4rs::encode::pattern::PatternEncoder;
 pub fn start_logger() {
+    let env = Env::new().filter_or("RUST_LOG", "info");
+    let level_filter = Logger2::from_env(env).filter();
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
             "{d(%Y-%m-%d %H:%M:%S)(local)} - {h({l})}: {m}{n}",
@@ -48,13 +50,14 @@ pub fn start_logger() {
             Logger::builder()
                 .appender("app")
                 .additive(false)
-                .build("app", DEFAULT_LOGER_LEVEL),
+                .build("app", level_filter),
         )
         .build(
             Root::builder()
                 .appender("stdout")
+                .appender("app")
                 .appender("common")
-                .build(DEFAULT_LOGER_LEVEL),
+                .build(level_filter),
         )
         .unwrap();
 

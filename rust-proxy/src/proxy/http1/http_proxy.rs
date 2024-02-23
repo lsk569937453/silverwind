@@ -138,13 +138,33 @@ impl HttpProxy {
         Ok(())
     }
 }
-
 async fn proxy_adapter(
     client: HttpClients,
     req: Request<Body>,
     mapping_key: String,
     remote_addr: SocketAddr,
 ) -> Result<Response<Body>, Infallible> {
+    let result = proxy_adapter_with_error(client, req, mapping_key, remote_addr).await;
+    match result {
+        Ok(res) => Ok(res),
+        Err(err) => {
+            error!("The error is {}.", err);
+            let json_value = json!({
+                "error": err.to_string(),
+            });
+            return Ok(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Body::from(json_value.to_string()))
+                .unwrap());
+        }
+    }
+}
+async fn proxy_adapter_with_error(
+    client: HttpClients,
+    req: Request<Body>,
+    mapping_key: String,
+    remote_addr: SocketAddr,
+) -> Result<Response<Body>, anyhow::Error> {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let path = uri
@@ -188,16 +208,29 @@ async fn proxy_adapter(
         .into_iter()
         .for_each(|item| item.observe_duration());
     inc(mapping_key.clone(), path.clone(), status);
-    info!(target: "app",
-        "{}$${}$${}$${}$${}$${}",
-        remote_addr.to_string(),
-        elapsed_time,
-        status,
-        method.to_string(),
-        path,
-        json_value.to_string()
-    );
-    Ok(res)
+
+    if log_enabled!(Level::Debug) {
+        let (parts, body) = res.into_parts();
+        let response_bytes = hyper::body::to_bytes(body)
+            .await
+            .map_err(|_| anyhow!("Can not get bytes from body"))?;
+        let response_str = String::from_utf8(response_bytes.clone().to_vec())?;
+        debug!(target: "app",
+           "{}$${}$${}$${}$${}$${}$${}$${:?}",
+           remote_addr.to_string(),
+           elapsed_time,
+           status,
+           method.to_string(),
+           path,
+           json_value.to_string(),
+           response_str,
+           parts.headers.clone()
+        );
+        let res = Response::from_parts(parts, Body::from(response_bytes));
+        Ok(res)
+    } else {
+        Ok(res)
+    }
 }
 
 async fn proxy(
@@ -207,9 +240,7 @@ async fn proxy(
     remote_addr: SocketAddr,
     check_trait: impl CheckTrait,
 ) -> Result<Response<Body>, anyhow::Error> {
-    if log_enabled!(Level::Debug) {
-        debug!("req: {:?}", req);
-    }
+    debug!("req: {:?}", req);
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
     let check_result = check_trait
@@ -623,6 +654,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Http,
                     cert_str: None,
                     routes: vec![Route {
+                        rewrite_headers: None,
                         host_name: None,
                         route_id: get_uuid(),
                         matcher: Some(Matcher {
@@ -693,6 +725,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Tcp,
                     cert_str: None,
                     routes: vec![Route {
+                        rewrite_headers: None,
                         route_id: get_uuid(),
                         host_name: None,
                         matcher: Some(Matcher {
@@ -765,6 +798,7 @@ mod tests {
                     server_type: crate::vojo::app_config::ServiceType::Http,
                     cert_str: None,
                     routes: vec![Route {
+                        rewrite_headers: None,
                         host_name: None,
                         route_id: get_uuid(),
                         matcher: Some(Matcher {
