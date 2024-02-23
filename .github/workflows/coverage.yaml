@@ -42,6 +42,14 @@ jobs:
 
     runs-on: ${{ matrix.platform.os }}
     steps:
+      - name: Create Release Draft
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          tag_name: 0.0.4
+          body: |
+              Description of the release
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build binary
@@ -52,14 +60,7 @@ jobs:
           working-directory: rust-proxy
           args: "--release"
           strip: true
-      - name: Create Release Draft
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          draft: true
-          tag_name: 0.0.1
-          body: |
-              Description of the release
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v2
         with:
