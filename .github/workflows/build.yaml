@@ -60,7 +60,7 @@ jobs:
         with:
           repo_name: lsk569937453/silverwind
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: rust-proxy/target/${{ matrix.platform.target }}/release/*.tar.gz
+          file: rust-proxy/target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }}
           asset_name: silverwind
           tag: ${{ github.ref }}
           overwrite: true
