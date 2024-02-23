@@ -3,8 +3,8 @@ name: 'release'
 # This will trigger the action on each push to the `release` branch.
 on:
   push:
-    branches:
-      - release
+    tags:
+      - '*'
 
 permissions:
   contents: write
@@ -45,20 +45,6 @@ jobs:
 
     runs-on: ${{ matrix.platform.os }}
     steps:
-      # - name: Create Release Draft
-      #   id: create_release
-      #   uses: softprops/action-gh-release@v1
-      #   with:
-      #     files: |
-      #       licence
-      #     draft: true
-      #     tag_name: 0.0.10
-      #     body: |
-      #         Description of the release
-      - name: Release Draft
-        uses: crs-k/release-draft@v0.6.1
-        with:
-          repo-token: "${{ secrets.GITHUB_TOKEN }}"
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build binary
@@ -75,6 +61,17 @@ jobs:
         with:
           name: my-artifact
           path: rust-proxy/target/${{ matrix.platform.target }}/release/silverwind
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_name: lsk569937453/silverwind
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: rust-proxy/target/${{ matrix.platform.target }}/release/*.tar.gz
+          asset_name: silverwind
+          tag: ${{ github.ref }}
+          overwrite: true
+          draft: true
+          body: "This is my release text"
         #   - name: 'Login to GitHub Container Registry'
         #   uses: docker/login-action@v1
         #   with:
