@@ -1,22 +1,65 @@
-name: Coverage
+name: 'publish'
 
-on: [pull_request, push]
+# This will trigger the action on each push to the `release` branch.
+on:
+  push:
+    branches:
+      - release
 
 jobs:
-  coverage:
-    runs-on: ubuntu-latest
-    env:
-      CARGO_TERM_COLOR: always
+  release:
+    strategy:
+      matrix:
+        platform:
+          - release_for: linux-x86_64
+            os: ubuntu-20.04
+            target: x86_64-unknown-linux-gnu
+            bin: precious
+            name: silverwind-x86_64-unknown-linux-gnu.tar.gz
+            command: build
+
+          - release_for: Windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: precious.exe
+            name: silverwind-Windows-x86_64.zip
+            command: both
+
+          - release_for: macOS-x86_64
+            os: macOS-latest
+            target: x86_64-apple-darwin
+            bin: precious
+            name: silverwind-Darwin-x86_64.tar.gz
+            command: both
+          - release_for: macOS-arm64
+            os: macOS-latest
+            target: aarch64-apple-darwin	
+            bin: precious
+            name: silverwind-aarch64-apple-darwin.tar.gz
+            command: both
+
+
+
+    runs-on: ${{ matrix.platform.os }}
     steps:
-      - uses: actions/checkout@v3
-      - name: Install Rust
-        run: rustup update stable
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-      - name: Generate code coverage
-        run: cd rust-proxy&&cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v0
         with:
-          files: rust-proxy/lcov.info
-          fail_ci_if_error: true
+          command: ${{ matrix.platform.command }}
+          target: ${{ matrix.platform.target }}
+          working-directory: rust-proxy
+          args: "--locked --release"
+          strip: true
+        #   - name: 'Login to GitHub Container Registry'
+        #   uses: docker/login-action@v1
+        #   with:
+        #     registry: ghcr.io
+        #     username: ${{github.actor}}
+        #     password: ${{secrets.GITHUB_TOKEN}}
+
+        # - name: 'Build Inventory Image'
+        #   run: |
+        #     docker build . --tag ghcr.io/<your-GitHub-username>/store:latest
+        #     docker push ghcr.io/<your-GitHub-username>/store:latest
