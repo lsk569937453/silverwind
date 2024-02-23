@@ -67,8 +67,8 @@ jobs:
         run: |-
           cp rust-proxy/target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} ./docker/silverwind
           cd docker/silverwind
-          docker build -t lsk569937453/silverwind:${{ github.ref }} .
-          docker push ghcr.io/lsk569937453/silverwind:${{ github.ref }}
+          docker build -t lsk569937453/silverwind:${{ github.ref_name }} .
+          docker push ghcr.io/lsk569937453/silverwind:${{ github.ref_name }}
 
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
