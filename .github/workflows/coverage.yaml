@@ -57,7 +57,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           draft: true
-          tag_name: v__VERSION__
+          tag_name: 0.0.1
           body: |
               Description of the release
       - name: Upload Artifact
