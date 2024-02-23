@@ -23,20 +23,20 @@ jobs:
             target: x86_64-pc-windows-msvc
             bin: silverwind.exe
             name: silverwind-Windows-x86_64.zip
-            command: both
+            command: build
 
           - release_for: macOS-x86_64
             os: macOS-latest
             target: x86_64-apple-darwin
             bin: silverwind
             name: silverwind-Darwin-x86_64.tar.gz
-            command: both
+            command: build
           - release_for: macOS-arm64
             os: macOS-latest
             target: aarch64-apple-darwin	
             bin: silverwind
             name: silverwind-aarch64-apple-darwin.tar.gz
-            command: both
+            command: build
 
 
 
@@ -52,6 +52,18 @@ jobs:
           working-directory: rust-proxy
           args: "--release"
           strip: true
+      - name: Create Release Draft
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          body: |
+              Description of the release
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: my-artifact
+          path: rust-proxy/target/release/silverwind
         #   - name: 'Login to GitHub Container Registry'
         #   uses: docker/login-action@v1
         #   with:
