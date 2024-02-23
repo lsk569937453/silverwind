@@ -6,6 +6,9 @@ on:
     branches:
       - release
 
+permissions:
+  contents: write
+
 jobs:
   release:
     strategy:
@@ -42,16 +45,20 @@ jobs:
 
     runs-on: ${{ matrix.platform.os }}
     steps:
-      - name: Create Release Draft
-        id: create_release
-        uses: softprops/action-gh-release@v1
+      # - name: Create Release Draft
+      #   id: create_release
+      #   uses: softprops/action-gh-release@v1
+      #   with:
+      #     files: |
+      #       licence
+      #     draft: true
+      #     tag_name: 0.0.10
+      #     body: |
+      #         Description of the release
+      - name: Release Draft
+        uses: crs-k/release-draft@v0.6.1
         with:
-          files: |
-            licence
-          draft: true
-          tag_name: 0.0.10
-          body: |
-              Description of the release
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build binary
