@@ -46,6 +46,8 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
+          files: |
+            licence
           draft: true
           tag_name: 0.0.4
           body: |
