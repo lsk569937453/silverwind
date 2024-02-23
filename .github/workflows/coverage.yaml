@@ -74,7 +74,7 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: my-artifact
-          path: rust-proxy/target/release/silverwind
+          path: rust-proxy/target/${{ matrix.platform.target }}/release/silverwind
         #   - name: 'Login to GitHub Container Registry'
         #   uses: docker/login-action@v1
         #   with:
