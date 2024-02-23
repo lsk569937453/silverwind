@@ -49,7 +49,7 @@ jobs:
           files: |
             licence
           draft: true
-          tag_name: 0.0.4
+          tag_name: 0.0.10
           body: |
               Description of the release
       - name: Checkout
