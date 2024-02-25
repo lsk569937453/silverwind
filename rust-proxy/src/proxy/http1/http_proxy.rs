@@ -152,10 +152,10 @@ async fn proxy_adapter(
             let json_value = json!({
                 "error": err.to_string(),
             });
-            return Ok(Response::builder()
+            Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from(json_value.to_string()))
-                .unwrap());
+                .unwrap())
         }
     }
 }

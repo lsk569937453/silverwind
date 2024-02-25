@@ -542,7 +542,7 @@ impl WeightBasedRoute {
             tt.is_positive()
         });
         if !index_is_alive {
-            (*new_lock).iter_mut().for_each(|mut weight_route| {
+            (*new_lock).iter_mut().for_each(|weight_route| {
                 weight_route.index = Arc::new(AtomicIsize::from(weight_route.weight as isize))
             });
         }
