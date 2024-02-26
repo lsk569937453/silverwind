@@ -51,42 +51,39 @@ impl HttpProxy {
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
+        let reveiver = &mut self.channel;
 
         let listener = TcpListener::bind(addr).await?;
         info!("Listening on http://{}", addr);
         loop {
-            let (stream, addr) = listener.accept().await?;
-            let io = TokioIo::new(stream);
-            let client = client.clone();
-            let mapping_key2 = mapping_key_clone1.clone();
-            tokio::task::spawn(async move {
-                if let Err(err) = http1::Builder::new()
-                    .serve_connection(
-                        io,
-                        service_fn(move |req: Request<Incoming>| {
-                            let req = req.map(|item| {
-                                item.map_err(|err| -> Infallible { unreachable!() }).boxed()
-                            });
-                            proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
-                        }),
-                    )
-                    .await
-                {
-                    println!("Error serving connection: {:?}", err);
+            tokio::select! {
+               Ok((stream,addr))= listener.accept()=>{
+                let io = TokioIo::new(stream);
+                let client = client.clone();
+                let mapping_key2 = mapping_key_clone1.clone();
+                tokio::task::spawn(async move {
+                    if let Err(err) = http1::Builder::new()
+                        .serve_connection(
+                            io,
+                            service_fn(move |req: Request<Incoming>| {
+                                let req = req.map(|item| {
+                                    item.map_err(|err| -> Infallible { unreachable!() }).boxed()
+                                });
+                                proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
+                            }),
+                        )
+                        .await
+                    {
+                        println!("Error serving connection: {:?}", err);
+                    }
+                });
+                },
+                _ = reveiver.recv() => {
+                    break;
                 }
-            });
+            }
         }
 
-        // info!("Listening on http://{}", addr);
-
-        // let reveiver = &mut self.channel;
-
-        // let graceful = server.with_graceful_shutdown(async move {
-        //     reveiver.recv().await;
-        // });
-        // if let Err(e) = graceful.await {
-        //     info!("server has receive error: {}", e);
-        // }
         Ok(())
     }
     pub async fn start_https_server(
@@ -114,78 +111,43 @@ impl HttpProxy {
             Arc::new(cfg)
         };
         let tls_acceptor = TlsAcceptor::from(tls_cfg);
+        let reveiver = &mut self.channel;
 
         let listener = TcpListener::bind(addr).await?;
         info!("Listening on http://{}", addr);
         loop {
-            let (tcp_stream, addr) = listener.accept().await?;
-            let tls_acceptor = tls_acceptor.clone();
+            tokio::select! {
+                    Ok((tcp_stream,addr))= listener.accept()=>{
+                let tls_acceptor = tls_acceptor.clone();
 
-            let client = client.clone();
-            let mapping_key2 = mapping_key_clone1.clone();
-            tokio::task::spawn(async move {
-                let tls_stream = match tls_acceptor.accept(tcp_stream).await {
-                    Ok(tls_stream) => tls_stream,
-                    Err(err) => {
-                        error!("failed to perform tls handshake: {err:#}");
-                        return;
+                let client = client.clone();
+                let mapping_key2 = mapping_key_clone1.clone();
+                tokio::task::spawn(async move {
+                    let tls_stream = match tls_acceptor.accept(tcp_stream).await {
+                        Ok(tls_stream) => tls_stream,
+                        Err(err) => {
+                            error!("failed to perform tls handshake: {err:#}");
+                            return;
+                        }
+                    };
+                    let io = TokioIo::new(tls_stream);
+                    let service = service_fn(move |req: Request<Incoming>| {
+                        let req = req
+                            .map(|item| item.map_err(|err| -> Infallible { unreachable!() }).boxed());
+
+                        proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
+                    });
+                    if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+                        error!("Error serving connection: {:?}", err);
                     }
-                };
-                let io = TokioIo::new(tls_stream);
-                let service = service_fn(move |req: Request<Incoming>| {
-                    let req = req
-                        .map(|item| item.map_err(|err| -> Infallible { unreachable!() }).boxed());
-
-                    proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
                 });
-                if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
-                    error!("Error serving connection: {:?}", err);
+            },
+                    _ = reveiver.recv() => {
+                        break;
+                    }
                 }
-            });
         }
-        // let make_service = make_service_fn(move |socket: &TlsStream| {
-        //     let client = client.clone();
-        //     let mapping_key2 = mapping_key_clone1.clone();
-        //     let remote_addr = socket.remote_addr();
 
-        //     async move {
-        //         Ok::<_, Infallible>(service_fn(move |req| {
-        //             proxy_adapter(client.clone(), req, mapping_key2.clone(), remote_addr)
-        //         }))
-        //     }
-        // });
-        // let mut cer_reader = BufReader::new(pem_str.as_bytes());
-        // let certs = rustls_pemfile::certs(&mut cer_reader).collect()?;
-
-        // let mut key_reader = BufReader::new(key_str.as_bytes());
-        // let key_der = rustls_pemfile::private_key(&mut key_reader).map(|key| key.unwrap())?;
-
-        // let tls_cfg = {
-        //     let cfg = rustls::ServerConfig::builder()
-        //         .with_no_client_auth()
-        //         .with_single_cert(certs, key_der)
-        //         .unwrap();
-        //     Arc::new(cfg)
-        // };
-        // let incoming = AddrIncoming::bind(&addr).map_err(|e| {
-        //     anyhow!(
-        //         "Cause error when binding the socket,the addr is {},the error is {}.",
-        //         addr.clone(),
-        //         e.to_string()
-        //     )
-        // })?;
-        // let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(make_service);
-        // info!("Listening on https://{}", addr);
-
-        // let reveiver = &mut self.channel;
-
-        // let graceful = server.with_graceful_shutdown(async move {
-        //     reveiver.recv().await;
-        // });
-
-        // if let Err(e) = graceful.await {
-        //     info!("server has receive error: {}", e);
-        // }
         Ok(())
     }
 }
