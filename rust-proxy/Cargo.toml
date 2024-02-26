@@ -1,6 +1,6 @@
 [package]
 name = "silverwind"
-version = "0.0.12"
+version = "0.0.20"
 edition = "2021"
 
 [profile.dev]
