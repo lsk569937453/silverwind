@@ -7,7 +7,6 @@ use crate::vojo::anomaly_detection::AnomalyDetectionType;
 use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
 use crate::vojo::route::BaseRoute;
 use bytes::Bytes;
-use futures::FutureExt;
 use http::uri::InvalidUri;
 use http::Uri;
 use hyper::body::Incoming;
@@ -18,10 +17,10 @@ use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
 use http::uri::PathAndQuery;
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper::{body::Body, Request, Response};
+use hyper::{Request, Response};
 use hyper_staticfile::Static;
 use hyper_util::rt::TokioIo;
 use log::Level;
@@ -67,7 +66,7 @@ impl HttpProxy {
                             io,
                             service_fn(move |req: Request<Incoming>| {
                                 let req = req.map(|item| {
-                                    item.map_err(|err| -> Infallible { unreachable!() }).boxed()
+                                    item.map_err(|_| -> Infallible { unreachable!() }).boxed()
                                 });
                                 proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
                             }),
@@ -133,7 +132,7 @@ impl HttpProxy {
                     let io = TokioIo::new(tls_stream);
                     let service = service_fn(move |req: Request<Incoming>| {
                         let req = req
-                            .map(|item| item.map_err(|err| -> Infallible { unreachable!() }).boxed());
+                            .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
 
                         proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
                     });
@@ -341,7 +340,7 @@ async fn proxy(
         }
         let res = response_result?
             .map(|b| b.boxed())
-            .map(|item| item.map_err(|err| -> Infallible { unreachable!() }).boxed());
+            .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
         return Ok(res);
     }
     Ok(Response::builder()
@@ -395,7 +394,7 @@ async fn route_file(
                 .map(|item| {
                     item.map(|body| {
                         body.boxed()
-                            .map_err(|err| -> Infallible { unreachable!() })
+                            .map_err(|_| -> Infallible { unreachable!() })
                             .boxed()
                     })
                 })
@@ -403,7 +402,7 @@ async fn route_file(
         } else {
             return Ok(res.map(|body| {
                 body.boxed()
-                    .map_err(|err| -> Infallible { unreachable!() })
+                    .map_err(|_| -> Infallible { unreachable!() })
                     .boxed()
             }));
         }
@@ -420,7 +419,7 @@ async fn route_file(
         .map(|item| {
             item.map(|body| {
                 body.boxed()
-                    .map_err(|err| -> Infallible { unreachable!() })
+                    .map_err(|_| -> Infallible { unreachable!() })
                     .boxed()
             })
         })

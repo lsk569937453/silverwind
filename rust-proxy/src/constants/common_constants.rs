@@ -1,4 +1,3 @@
-use log::LevelFilter;
 pub const DEFAULT_ADMIN_PORT: &str = "8870";
 pub const DENY_RESPONSE: &str = r#"{
     "response_code": -1,

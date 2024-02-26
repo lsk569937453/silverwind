@@ -13,10 +13,8 @@ use http::Request;
 use http::StatusCode;
 use http_body_util::BodyExt;
 use http_body_util::Full;
-use hyper::body::Body;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-// use std::time::Duration;
 use url::Url;
 
 use std::sync::Arc;

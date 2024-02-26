@@ -1,7 +1,6 @@
 use bytes::Bytes;
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper::body::Body;
-use hyper::body::Incoming;
+use http_body_util::combinators::BoxBody;
+
 use hyper::Request;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::ResponseFuture;

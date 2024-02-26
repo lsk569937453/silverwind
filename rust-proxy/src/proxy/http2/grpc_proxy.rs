@@ -303,7 +303,6 @@ mod tests {
 
     use http_body_util::BodyExt;
     use http_body_util::Full;
-    use hyper::body::Body;
     use hyper::StatusCode;
     use lazy_static::lazy_static;
     use std::env;
