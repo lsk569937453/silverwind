@@ -57,7 +57,7 @@ mod tests {
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
-            .thread_name("my-custom-name")
+            .thread_name("silverwind-thread")
             .thread_stack_size(3 * 1024 * 1024)
             .enable_all()
             .build()
