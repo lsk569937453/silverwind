@@ -243,8 +243,8 @@ fn validate_tls_config(
     }
     let cert_pem = cert_pem_option.unwrap();
     let mut cer_reader = std::io::BufReader::new(cert_pem.as_bytes());
-    let result_certs = rustls_pemfile::certs(&mut cer_reader);
-    if result_certs.is_err() || result_certs.unwrap().is_empty() {
+    let result_certs = rustls_pemfile::certs(&mut cer_reader).next();
+    if result_certs.is_none() || result_certs.unwrap().is_err() {
         return Err(anyhow!("Can not parse the certs pem."));
     }
     let key_pem = key_pem_option.unwrap();
@@ -331,10 +331,10 @@ pub async fn start_control_plane(port: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use http::StatusCode;
     use lazy_static::lazy_static;
     use std::env;
     use tokio::runtime::{Builder, Runtime};
+    use warp::http::StatusCode;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)

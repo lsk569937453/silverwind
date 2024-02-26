@@ -4,13 +4,16 @@ use crate::proxy::http1::http_client::HttpClients;
 use crate::vojo::app_config::Route;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
+use bytes::Bytes;
 use delay_timer::prelude::*;
 use futures;
 use futures::future::join_all;
 use futures::FutureExt;
 use http::Request;
 use http::StatusCode;
-use hyper::Body;
+use http_body_util::BodyExt;
+use http_body_util::Full;
+use hyper::body::Body;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 // use std::time::Duration;
@@ -190,7 +193,7 @@ async fn do_http_health_check(
         let req = Request::builder()
             .uri(join_option.unwrap().to_string())
             .method("GET")
-            .body(Body::empty())
+            .body(Full::new(Bytes::new()).boxed())
             .unwrap();
         let task_with_timeout = http_client_shared
             .clone()

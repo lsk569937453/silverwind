@@ -12,6 +12,7 @@ use http::Response;
 use http::{Method, Request};
 use hyper::body::Bytes;
 
+use rustls_pki_types::CertificateDer;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -19,11 +20,11 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio_rustls::rustls::OwnedTrustAnchor;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::{rustls, TlsAcceptor};
 use url::Url;
+
 pub struct GrpcProxy {
     pub port: i32,
     pub channel: mpsc::Receiver<()>,
@@ -122,18 +123,19 @@ impl GrpcProxy {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
-        let certs = rustls_pemfile::certs(&mut cer_reader)
-            .unwrap()
-            .iter()
-            .map(|s| rustls::Certificate((*s).clone()))
-            .collect();
+        // let certs = rustls_pemfile::certs(&mut cer_reader)
+        //     .unwrap()
+        //     .iter()
+        //     .map(|s| rustls::Certificate((*s).clone()))
+        //     .collect();
+        let certs: Vec<CertificateDer<'_>> =
+            rustls_pemfile::certs(&mut cer_reader).collect::<Result<Vec<_>, _>>()?;
 
-        let doc = pkcs8::PrivateKeyDocument::from_pem(&key_str).unwrap();
-        let key_der = rustls::PrivateKey(doc.as_ref().to_owned());
+        let mut key_reader = BufReader::new(key_str.as_bytes());
+        let key_der = rustls_pemfile::private_key(&mut key_reader).map(|key| key.unwrap())?;
 
         let tls_cfg = {
             let cfg = rustls::ServerConfig::builder()
-                .with_safe_defaults()
                 .with_no_client_auth()
                 .with_single_cert(certs, key_der)
                 .unwrap();
@@ -211,26 +213,19 @@ async fn request_outbound(
         .next()
         .ok_or(anyhow!("Parse the domain error!"))?;
     debug!("The addr is {}", addr);
+    let host_str = host.to_string();
 
     let send_request_poll = if request_path.clone().contains("https") {
         let mut root_cert_store = rustls::RootCertStore::empty();
-        root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-            |ta| {
-                OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    ta.subject,
-                    ta.spki,
-                    ta.name_constraints,
-                )
-            },
-        ));
+        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
         let mut config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_cert_store)
             .with_no_client_auth();
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         let tls_connector = TlsConnector::from(Arc::new(config));
         let stream = TcpStream::connect(&addr).await?;
-        let domain = rustls::ServerName::try_from(host.to_string().as_str())?;
+        let domain = rustls_pki_types::ServerName::try_from(host_str.as_str())?.to_owned();
         debug!("The domain name is {}", host);
         let stream = tls_connector.connect(domain, stream).await?;
         let (send_request, connection) = client::handshake(stream).await?;
@@ -306,7 +301,9 @@ mod tests {
     use hyper::HeaderMap;
     use hyper::Uri;
 
-    use hyper::Body;
+    use http_body_util::BodyExt;
+    use http_body_util::Full;
+    use hyper::body::Body;
     use hyper::StatusCode;
     use lazy_static::lazy_static;
     use std::env;
@@ -363,7 +360,7 @@ mod tests {
             .uri("http://127.0.0.1:3527")
             .header("content-type", "application/grpc")
             .header("te", "trailers")
-            .body(Body::empty())
+            .body(Full::new(Bytes::new()).boxed())
             .unwrap();
         let http_clients = HttpClients::new();
         let outbound_res = http_clients.request_http(request, 3).await;
@@ -406,7 +403,7 @@ mod tests {
             .uri("https://127.0.0.1:5746")
             .header("content-type", "application/grpc")
             .header("te", "trailers")
-            .body(Body::empty())
+            .body(Full::new(Bytes::new()).boxed())
             .unwrap();
         let http_clients = HttpClients::new();
         let outbound_res = http_clients.request_http(request, 3).await;

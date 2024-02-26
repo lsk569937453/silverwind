@@ -1,23 +1,29 @@
+use hyper::body::Incoming;
 use tokio::io;
 
 use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::proxy::http1::http_client::HttpClients;
-
 use base64::{engine::general_purpose, Engine as _};
+use bytes::Bytes;
+use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
 use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
-use hyper::{Body, Request, Response, StatusCode};
-
+use hyper::{body::Body, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use sha1::{Digest, Sha1};
-
+use std::convert::Infallible;
 use tokio::io::AsyncWriteExt;
 
 use crate::proxy::proxy_trait::CheckResult;
 async fn server_upgraded_io(
-    inbound_req: Request<Body>,
-    outbound_res: Response<Body>,
+    inbound_req: Request<BoxBody<Bytes, Infallible>>,
+    outbound_res: Response<Incoming>,
 ) -> Result<(), anyhow::Error> {
-    let inbound = hyper::upgrade::on(inbound_req).await?;
-    let outbound = hyper::upgrade::on(outbound_res).await?;
+    let upgraded_inbound = hyper::upgrade::on(inbound_req).await?;
+    let inbound = TokioIo::new(upgraded_inbound);
+
+    let upgraded_outbound = hyper::upgrade::on(outbound_res).await?;
+    let outbound = TokioIo::new(upgraded_outbound);
+
     let (mut ri, mut wi) = tokio::io::split(inbound);
     let (mut ro, mut wo) = tokio::io::split(outbound);
     let client_to_server = async {
@@ -39,12 +45,12 @@ async fn server_upgraded_io(
     Ok(())
 }
 pub async fn server_upgrade(
-    req: Request<Body>,
+    req: Request<BoxBody<Bytes, Infallible>>,
     check_result: Option<CheckResult>,
     http_client: HttpClients,
-) -> Result<Response<Body>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, anyhow::Error> {
     debug!("The source request:{:?}.", req);
-    let mut res = Response::new(Body::empty());
+    let mut res = Response::new(Full::new(Bytes::new()).boxed());
     if !req.headers().contains_key(UPGRADE) {
         *res.status_mut() = StatusCode::BAD_REQUEST;
         return Ok(res);
@@ -62,7 +68,7 @@ pub async fn server_upgrade(
     let mut new_request = Request::builder()
         .method(req.method().clone())
         .uri(request_path.clone())
-        .body(Body::empty())?;
+        .body(Full::new(Bytes::new()).boxed())?;
 
     let new_header = new_request.headers_mut();
     header_map.iter().for_each(|(key, value)| {
