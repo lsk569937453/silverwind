@@ -21,8 +21,8 @@ services:
           cpus: "4.0"
           memory: 8192M
   silverwind:
-    # image: lsk569937453/silverwind:0.0.6
-    image: lsk569937453/silverwind:0.0.6
+    image: lsk569937453/silverwind:test
+    #image: lsk569937453/silverwind:0.0.6
     container_name: silverwind
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml

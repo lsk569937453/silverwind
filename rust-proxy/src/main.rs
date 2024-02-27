@@ -29,7 +29,7 @@ use tokio::runtime;
 fn main() {
     let num = num_cpus::get();
     let rt = runtime::Builder::new_multi_thread()
-        .worker_threads(num * 2)
+        .worker_threads(num)
         .enable_all()
         .build()
         .unwrap();

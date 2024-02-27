@@ -32,6 +32,7 @@ use std::io::BufReader;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 use std::time::SystemTime;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -57,23 +58,26 @@ impl HttpProxy {
         loop {
             tokio::select! {
                Ok((stream,addr))= listener.accept()=>{
-                let io = TokioIo::new(stream);
-                let client = client.clone();
+                let client_cloned = client.clone();
                 let mapping_key2 = mapping_key_clone1.clone();
-                tokio::task::spawn(async move {
+                tokio::spawn(async move {
+                    let io = TokioIo::new(stream);
+
                     if let Err(err) = http1::Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
                         .serve_connection(
                             io,
                             service_fn(move |req: Request<Incoming>| {
                                 let req = req.map(|item| {
                                     item.map_err(|_| -> Infallible { unreachable!() }).boxed()
                                 });
-                                proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
+                                proxy_adapter(client_cloned.clone(), req, mapping_key2.clone(), addr)
                             }),
                         )
                         .await
                     {
-                        println!("Error serving connection: {:?}", err);
+                        error!("Error serving connection: {:?}", err);
                     }
                 });
                 },
@@ -121,7 +125,7 @@ impl HttpProxy {
 
                 let client = client.clone();
                 let mapping_key2 = mapping_key_clone1.clone();
-                tokio::task::spawn(async move {
+                tokio::spawn(async move {
                     let tls_stream = match tls_acceptor.accept(tcp_stream).await {
                         Ok(tls_stream) => tls_stream,
                         Err(err) => {
@@ -290,12 +294,6 @@ async fn proxy(
             parts.path_and_query = Some(request_path.try_into().unwrap());
             *req.uri_mut() = Uri::from_parts(parts).unwrap();
             return route_file(base_route, req).await;
-            // let res = route_file(base_route, req).await.map(|item| {
-            //     item.map(|body| {
-            //         let x = body.boxed();
-            //     })
-            // });
-            // return res;
         }
         *req.uri_mut() = request_path
             .parse()
