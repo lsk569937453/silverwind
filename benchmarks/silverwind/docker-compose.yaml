@@ -3,6 +3,7 @@ version: '3.9'
 services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
+    container_name: hey
     tty: true 
     deploy:
       resources:
@@ -11,6 +12,7 @@ services:
           memory: 8192M
   backend:
     image: jmalloc/echo-server
+    container_name: backend
     ports:
     - "9394:8080"
     deploy:
@@ -19,7 +21,9 @@ services:
           cpus: "4.0"
           memory: 8192M
   silverwind:
+    # image: lsk569937453/silverwind:0.0.6
     image: lsk569937453/silverwind:0.0.6
+    container_name: silverwind
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml
       RUST_BACKTRACE: 1
