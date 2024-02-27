@@ -19,7 +19,8 @@ services:
           cpus: "4.0"
           memory: 8192M
   silverwind:
-    image: lsk569937453/silverwind:0.0.6
+    image: lsk569937453/silverwind:0.0.8
+    #image: lsk569937453/silverwind:test
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml
       RUST_BACKTRACE: 1
