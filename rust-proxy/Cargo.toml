@@ -16,20 +16,20 @@ codegen-units = 256
 rpath = false
 
 [profile.release]
-opt-level = 3
-debug = false
-split-debuginfo = '...'  # Platform-specific.
-debug-assertions = false
-overflow-checks = false
-lto = false
-panic = 'unwind'
-incremental = false
-codegen-units = 16
-rpath = false
-#debug = true
+# opt-level = 3
+# debug = true
+# split-debuginfo = '...'  # Platform-specific.
+# debug-assertions = false
+# overflow-checks = false
+# lto = false
+# panic = 'unwind'
+# incremental = false
+# codegen-units = 16
+# rpath = false
+debug = true
 
 ##Optimize For Size
-strip = true
+#strip = true
 
 [package.metadata.cross.target.x86_64-unknown-linux-musl]
 xargo = false
