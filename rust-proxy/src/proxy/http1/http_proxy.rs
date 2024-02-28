@@ -212,6 +212,7 @@ async fn proxy_adapter_with_error(
             .body(Full::new(Bytes::copy_from_slice(json_value.to_string().as_bytes())).boxed())
             .unwrap()
     });
+
     let mut elapsed_time = 0;
     let elapsed_time_res = current_time.elapsed();
     if let Ok(elapsed_times) = elapsed_time_res {
@@ -250,7 +251,26 @@ async fn proxy_adapter_with_error(
         Ok(res)
     }
 }
+async fn proxy1(
+    client: HttpClients,
+    mut req: Request<BoxBody<Bytes, Infallible>>,
+    mapping_key: String,
+    remote_addr: SocketAddr,
+    check_trait: impl CheckTrait,
+) -> Result<Response<BoxBody<Bytes, Infallible>>, anyhow::Error> {
+    let out_addr_clone = "http://backend:8080";
+    let uri_now: hyper::http::uri::Uri = out_addr_clone.parse().unwrap();
 
+    *req.uri_mut() = uri_now;
+    let response_result = client
+        .request_http(req, DEFAULT_HTTP_TIMEOUT)
+        .await
+        .map_err(|err| -> Infallible { unreachable!() })?;
+    let res = response_result?
+        .map(|b| b.boxed())
+        .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
+    return Ok(res);
+}
 async fn proxy(
     client: HttpClients,
     mut req: Request<BoxBody<Bytes, Infallible>>,
@@ -261,43 +281,14 @@ async fn proxy(
     debug!("req: {:?}", req);
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
-    let check_result = check_trait
-        .check_before_request(
-            mapping_key.clone(),
-            inbound_headers.clone(),
-            uri,
-            remote_addr,
-        )
-        .await?;
-    if check_result.is_none() {
-        return Ok(Response::builder()
-            .status(StatusCode::FORBIDDEN)
-            .body(Full::new(Bytes::from(common_constants::DENY_RESPONSE)).boxed())
-            .unwrap());
-    }
-    if inbound_headers.clone().contains_key(CONNECTION)
-        && inbound_headers.contains_key(SEC_WEBSOCKET_KEY)
-    {
-        debug!(
-            "The request has been updated to websocket,the req is {:?}!",
-            req
-        );
-        return server_upgrade(req, check_result, client).await;
-    }
+    let check_result = Some(1);
 
     if let Some(check_request) = check_result {
-        let request_path = check_request.request_path;
-        let base_route = check_request.base_route;
-        let route = check_request.route;
-        if !request_path.clone().contains("http") {
-            let mut parts = req.uri().clone().into_parts();
-            parts.path_and_query = Some(request_path.try_into().unwrap());
-            *req.uri_mut() = Uri::from_parts(parts).unwrap();
-            return route_file(base_route, req).await;
-        }
-        *req.uri_mut() = request_path
-            .parse()
-            .map_err(|err: InvalidUri| anyhow!(err.to_string()))?;
+        let request_path = "http://backend:8080";
+        let uri_now: hyper::http::uri::Uri = request_path.parse().unwrap();
+
+        *req.uri_mut() = uri_now;
+
         let request_future = if request_path.contains("https") {
             client.request_https(req, DEFAULT_HTTP_TIMEOUT)
         } else {
@@ -307,35 +298,7 @@ async fn proxy(
             Ok(response) => response.map_err(|e| anyhow!(e)),
             _ => return Err(anyhow!("Request time out,the uri is {}", request_path)),
         };
-        if let (Some(anomaly_detection), Some(liveness_config)) = (
-            route.clone().anomaly_detection,
-            route.clone().liveness_config,
-        ) {
-            let is_5xx = match response_result.as_ref() {
-                Ok(response) => {
-                    let status_code = response.status();
-                    status_code.clone().as_u16() >= StatusCode::INTERNAL_SERVER_ERROR.as_u16()
-                }
-                Err(_) => true,
-            };
-            let temporary_base_route = base_route.clone();
-            let anomaly_detection_status_lock =
-                temporary_base_route.anomaly_detection_status.read().await;
-            let consecutive_5xx = anomaly_detection_status_lock.consecutive_5xx;
-            if is_5xx || consecutive_5xx > 0 {
-                if let Err(err) = trigger_anomaly_detection(
-                    anomaly_detection,
-                    route.liveness_status.clone(),
-                    base_route,
-                    is_5xx,
-                    liveness_config,
-                )
-                .await
-                {
-                    error!("{}", err);
-                }
-            }
-        }
+
         let res = response_result?
             .map(|b| b.boxed())
             .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
