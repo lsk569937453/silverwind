@@ -39,55 +39,56 @@ impl CheckTrait for CommonCheckRequest {
         uri: Uri,
         peer_addr: SocketAddr,
     ) -> Result<Option<CheckResult>, anyhow::Error> {
-        let backend_path = uri.path_and_query().ok_or(anyhow!(""))?.to_string();
-        let api_service_manager = GLOBAL_CONFIG_MAPPING
-            .get(&mapping_key)
-            .ok_or(anyhow!(format!(
-                "Can not find the config mapping on the key {}!",
-                mapping_key.clone()
-            )))?
-            .clone();
-        let addr_string = peer_addr.ip().to_string();
-        for item in api_service_manager.service_config.routes {
-            let back_path_clone = backend_path.clone();
-            let match_result = item.is_matched(back_path_clone, Some(headers.clone()))?;
-            if match_result.clone().is_none() {
-                continue;
-            }
-            let is_allowed = item
-                .is_allowed(addr_string.clone(), Some(headers.clone()))
-                .await?;
-            if !is_allowed {
-                return Ok(None);
-            }
-            let base_route = item
-                .route_cluster
-                .clone()
-                .get_route(headers.clone())
-                .await?;
-            let endpoint = base_route.endpoint.clone();
-            debug!("The endpoint is {}", endpoint);
-            if endpoint.contains("http") {
-                let host = Url::parse(endpoint.as_str())?;
-                let rest_path = match_result.unwrap();
+        // let ss = String::from("a");
+        let backend_path = uri.path_and_query().ok_or(anyhow!(""))?.as_str();
+        // let api_service_manager = GLOBAL_CONFIG_MAPPING
+        //     .get(&mapping_key)
+        //     .ok_or(anyhow!(format!(
+        //         "Can not find the config mapping on the key {}!",
+        //         mapping_key.clone()
+        //     )))?
+        //     .clone();
+        // let addr_string = peer_addr.ip().to_string();
+        // for item in api_service_manager.service_config.routes {
+        //     let back_path_clone = backend_path.clone();
+        //     let match_result = item.is_matched(back_path_clone, Some(headers.clone()))?;
+        //     if match_result.clone().is_none() {
+        //         continue;
+        //     }
+        //     let is_allowed = item
+        //         .is_allowed(addr_string.clone(), Some(headers.clone()))
+        //         .await?;
+        //     if !is_allowed {
+        //         return Ok(None);
+        //     }
+        //     let base_route = item
+        //         .route_cluster
+        //         .clone()
+        //         .get_route(headers.clone())
+        //         .await?;
+        //     let endpoint = base_route.endpoint.clone();
+        //     debug!("The endpoint is {}", endpoint);
+        //     if endpoint.contains("http") {
+        //         let host = Url::parse(endpoint.as_str())?;
+        //         let rest_path = match_result.unwrap();
 
-                let request_path = host.join(rest_path.as_str())?.to_string();
-                return Ok(Some(CheckResult {
-                    request_path,
-                    route: item,
-                    base_route,
-                }));
-            } else {
-                let path = Path::new(&endpoint);
-                let rest_path = match_result.unwrap();
-                let request_path = path.join(rest_path);
-                return Ok(Some(CheckResult {
-                    request_path: String::from(request_path.to_str().unwrap_or_default()),
-                    route: item,
-                    base_route,
-                }));
-            }
-        }
+        //         let request_path = host.join(rest_path.as_str())?.to_string();
+        //         return Ok(Some(CheckResult {
+        //             request_path,
+        //             route: item,
+        //             base_route,
+        //         }));
+        //     } else {
+        //         let path = Path::new(&endpoint);
+        //         let rest_path = match_result.unwrap();
+        //         let request_path = path.join(rest_path);
+        //         return Ok(Some(CheckResult {
+        //             request_path: String::from(request_path.to_str().unwrap_or_default()),
+        //             route: item,
+        //             base_route,
+        //         }));
+        //     }
+        // }
         Ok(None)
     }
 }

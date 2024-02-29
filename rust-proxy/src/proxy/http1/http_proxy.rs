@@ -16,9 +16,12 @@ use hyper::StatusCode;
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
+use crate::vojo::app_config::Route;
 use http::uri::PathAndQuery;
+use http::HeaderMap;
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::server::conn::http1;
+
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_staticfile::Static;
@@ -38,6 +41,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
+
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
@@ -271,6 +275,70 @@ async fn proxy1(
         .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
     return Ok(res);
 }
+#[derive(Debug, Clone)]
+pub struct CheckResult {
+    pub request_path: String,
+    pub route: Route,
+    pub base_route: BaseRoute,
+}
+async fn check_before_request2(
+    mapping_key: String,
+    headers: HeaderMap,
+    uri: Uri,
+    peer_addr: SocketAddr,
+) -> Result<Option<CheckResult>, anyhow::Error> {
+    // let ss = String::from("a");
+    let backend_path = uri.path_and_query().ok_or(anyhow!(""))?.as_str();
+    // let api_service_manager = GLOBAL_CONFIG_MAPPING
+    //     .get(&mapping_key)
+    //     .ok_or(anyhow!(format!(
+    //         "Can not find the config mapping on the key {}!",
+    //         mapping_key.clone()
+    //     )))?
+    //     .clone();
+    // let addr_string = peer_addr.ip().to_string();
+    // for item in api_service_manager.service_config.routes {
+    //     let back_path_clone = backend_path.clone();
+    //     let match_result = item.is_matched(back_path_clone, Some(headers.clone()))?;
+    //     if match_result.clone().is_none() {
+    //         continue;
+    //     }
+    //     let is_allowed = item
+    //         .is_allowed(addr_string.clone(), Some(headers.clone()))
+    //         .await?;
+    //     if !is_allowed {
+    //         return Ok(None);
+    //     }
+    //     let base_route = item
+    //         .route_cluster
+    //         .clone()
+    //         .get_route(headers.clone())
+    //         .await?;
+    //     let endpoint = base_route.endpoint.clone();
+    //     debug!("The endpoint is {}", endpoint);
+    //     if endpoint.contains("http") {
+    //         let host = Url::parse(endpoint.as_str())?;
+    //         let rest_path = match_result.unwrap();
+
+    //         let request_path = host.join(rest_path.as_str())?.to_string();
+    //         return Ok(Some(CheckResult {
+    //             request_path,
+    //             route: item,
+    //             base_route,
+    //         }));
+    //     } else {
+    //         let path = Path::new(&endpoint);
+    //         let rest_path = match_result.unwrap();
+    //         let request_path = path.join(rest_path);
+    //         return Ok(Some(CheckResult {
+    //             request_path: String::from(request_path.to_str().unwrap_or_default()),
+    //             route: item,
+    //             base_route,
+    //         }));
+    //     }
+    // }
+    Ok(None)
+}
 async fn proxy(
     client: HttpClients,
     mut req: Request<BoxBody<Bytes, Infallible>>,
@@ -281,9 +349,16 @@ async fn proxy(
     debug!("req: {:?}", req);
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
-    let check_result = Some(1);
+    let check_result = check_before_request2(
+        mapping_key.clone(),
+        inbound_headers.clone(),
+        uri,
+        remote_addr,
+    )
+    .await?;
+    let check_result2 = Some(1);
 
-    if let Some(check_request) = check_result {
+    if let Some(check_request) = check_result2 {
         let request_path = "http://backend:8080";
         let uri_now: hyper::http::uri::Uri = request_path.parse().unwrap();
 
