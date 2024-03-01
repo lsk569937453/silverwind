@@ -5,7 +5,6 @@ use crate::vojo::app_config::Route;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
 use bytes::Bytes;
-use delay_timer::prelude::*;
 use futures;
 use futures::future::join_all;
 use futures::FutureExt;
@@ -64,7 +63,6 @@ async fn get_endpoint_list(mut route: Route) -> Vec<String> {
 }
 pub struct HealthCheck {
     pub task_id_map: HashMap<TaskKey, u64>,
-    pub delay_timer: DelayTimer,
     pub health_check_client: HealthCheckClient,
     pub current_id: Arc<AtomicU64>,
 }
@@ -72,7 +70,6 @@ impl HealthCheck {
     pub fn new() -> Self {
         HealthCheck {
             task_id_map: HashMap::new(),
-            delay_timer: DelayTimerBuilder::default().build(),
             health_check_client: HealthCheckClient::new(),
             current_id: Arc::new(AtomicU64::new(0)),
         }
@@ -90,69 +87,6 @@ impl HealthCheck {
     }
 
     async fn do_health_check(&mut self) -> Result<(), anyhow::Error> {
-        let handles = GLOBAL_CONFIG_MAPPING
-            .iter()
-            .flat_map(|item| item.service_config.routes.clone())
-            .filter(|item| item.health_check.is_some() && item.liveness_config.is_some())
-            .map(|item| {
-                tokio::spawn(async move {
-                    let endpoint_list = get_endpoint_list(item.clone()).await;
-                    let min_liveness_count =
-                        item.liveness_config.clone().unwrap().min_liveness_count;
-                    (
-                        TaskKey::new(
-                            item.route_id.clone(),
-                            item.health_check.clone().unwrap(),
-                            endpoint_list,
-                            min_liveness_count,
-                        ),
-                        item,
-                    )
-                })
-            });
-        let route_list = join_all(handles)
-            .await
-            .iter()
-            .filter(|item| item.is_ok())
-            .map(|item| {
-                let (a, b) = item.as_ref().unwrap();
-                (a.clone(), b.clone())
-            })
-            .collect::<HashMap<TaskKey, Route>>();
-
-        self.task_id_map.retain(|route_id, task_id| {
-            if !route_list.contains_key(route_id) {
-                let res = self.delay_timer.remove_task(*task_id);
-                if let Err(err) = res {
-                    error!(
-                        "Health check task remove task error,the error is {}.",
-                        err.to_string()
-                    );
-                    return true;
-                } else {
-                    return false;
-                }
-            }
-            true
-        });
-        let old_map = self.task_id_map.clone();
-        route_list
-            .iter()
-            .filter(|(task_key, _)| !old_map.contains_key(&(*task_key).clone()))
-            .for_each(|(task_key, route)| {
-                let current_id = self.current_id.fetch_add(1, Ordering::SeqCst);
-                let submit_task_result =
-                    submit_task(current_id, route.clone(), self.health_check_client.clone());
-                if let Ok(submit_result) = submit_task_result {
-                    let res = self.delay_timer.insert_task(submit_result);
-                    if let Ok(_task_instance_chain) = res {
-                        self.task_id_map.insert(task_key.clone(), current_id);
-                    }
-                } else {
-                    error!("Submit task error");
-                }
-            });
-
         Ok(())
     }
 }
@@ -235,9 +169,8 @@ fn submit_task(
     task_id: u64,
     route: Route,
     health_check_clients: HealthCheckClient,
-) -> Result<Task, anyhow::Error> {
+) -> Result<(), anyhow::Error> {
     if let Some(health_check) = route.health_check.clone() {
-        let mut task_builder = TaskBuilder::default();
         let base_param = health_check.get_base_param();
         let timeout = base_param.timeout;
         let task = move || {
@@ -265,12 +198,7 @@ fn submit_task(
             "The timer task has been submit,the task param is interval:{}!",
             base_param.interval
         );
-        return task_builder
-            .set_task_id(task_id)
-            .set_frequency_repeated_by_seconds(base_param.interval as u64)
-            .set_maximum_parallel_runnable_num(1)
-            .spawn_async_routine(task)
-            .map_err(|err| anyhow!(err.to_string()));
+        return Ok(());
     }
     Err(anyhow!("Submit task error!"))
 }
@@ -389,8 +317,7 @@ mod tests {
         let health_check_param = HealthCheckClient::new();
         let res = submit_task(0, route, health_check_param);
         assert!(res.is_ok());
-        let delay_timer = DelayTimerBuilder::default().build();
-        let res = delay_timer.insert_task(res.unwrap());
+
         sleep(Duration::from_secs(2)).await;
         assert!(res.is_ok());
     }

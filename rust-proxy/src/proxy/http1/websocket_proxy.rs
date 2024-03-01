@@ -18,10 +18,14 @@ async fn server_upgraded_io(
     inbound_req: Request<BoxBody<Bytes, Infallible>>,
     outbound_res: Response<Incoming>,
 ) -> Result<(), anyhow::Error> {
-    let upgraded_inbound = hyper::upgrade::on(inbound_req).await?;
+    let upgraded_inbound = hyper::upgrade::on(inbound_req)
+        .await
+        .map_err(|err| anyhow!(err))?;
     let inbound = TokioIo::new(upgraded_inbound);
 
-    let upgraded_outbound = hyper::upgrade::on(outbound_res).await?;
+    let upgraded_outbound = hyper::upgrade::on(outbound_res)
+        .await
+        .map_err(|err| anyhow!(err))?;
     let outbound = TokioIo::new(upgraded_outbound);
 
     let (mut ri, mut wi) = tokio::io::split(inbound);
@@ -61,14 +65,16 @@ pub async fn server_upgrade(
     let sec_websocke_key = header_map
         .get(SEC_WEBSOCKET_KEY)
         .ok_or(anyhow!("Can not get the websocket key!"))?
-        .to_str()?
+        .to_str()
+        .map_err(|err| anyhow!(err))?
         .to_string();
 
     let request_path = check_result.unwrap().request_path;
     let mut new_request = Request::builder()
         .method(req.method().clone())
         .uri(request_path.clone())
-        .body(Full::new(Bytes::new()).boxed())?;
+        .body(Full::new(Bytes::new()).boxed())
+        .map_err(|err| anyhow!(err))?;
 
     let new_header = new_request.headers_mut();
     header_map.iter().for_each(|(key, value)| {
@@ -103,9 +109,11 @@ pub async fn server_upgrade(
     res.headers_mut().insert(UPGRADE, upgrade_value.clone());
     res.headers_mut().insert(
         SEC_WEBSOCKET_ACCEPT,
-        HeaderValue::from_str(encoded.as_str())?,
+        HeaderValue::from_str(encoded.as_str()).map_err(|err| anyhow!(err))?,
     );
-    res.headers_mut()
-        .insert(CONNECTION, HeaderValue::from_str("Upgrade")?);
+    res.headers_mut().insert(
+        CONNECTION,
+        HeaderValue::from_str("Upgrade").map_err(|err| anyhow!(err))?,
+    );
     Ok(res)
 }

@@ -1,4 +1,3 @@
-use crate::configuration_service::logger;
 use crate::constants;
 use crate::constants::common_constants::ENV_ACCESS_LOG;
 use crate::constants::common_constants::ENV_ADMIN_PORT;
@@ -202,8 +201,6 @@ async fn init_static_config() {
     }
     global_app_config.static_config.admin_port = api_port.clone();
 
-    logger::start_logger();
-
     if let Ok(access_log) = access_log_result {
         global_app_config.static_config.access_log = Some(access_log);
     }
@@ -222,7 +219,7 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
     drop(rw_app_config_read);
     let file_path = config_file_path.unwrap().clone();
     info!("the config file is in{}", file_path.clone());
-    let file = std::fs::File::open(file_path)?;
+    let file = std::fs::File::open(file_path).map_err(|err| anyhow!(err))?;
     let scrape_config: Vec<ApiServiceVistor> = match serde_yaml::from_reader(file) {
         Ok(apiservices) => apiservices,
         Err(err) => return Err(anyhow!(err.to_string())),

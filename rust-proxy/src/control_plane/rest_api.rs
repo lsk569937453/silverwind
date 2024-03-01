@@ -219,9 +219,9 @@ async fn save_config_to_file() -> Result<(), anyhow::Error> {
     let api_services_vistor = from_api_service(data.api_service_config.clone()).await?;
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
-        let path = env::current_dir()?;
+        let path = env::current_dir().map_err(|err| anyhow!(err))?;
         let absolute_path = path.join(DEFAULT_TEMPORARY_DIR);
-        std::fs::create_dir_all(absolute_path)?;
+        std::fs::create_dir_all(absolute_path).map_err(|err| anyhow!(err))?;
     }
 
     let mut f = tokio::fs::OpenOptions::new()
@@ -229,9 +229,13 @@ async fn save_config_to_file() -> Result<(), anyhow::Error> {
         .create(true)
         .truncate(true)
         .open("temporary/new_silverwind_config.yml")
-        .await?;
-    let api_service_str = serde_yaml::to_string(&api_services_vistor)?;
-    f.write_all(api_service_str.as_bytes()).await?;
+        .await
+        .map_err(|err| anyhow!(err))?;
+    let api_service_str =
+        serde_yaml::to_string(&api_services_vistor).map_err(|err| anyhow!(err))?;
+    f.write_all(api_service_str.as_bytes())
+        .await
+        .map_err(|err| anyhow!(err))?;
     Ok(())
 }
 fn validate_tls_config(

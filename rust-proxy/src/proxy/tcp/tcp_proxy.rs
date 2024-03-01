@@ -16,7 +16,9 @@ impl TcpProxy {
         let listen_addr = format!("0.0.0.0:{}", self.port.clone());
         let mapping_key_clone = self.mapping_key.clone();
         info!("Listening on: {}", listen_addr);
-        let listener = TcpListener::bind(listen_addr).await?;
+        let listener = TcpListener::bind(listen_addr)
+            .await
+            .map_err(|err| anyhow!(err))?;
         let reveiver = &mut self.channel;
         loop {
             let accept_future = listener.accept();

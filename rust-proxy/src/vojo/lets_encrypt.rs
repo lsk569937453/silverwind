@@ -67,7 +67,7 @@ impl LetsEntrypt {
         }
     }
     pub async fn start_request(&self) -> Result<Certificate, anyhow::Error> {
-        let listener = TcpListener::bind("0.0.0.0:80")?;
+        let listener = TcpListener::bind("0.0.0.0:80").map_err(|err| anyhow!(err))?;
         drop(listener);
 
         let incoming_log = warp::log::custom(|info| {

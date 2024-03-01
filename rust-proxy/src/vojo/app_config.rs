@@ -119,7 +119,8 @@ impl Route {
             if host_result.is_err() {
                 return Ok(None);
             }
-            let host_name_regex = Regex::new(real_host_name.as_str())?;
+            let host_name_regex =
+                Regex::new(real_host_name.as_str()).map_err(|err| anyhow!(err))?;
             return host_name_regex
                 .captures(host_result.unwrap())
                 .map_or(Ok(None), |_| Ok(Some(final_path)));

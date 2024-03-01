@@ -35,7 +35,9 @@ pub async fn start_task(
     mapping_key: String,
     peer_addr: SocketAddr,
 ) -> Result<(), anyhow::Error> {
-    let mut connection = server::handshake(tcp_stream).await?;
+    let mut connection = server::handshake(tcp_stream)
+        .await
+        .map_err(|err| anyhow!(err))?;
     while let Some(request_result) = connection.accept().await {
         if let Ok((request, respond)) = request_result {
             let mapping_key_cloned = mapping_key.clone();
@@ -58,7 +60,9 @@ pub async fn start_tls_task(
     mapping_key: String,
     peer_addr: SocketAddr,
 ) -> Result<(), anyhow::Error> {
-    let mut connection = server::handshake(tcp_stream).await?;
+    let mut connection = server::handshake(tcp_stream)
+        .await
+        .map_err(|err| anyhow!(err))?;
     while let Some(request_result) = connection.accept().await {
         if let Ok((request, respond)) = request_result {
             let mapping_key_cloned = mapping_key.clone();
@@ -128,11 +132,14 @@ impl GrpcProxy {
         //     .iter()
         //     .map(|s| rustls::Certificate((*s).clone()))
         //     .collect();
-        let certs: Vec<CertificateDer<'_>> =
-            rustls_pemfile::certs(&mut cer_reader).collect::<Result<Vec<_>, _>>()?;
+        let certs: Vec<CertificateDer<'_>> = rustls_pemfile::certs(&mut cer_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| anyhow!(err))?;
 
         let mut key_reader = BufReader::new(key_str.as_bytes());
-        let key_der = rustls_pemfile::private_key(&mut key_reader).map(|key| key.unwrap())?;
+        let key_der = rustls_pemfile::private_key(&mut key_reader)
+            .map(|key| key.unwrap())
+            .map_err(|err| anyhow!(err))?;
 
         let tls_cfg = {
             let cfg = rustls::ServerConfig::builder()
@@ -173,13 +180,19 @@ async fn copy_io(
 ) -> Result<(), anyhow::Error> {
     let mut flow_control = recv_stream.flow_control().clone();
     while let Some(chunk_result) = recv_stream.data().await {
-        let chunk_bytes = chunk_result?;
+        let chunk_bytes = chunk_result.map_err(|err| anyhow!(err))?;
         debug!("Data from outbound: {:?}", chunk_bytes.clone());
-        send_stream.send_data(chunk_bytes.clone(), false)?;
-        flow_control.release_capacity(chunk_bytes.len())?;
+        send_stream
+            .send_data(chunk_bytes.clone(), false)
+            .map_err(|err| anyhow!(err))?;
+        flow_control
+            .release_capacity(chunk_bytes.len())
+            .map_err(|err| anyhow!(err))?;
     }
     if let Ok(Some(header)) = recv_stream.trailers().await {
-        send_stream.send_trailers(header)?;
+        send_stream
+            .send_trailers(header)
+            .map_err(|err| anyhow!(err))?;
     }
     Ok(())
 }
@@ -202,14 +215,15 @@ async fn request_outbound(
         return Err(anyhow!("The request has been denied by the proxy!"));
     }
     let request_path = check_result.unwrap().request_path;
-    let url = Url::parse(&request_path)?;
+    let url = Url::parse(&request_path).map_err(|err| anyhow!(err))?;
     let cloned_url = url.clone();
     let host = cloned_url.host().ok_or(anyhow!("Parse host error!"))?;
     let port = cloned_url.port().ok_or(anyhow!("Parse host error!"))?;
     debug!("The host is {}", host);
 
     let addr = format!("{}:{}", host, port)
-        .to_socket_addrs()?
+        .to_socket_addrs()
+        .map_err(|err| anyhow!(err))?
         .next()
         .ok_or(anyhow!("Parse the domain error!"))?;
     debug!("The addr is {}", addr);
@@ -224,11 +238,20 @@ async fn request_outbound(
             .with_no_client_auth();
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         let tls_connector = TlsConnector::from(Arc::new(config));
-        let stream = TcpStream::connect(&addr).await?;
-        let domain = rustls_pki_types::ServerName::try_from(host_str.as_str())?.to_owned();
+        let stream = TcpStream::connect(&addr)
+            .await
+            .map_err(|err| anyhow!(err))?;
+        let domain = rustls_pki_types::ServerName::try_from(host_str.as_str())
+            .map_err(|err| anyhow!(err))?
+            .to_owned();
         debug!("The domain name is {}", host);
-        let stream = tls_connector.connect(domain, stream).await?;
-        let (send_request, connection) = client::handshake(stream).await?;
+        let stream = tls_connector
+            .connect(domain, stream)
+            .await
+            .map_err(|err| anyhow!(err))?;
+        let (send_request, connection) = client::handshake(stream)
+            .await
+            .map_err(|err| anyhow!(err))?;
         tokio::spawn(async move {
             let connection_result = connection.await;
             if let Err(err) = connection_result {
@@ -239,8 +262,10 @@ async fn request_outbound(
         });
         send_request
     } else {
-        let tcpstream = TcpStream::connect(addr).await?;
-        let (send_request, connection) = client::handshake(tcpstream).await?;
+        let tcpstream = TcpStream::connect(addr).await.map_err(|err| anyhow!(err))?;
+        let (send_request, connection) = client::handshake(tcpstream)
+            .await
+            .map_err(|err| anyhow!(err))?;
         tokio::spawn(async move {
             connection.await.unwrap();
             debug!("The connection has closed!");
@@ -249,7 +274,10 @@ async fn request_outbound(
     };
 
     debug!("request path is {}", url.to_string());
-    let mut send_request = send_request_poll.ready().await?;
+    let mut send_request = send_request_poll
+        .ready()
+        .await
+        .map_err(|err| anyhow!(err))?;
     let request = Request::builder()
         .method(Method::POST)
         .version(Version::HTTP_2)
@@ -259,7 +287,9 @@ async fn request_outbound(
         .body(())
         .unwrap();
     debug!("Our bound request is {:?}", request);
-    let (response, outbound_send_stream) = send_request.send_request(request, false)?;
+    let (response, outbound_send_stream) = send_request
+        .send_request(request, false)
+        .map_err(|err| anyhow!(err))?;
     tokio::spawn(async {
         if let Err(err) = copy_io(outbound_send_stream, inbound_body).await {
             error!("Copy from inbound to outboud error,the error is {}", err);

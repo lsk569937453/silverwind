@@ -57,7 +57,7 @@ impl HttpProxy {
         let mapping_key_clone1 = self.mapping_key.clone();
         let reveiver = &mut self.channel;
 
-        let listener = TcpListener::bind(addr).await?;
+        let listener = TcpListener::bind(addr).await.map_err(|err| anyhow!(err))?;
         info!("Listening on http://{}", addr);
         loop {
             tokio::select! {
@@ -104,11 +104,14 @@ impl HttpProxy {
         let mapping_key_clone1 = self.mapping_key.clone();
 
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
-        let certs: Vec<CertificateDer<'_>> =
-            rustls_pemfile::certs(&mut cer_reader).collect::<Result<Vec<_>, _>>()?;
+        let certs: Vec<CertificateDer<'_>> = rustls_pemfile::certs(&mut cer_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| anyhow!(err))?;
 
         let mut key_reader = BufReader::new(key_str.as_bytes());
-        let key_der = rustls_pemfile::private_key(&mut key_reader).map(|key| key.unwrap())?;
+        let key_der = rustls_pemfile::private_key(&mut key_reader)
+            .map(|key| key.unwrap())
+            .map_err(|err| anyhow!(err))?;
 
         let tls_cfg = {
             let cfg = rustls::ServerConfig::builder()
@@ -120,7 +123,7 @@ impl HttpProxy {
         let tls_acceptor = TlsAcceptor::from(tls_cfg);
         let reveiver = &mut self.channel;
 
-        let listener = TcpListener::bind(addr).await?;
+        let listener = TcpListener::bind(addr).await.map_err(|err| anyhow!(err))?;
         info!("Listening on http://{}", addr);
         loop {
             tokio::select! {
@@ -237,7 +240,8 @@ async fn proxy_adapter_with_error(
             .await
             .map_err(|_| anyhow!("Can not get bytes from body"))?
             .to_bytes();
-        let response_str = String::from_utf8(response_bytes.to_vec())?;
+        let response_str =
+            String::from_utf8(response_bytes.to_vec()).map_err(|err| anyhow!(err))?;
         debug!(target: "app",
            "{}$${}$${}$${}$${}$${}$${}$${:?}",
            remote_addr.to_string(),
@@ -269,8 +273,9 @@ async fn proxy1(
     let response_result = client
         .request_http(req, DEFAULT_HTTP_TIMEOUT)
         .await
-        .map_err(|err| -> Infallible { unreachable!() })?;
-    let res = response_result?
+        .map_err(|err| anyhow!(err))?
+        .map_err(|err| anyhow!(err))?;
+    let res = response_result
         .map(|b| b.boxed())
         .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
     return Ok(res);
