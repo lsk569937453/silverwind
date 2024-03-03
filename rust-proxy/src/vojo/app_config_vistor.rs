@@ -27,6 +27,7 @@ use std::sync::atomic::Ordering;
 
 use uuid::Uuid;
 
+use super::app_error::AppError;
 use super::route::HeaderRoute;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiServiceVistor {
@@ -65,7 +66,7 @@ pub struct RouteVistor {
 }
 
 impl RouteVistor {
-    async fn from(route: Route) -> Result<RouteVistor, anyhow::Error> {
+    async fn from(route: Route) -> Result<RouteVistor, AppError> {
         let load = from_loadbalancer_strategy(route.route_cluster).await;
         let liveness_status = route.liveness_status.read().await;
         Ok(RouteVistor {
@@ -85,7 +86,7 @@ impl RouteVistor {
     }
 }
 impl ServiceConfigVistor {
-    pub async fn from(service_config: ServiceConfig) -> Result<Self, anyhow::Error> {
+    pub async fn from(service_config: ServiceConfig) -> Result<Self, AppError> {
         let mut routes = vec![];
         for item in service_config.routes {
             routes.push(RouteVistor::from(item).await?)
@@ -99,7 +100,7 @@ impl ServiceConfigVistor {
     }
 }
 impl ApiServiceVistor {
-    pub async fn from(api_service: ApiService) -> Result<Self, anyhow::Error> {
+    pub async fn from(api_service: ApiService) -> Result<Self, AppError> {
         let api_service_config = ServiceConfigVistor::from(api_service.service_config).await?;
         Ok(ApiServiceVistor {
             listen_port: api_service.listen_port,
@@ -110,7 +111,7 @@ impl ApiServiceVistor {
 }
 pub async fn from_api_service_vistor(
     api_service_vistors: Vec<ApiServiceVistor>,
-) -> Result<Vec<ApiService>, anyhow::Error> {
+) -> Result<Vec<ApiService>, AppError> {
     let mut result = vec![];
     for item in api_service_vistors {
         result.push(ApiService::from(item).await?);
@@ -119,7 +120,7 @@ pub async fn from_api_service_vistor(
 }
 pub async fn from_api_service(
     api_service_vistors: Vec<ApiService>,
-) -> Result<Vec<ApiServiceVistor>, anyhow::Error> {
+) -> Result<Vec<ApiServiceVistor>, AppError> {
     let mut result = vec![];
     for item in api_service_vistors {
         result.push(ApiServiceVistor::from(item).await?);
@@ -132,7 +133,7 @@ pub struct AppConfigVistor {
     pub api_service_config: Vec<ApiServiceVistor>,
 }
 impl AppConfigVistor {
-    pub async fn from(app_config: AppConfig) -> Result<Self, anyhow::Error> {
+    pub async fn from(app_config: AppConfig) -> Result<Self, AppError> {
         let api_service_config = from_api_service(app_config.api_service_config).await?;
         Ok(AppConfigVistor {
             static_config: app_config.static_config.clone(),

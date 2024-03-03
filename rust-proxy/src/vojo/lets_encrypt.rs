@@ -14,6 +14,8 @@ use tokio::sync::mpsc;
 use warp::http::StatusCode;
 use warp::Filter;
 use warp::{Rejection, Reply};
+
+use super::app_error::AppError;
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 
 pub struct LetsEntrypt {
@@ -66,8 +68,8 @@ impl LetsEntrypt {
             token_map: Arc::new(DashMap::new()),
         }
     }
-    pub async fn start_request(&self) -> Result<Certificate, anyhow::Error> {
-        let listener = TcpListener::bind("0.0.0.0:80")?;
+    pub async fn start_request(&self) -> Result<Certificate, AppError> {
+        let listener = TcpListener::bind("0.0.0.0:80").map_err(|e| AppError(e.to_string()))?;
         drop(listener);
 
         let incoming_log = warp::log::custom(|info| {
@@ -107,19 +109,19 @@ impl LetsEntrypt {
 
         let request_result = self.request_cert(DirectoryUrl::LetsEncrypt);
         if request_result.is_ok() {
-            let send_result = tx.send(()).await.map_err(|e| anyhow!("{}", e));
+            let send_result = tx.send(()).await.map_err(|e| AppError(format!("{}", e)));
             if send_result.is_err() {
                 error!(
                     "Close the 80 port error,the error is:{}",
                     send_result.unwrap_err()
                 );
             }
-            return request_result.map_err(|e| anyhow!("{}", e));
+            return request_result.map_err(|e| AppError(format!("{}", e.to_string())));
         } else {
             error!("{}", request_result.unwrap_err());
         }
 
-        Err(anyhow!("Request the lets_encrypt fails"))
+        Err(AppError(format!("Request the lets_encrypt fails")))
     }
     pub fn request_cert(&self, directory_url: DirectoryUrl) -> Result<Certificate, Error> {
         let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();

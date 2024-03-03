@@ -5,8 +5,6 @@ use jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[macro_use]
-extern crate anyhow;
 extern crate derive_builder;
 mod configuration_service;
 mod constants;

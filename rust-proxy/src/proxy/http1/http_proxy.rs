@@ -5,6 +5,7 @@ use crate::proxy::http1::http_client::HttpClients;
 
 use crate::vojo::anomaly_detection::AnomalyDetectionType;
 use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
+use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
 use bytes::Bytes;
 use http::uri::InvalidUri;
@@ -46,14 +47,16 @@ pub struct HttpProxy {
 }
 
 impl HttpProxy {
-    pub async fn start_http_server(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn start_http_server(&mut self) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
         let reveiver = &mut self.channel;
 
-        let listener = TcpListener::bind(addr).await?;
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
         info!("Listening on http://{}", addr);
         loop {
             tokio::select! {
@@ -93,18 +96,21 @@ impl HttpProxy {
         &mut self,
         pem_str: String,
         key_str: String,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
 
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
-        let certs: Vec<CertificateDer<'_>> =
-            rustls_pemfile::certs(&mut cer_reader).collect::<Result<Vec<_>, _>>()?;
+        let certs: Vec<CertificateDer<'_>> = rustls_pemfile::certs(&mut cer_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError(e.to_string()))?;
 
         let mut key_reader = BufReader::new(key_str.as_bytes());
-        let key_der = rustls_pemfile::private_key(&mut key_reader).map(|key| key.unwrap())?;
+        let key_der = rustls_pemfile::private_key(&mut key_reader)
+            .map(|key| key.unwrap())
+            .map_err(|e| AppError(e.to_string()))?;
 
         let tls_cfg = {
             let cfg = rustls::ServerConfig::builder()
@@ -116,7 +122,9 @@ impl HttpProxy {
         let tls_acceptor = TlsAcceptor::from(tls_cfg);
         let reveiver = &mut self.channel;
 
-        let listener = TcpListener::bind(addr).await?;
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
         info!("Listening on http://{}", addr);
         loop {
             tokio::select! {
@@ -180,7 +188,7 @@ async fn proxy_adapter_with_error(
     req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
     remote_addr: SocketAddr,
-) -> Result<Response<BoxBody<Bytes, Infallible>>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let path = uri
@@ -230,9 +238,10 @@ async fn proxy_adapter_with_error(
         let response_bytes = body
             .collect()
             .await
-            .map_err(|_| anyhow!("Can not get bytes from body"))?
+            .map_err(|_| AppError(String::from("Can not get bytes from body")))?
             .to_bytes();
-        let response_str = String::from_utf8(response_bytes.to_vec())?;
+        let response_str =
+            String::from_utf8(response_bytes.to_vec()).map_err(|e| AppError(e.to_string()))?;
         debug!(target: "app",
            "{}$${}$${}$${}$${}$${}$${}$${:?}",
            remote_addr.to_string(),
@@ -257,7 +266,7 @@ async fn proxy(
     mapping_key: String,
     remote_addr: SocketAddr,
     check_trait: impl CheckTrait,
-) -> Result<Response<BoxBody<Bytes, Infallible>>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     debug!("req: {:?}", req);
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
@@ -297,15 +306,20 @@ async fn proxy(
         }
         *req.uri_mut() = request_path
             .parse()
-            .map_err(|err: InvalidUri| anyhow!(err.to_string()))?;
+            .map_err(|err: InvalidUri| AppError(err.to_string()))?;
         let request_future = if request_path.contains("https") {
             client.request_https(req, DEFAULT_HTTP_TIMEOUT)
         } else {
             client.request_http(req, DEFAULT_HTTP_TIMEOUT)
         };
         let response_result = match request_future.await {
-            Ok(response) => response.map_err(|e| anyhow!(e)),
-            _ => return Err(anyhow!("Request time out,the uri is {}", request_path)),
+            Ok(response) => response.map_err(|e| AppError(String::from(e.to_string()))),
+            _ => {
+                return Err(AppError(format!(
+                    "Request time out,the uri is {}",
+                    request_path
+                )))
+            }
         };
         if let (Some(anomaly_detection), Some(liveness_config)) = (
             route.clone().anomaly_detection,
@@ -352,7 +366,7 @@ async fn trigger_anomaly_detection(
     base_route: BaseRoute,
     is_5xx: bool,
     liveness_config: LivenessConfig,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     let AnomalyDetectionType::Http(http_anomaly_detection_param) = anomaly_detection;
     let res = base_route
         .trigger_http_anomaly_detection(
@@ -374,7 +388,7 @@ async fn trigger_anomaly_detection(
 async fn route_file(
     base_route: BaseRoute,
     req: Request<BoxBody<Bytes, Infallible>>,
-) -> Result<Response<BoxBody<Bytes, Infallible>>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     let static_ = Static::new(Path::new(base_route.endpoint.as_str()));
     let current_res = static_.clone().serve(req).await;
     if current_res.is_ok() {
@@ -382,7 +396,7 @@ async fn route_file(
         if res.status() == StatusCode::NOT_FOUND {
             let mut request: Request<()> = Request::default();
             if base_route.try_file.is_none() {
-                return Err(anyhow!("Please config the try_file!"));
+                return Err(AppError(String::from("Please config the try_file!")));
             }
             *request.uri_mut() = base_route.try_file.unwrap().parse().unwrap();
             return static_
@@ -396,7 +410,7 @@ async fn route_file(
                             .boxed()
                     })
                 })
-                .map_err(|e| anyhow!(e.to_string()));
+                .map_err(|e| AppError(e.to_string()));
         } else {
             return Ok(res.map(|body| {
                 body.boxed()
@@ -407,7 +421,7 @@ async fn route_file(
     }
     let mut request: Request<()> = Request::default();
     if base_route.try_file.is_none() {
-        return Err(anyhow!("Please config the try_file!"));
+        return Err(AppError(String::from("Please config the try_file!")));
     }
     *request.uri_mut() = base_route.try_file.unwrap().parse().unwrap();
     static_
@@ -421,7 +435,7 @@ async fn route_file(
                     .boxed()
             })
         })
-        .map_err(|e| anyhow!(e.to_string()))
+        .map_err(|e| AppError(e.to_string()))
 }
 
 #[cfg(test)]

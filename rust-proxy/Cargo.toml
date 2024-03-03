@@ -40,9 +40,8 @@ pre-build = [" apt-get -y update && apt-get -y install pkg-config libssl-dev"]
 log = "0.4.20"
 clap = { version = "4.5.1", features = ["derive"] }
 backtrace = "0.3.69"
-anyhow = { version = "1.0.80", default-features = false }
 
-
+thiserror = "1.0.57"
 
 async-trait = "0.1.77"
 tokio = { version = "1.36.0",  features = ["full", "tracing"] }

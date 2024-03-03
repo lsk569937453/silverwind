@@ -8,8 +8,10 @@ use crate::vojo::app_config_vistor::from_api_service;
 use crate::vojo::app_config_vistor::ApiServiceVistor;
 use crate::vojo::app_config_vistor::AppConfigVistor;
 use crate::vojo::app_config_vistor::RouteVistor;
+use crate::vojo::app_error::AppError;
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::route::BaseRoute;
+use log4rs::append::Append;
 use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -58,7 +60,7 @@ async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
     Ok(Response::builder()
         .status(StatusCode::OK)
         .body(String::from_utf8(buffer).unwrap_or(String::from("value")))
-        .map_err(|e| anyhow!(e.to_string()))
+        .map_err(|e| AppError(e.to_string()))
         .unwrap())
 }
 async fn post_app_config(
@@ -74,7 +76,7 @@ async fn post_app_config(
 }
 async fn post_app_config_with_error(
     api_services_vistor: ApiServiceVistor,
-) -> Result<Response<String>, anyhow::Error> {
+) -> Result<Response<String>, AppError> {
     let current_type = api_services_vistor.service_config.server_type.clone();
     if current_type == ServiceType::Https || current_type == ServiceType::Http2Tls {
         validate_tls_config(
@@ -94,7 +96,7 @@ async fn post_app_config_with_error(
                 .service_config
                 .routes
                 .first()
-                .ok_or(anyhow!("The route is empty!"))?
+                .ok_or(AppError(String::from("The route is empty!")))?
                 .clone(),
         ),
         None => rw_global_lock.api_service_config.push(api_service),
@@ -160,7 +162,7 @@ async fn put_route(route_vistor: RouteVistor) -> Result<impl warp::Reply, Infall
             .unwrap()),
     }
 }
-async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, anyhow::Error> {
+async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, AppError> {
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
 
     let old_route = rw_global_lock
@@ -168,7 +170,9 @@ async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, anyh
         .iter_mut()
         .flat_map(|item| item.service_config.routes.clone())
         .find(|item| item.route_id == route_vistor.route_id)
-        .ok_or(anyhow!("Can not find the route by route id!"))?;
+        .ok_or(AppError(String::from(
+            "Can not find the route by route id!",
+        )))?;
 
     let mut new_route = Route::from(route_vistor.clone()).await?;
     let mut new_liveness_status = new_route.liveness_status.write().await;
@@ -212,16 +216,16 @@ async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, anyh
     };
     Ok(serde_json::to_string(&data).unwrap())
 }
-async fn save_config_to_file() -> Result<(), anyhow::Error> {
+async fn save_config_to_file() -> Result<(), AppError> {
     let read_global_lock = GLOBAL_APP_CONFIG.read().await;
     let data = read_global_lock.clone();
     drop(read_global_lock);
     let api_services_vistor = from_api_service(data.api_service_config.clone()).await?;
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
-        let path = env::current_dir()?;
+        let path = env::current_dir().map_err(|e| AppError(e.to_string()))?;
         let absolute_path = path.join(DEFAULT_TEMPORARY_DIR);
-        std::fs::create_dir_all(absolute_path)?;
+        std::fs::create_dir_all(absolute_path).map_err(|e| AppError(e.to_string()))?;
     }
 
     let mut f = tokio::fs::OpenOptions::new()
@@ -229,28 +233,32 @@ async fn save_config_to_file() -> Result<(), anyhow::Error> {
         .create(true)
         .truncate(true)
         .open("temporary/new_silverwind_config.yml")
-        .await?;
-    let api_service_str = serde_yaml::to_string(&api_services_vistor)?;
-    f.write_all(api_service_str.as_bytes()).await?;
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
+    let api_service_str =
+        serde_yaml::to_string(&api_services_vistor).map_err(|e| AppError(e.to_string()))?;
+    f.write_all(api_service_str.as_bytes())
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
     Ok(())
 }
 fn validate_tls_config(
     cert_pem_option: Option<String>,
     key_pem_option: Option<String>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     if cert_pem_option.is_none() || key_pem_option.is_none() {
-        return Err(anyhow!("Cert or key is none"));
+        return Err(AppError(String::from("Cert or key is none")));
     }
     let cert_pem = cert_pem_option.unwrap();
     let mut cer_reader = std::io::BufReader::new(cert_pem.as_bytes());
     let result_certs = rustls_pemfile::certs(&mut cer_reader).next();
     if result_certs.is_none() || result_certs.unwrap().is_err() {
-        return Err(anyhow!("Can not parse the certs pem."));
+        return Err(AppError(String::from("Can not parse the certs pem.")));
     }
     let key_pem = key_pem_option.unwrap();
     let key_pem_result = pkcs8::PrivateKeyDocument::from_pem(key_pem.as_str());
     if key_pem_result.is_err() {
-        return Err(anyhow!("Can not parse the key pem."));
+        return Err(AppError(String::from("Can not parse the key pem.")));
     }
     Ok(())
 }

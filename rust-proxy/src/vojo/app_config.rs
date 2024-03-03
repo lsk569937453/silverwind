@@ -5,6 +5,7 @@ use crate::vojo::allow_deny_ip::AllowDenyObject;
 use crate::vojo::anomaly_detection::AnomalyDetectionType;
 use crate::vojo::app_config_vistor::from_loadbalancer_strategy_vistor;
 use crate::vojo::app_config_vistor::RouteVistor;
+use crate::vojo::app_error::AppError;
 use crate::vojo::authentication::AuthenticationStrategy;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::rate_limit::RatelimitStrategy;
@@ -45,7 +46,7 @@ pub struct Route {
     pub route_cluster: LoadbalancerStrategy,
 }
 impl Route {
-    pub async fn from(route_vistor: RouteVistor) -> Result<Route, anyhow::Error> {
+    pub async fn from(route_vistor: RouteVistor) -> Result<Route, AppError> {
         let cloned_cluster = route_vistor.route_cluster.clone();
         let new_matcher = route_vistor.matcher.clone().map(|mut item| {
             let src_prefix = item.prefix.clone();
@@ -93,12 +94,12 @@ impl Route {
         &self,
         path: String,
         headers_option: Option<HeaderMap<HeaderValue>>,
-    ) -> Result<Option<String>, anyhow::Error> {
+    ) -> Result<Option<String>, AppError> {
         let matcher = self
             .clone()
             .matcher
             .ok_or("The matcher counld not be none for http")
-            .map_err(|err| anyhow!(err))?;
+            .map_err(|err| AppError(err.to_string()))?;
 
         let match_res = path.strip_prefix(matcher.prefix.as_str());
         if match_res.is_none() {
@@ -119,7 +120,8 @@ impl Route {
             if host_result.is_err() {
                 return Ok(None);
             }
-            let host_name_regex = Regex::new(real_host_name.as_str())?;
+            let host_name_regex =
+                Regex::new(real_host_name.as_str()).map_err(|e| AppError(e.to_string()))?;
             return host_name_regex
                 .captures(host_result.unwrap())
                 .map_or(Ok(None), |_| Ok(Some(final_path)));
@@ -130,7 +132,7 @@ impl Route {
         &self,
         ip: String,
         headers_option: Option<HeaderMap<HeaderValue>>,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, AppError> {
         let mut is_allowed = ip_is_allowed(self.allow_deny_list.clone(), ip.clone())?;
         if !is_allowed {
             return Ok(is_allowed);
@@ -154,7 +156,7 @@ impl Route {
 pub fn ip_is_allowed(
     allow_deny_list: Option<Vec<AllowDenyObject>>,
     ip: String,
-) -> Result<bool, anyhow::Error> {
+) -> Result<bool, AppError> {
     if allow_deny_list.is_none() || allow_deny_list.clone().unwrap().is_empty() {
         return Ok(true);
     }
@@ -174,7 +176,7 @@ pub fn ip_is_allowed(
                 continue;
             }
             Err(err) => {
-                return Err(anyhow!(err.to_string()));
+                return Err(AppError(err.to_string()));
             }
         }
     }
@@ -198,7 +200,7 @@ pub struct ServiceConfig {
     pub routes: Vec<Route>,
 }
 impl ServiceConfig {
-    pub async fn from(service_config_vistor: ServiceConfigVistor) -> Result<Self, anyhow::Error> {
+    pub async fn from(service_config_vistor: ServiceConfigVistor) -> Result<Self, AppError> {
         let mut routes = vec![];
         for item in service_config_vistor.routes {
             routes.push(Route::from(item).await?)
@@ -218,7 +220,7 @@ pub struct ApiService {
     pub service_config: ServiceConfig,
 }
 impl ApiService {
-    pub async fn from(api_service_vistor: ApiServiceVistor) -> Result<Self, anyhow::Error> {
+    pub async fn from(api_service_vistor: ApiServiceVistor) -> Result<Self, AppError> {
         let api_service_config = ServiceConfig::from(api_service_vistor.service_config).await?;
         Ok(ApiService {
             listen_port: api_service_vistor.listen_port,

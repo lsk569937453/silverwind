@@ -1,5 +1,6 @@
 use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::vojo::app_config::Route;
+use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
 use async_trait::async_trait;
 use http::HeaderMap;
@@ -15,7 +16,7 @@ pub trait CheckTrait {
         headers: HeaderMap,
         uri: Uri,
         peer_addr: SocketAddr,
-    ) -> Result<Option<CheckResult>, anyhow::Error>;
+    ) -> Result<Option<CheckResult>, AppError>;
 }
 pub struct CommonCheckRequest;
 impl CommonCheckRequest {
@@ -38,11 +39,14 @@ impl CheckTrait for CommonCheckRequest {
         headers: HeaderMap,
         uri: Uri,
         peer_addr: SocketAddr,
-    ) -> Result<Option<CheckResult>, anyhow::Error> {
-        let backend_path = uri.path_and_query().ok_or(anyhow!(""))?.to_string();
+    ) -> Result<Option<CheckResult>, AppError> {
+        let backend_path = uri
+            .path_and_query()
+            .ok_or(AppError(String::from("")))?
+            .to_string();
         let api_service_manager = GLOBAL_CONFIG_MAPPING
             .get(&mapping_key)
-            .ok_or(anyhow!(format!(
+            .ok_or(AppError(format!(
                 "Can not find the config mapping on the key {}!",
                 mapping_key.clone()
             )))?
@@ -68,10 +72,13 @@ impl CheckTrait for CommonCheckRequest {
             let endpoint = base_route.endpoint.clone();
             debug!("The endpoint is {}", endpoint);
             if endpoint.contains("http") {
-                let host = Url::parse(endpoint.as_str())?;
+                let host = Url::parse(endpoint.as_str()).map_err(|e| AppError(e.to_string()))?;
                 let rest_path = match_result.unwrap();
 
-                let request_path = host.join(rest_path.as_str())?.to_string();
+                let request_path = host
+                    .join(rest_path.as_str())
+                    .map_err(|e| AppError(e.to_string()))?
+                    .to_string();
                 return Ok(Some(CheckResult {
                     request_path,
                     route: item,
