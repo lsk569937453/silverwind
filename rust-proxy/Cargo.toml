@@ -1,6 +1,6 @@
 [package]
 name = "silverwind"
-version = "0.0.12"
+version = "0.0.20"
 authors = ["lsk"]
 license = "MIT"
 edition = "2021"
