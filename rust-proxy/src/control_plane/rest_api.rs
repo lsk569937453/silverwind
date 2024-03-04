@@ -244,7 +244,7 @@ fn validate_tls_config(
     }
     Ok(())
 }
-fn get_router() -> Router {
+pub fn get_router() -> Router {
     axum::Router::new()
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())

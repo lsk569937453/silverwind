@@ -28,12 +28,14 @@ pub async fn lets_encrypt_certificate(
         response_object: response,
     };
     let json_str = serde_json::to_string(&data).unwrap();
+
     Ok(json!(json_str).into())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::control_plane::rest_api::get_router;
     use axum::http::StatusCode;
     use axum::{
         body::Body,
@@ -49,18 +51,20 @@ mod tests {
             String::from("www.silverwind.top"),
         );
         let json = serde_json::to_string(&lets_entrypt).unwrap();
-        let post_app_config = warp::post()
-            .and(warp::path("letsEncryptCertificate"))
-            .and(warp::path::end())
-            .and(json_body())
-            .and_then(lets_encrypt_certificate);
-        let res = warp::test::request()
-            .method("POST")
-            .body(json)
-            .reply(&post_app_config)
-            .await;
+        let app = get_router();
 
-        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/letsEncryptCertificate")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(json)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
     #[tokio::test]
     async fn test_lets_encrypt_certificate_error2() {
@@ -69,18 +73,20 @@ mod tests {
             String::from("www.silverwind.top"),
         );
         let json = serde_json::to_string(&lets_entrypt).unwrap();
-        let post_app_config = warp::post()
-            .and(warp::path("letsEncryptCertificate"))
-            .and(warp::path::end())
-            .and(json_body())
-            .and_then(lets_encrypt_certificate);
-        let res = warp::test::request()
-            .path("/letsEncryptCertificate")
-            .method("POST")
-            .body(json)
-            .reply(&post_app_config)
-            .await;
 
-        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let app = get_router();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/letsEncryptCertificate")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(json)
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
