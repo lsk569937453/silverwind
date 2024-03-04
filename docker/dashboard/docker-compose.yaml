@@ -7,7 +7,7 @@ services:
       - "4486:4486"
 
   silverwind:
-      image: lsk569937453/silverwind:0.0.7
+      image: ghcr.io/lsk569937453/silverwind:0.0.20
       container_name: silverwind
       ports:
         - "6980:6980"
