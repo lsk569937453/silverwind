@@ -21,7 +21,7 @@ services:
           cpus: "4.0"
           memory: 8192M
   silverwind:
-    image: lsk569937453/silverwind:0.0.8
+    image: ghcr.io/lsk569937453/silverwind:0.0.20
     #image: lsk569937453/silverwind:test
     container_name: silverwind
     environment:
