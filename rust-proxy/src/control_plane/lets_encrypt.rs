@@ -1,24 +1,22 @@
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::lets_encrypt::LetsEntrypt;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::convert::Infallible;
-use warp::http::{Response, StatusCode};
-use warp::Filter;
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 struct LetsEncryptResponse {
     key_perm: String,
     certificate_perm: String,
 }
-async fn lets_encrypt_certificate(
+pub async fn lets_encrypt_certificate(
     lets_encrypt_object: LetsEntrypt,
-) -> Result<impl warp::Reply, Infallible> {
+) -> Result<impl axum::response::IntoResponse, Infallible> {
     let request_result = lets_encrypt_object.start_request().await;
     if let Err(err) = request_result {
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(err.to_string())
-            .unwrap());
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            err.to_string(),
+        );
     }
     let certificate = request_result.unwrap();
     let response = LetsEncryptResponse {
@@ -30,25 +28,20 @@ async fn lets_encrypt_certificate(
         response_object: response,
     };
     let json_str = serde_json::to_string(&data).unwrap();
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .body(json_str)
-        .unwrap())
+    Ok(json!(json_str).into())
 }
-fn json_body() -> impl Filter<Extract = (LetsEntrypt,), Error = warp::Rejection> + Clone {
-    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
-}
-pub fn path() -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
-    warp::path("letsEncryptCertificate")
-        .and(warp::path::end())
-        .and(json_body())
-        .and_then(lets_encrypt_certificate)
-}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use axum::http::StatusCode;
+    use axum::{
+        body::Body,
+        extract::connect_info::MockConnectInfo,
+        http::{self, Request},
+    };
+    use lazy_static::lazy_static;
+    use std::env;
     #[tokio::test]
     async fn test_lets_encrypt_certificate_error1() {
         let lets_entrypt = LetsEntrypt::_new(

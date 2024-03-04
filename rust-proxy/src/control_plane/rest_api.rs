@@ -1,6 +1,6 @@
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
-use crate::control_plane::lets_encrypt::path;
+use crate::control_plane::lets_encrypt::lets_encrypt_certificate;
 use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_config::ServiceType;
@@ -11,71 +11,68 @@ use crate::vojo::app_config_vistor::RouteVistor;
 use crate::vojo::app_error::AppError;
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::route::BaseRoute;
+use axum::routing::{get, post, put};
+use axum::Router;
 use prometheus::{Encoder, TextEncoder};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
-use warp::http::{Response, StatusCode};
-use warp::Filter;
-use warp::{reject, Rejection, Reply};
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
 static INTERNAL_SERVER_ERROR: &str = "Internal Server Error";
 #[derive(Debug)]
 struct MethodError;
-impl reject::Reject for MethodError {}
-async fn get_app_config() -> Result<impl warp::Reply, Infallible> {
+async fn get_app_config() -> Result<impl axum::response::IntoResponse, Infallible> {
     let app_config = GLOBAL_APP_CONFIG.read().await;
 
     let app_config_vistor_result = AppConfigVistor::from(app_config.clone()).await;
     if app_config_vistor_result.is_err() {
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(INTERNAL_SERVER_ERROR.into())
-            .unwrap());
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("No route {}", INTERNAL_SERVER_ERROR.into()),
+        );
     }
     let data = BaseResponse {
         response_code: 0,
         response_object: app_config_vistor_result.unwrap(),
     };
     let res = match serde_json::to_string(&data) {
-        Ok(json) => Response::builder()
-            .header("content-type", "application/json")
-            .body(json)
-            .unwrap(),
-        Err(_) => Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(INTERNAL_SERVER_ERROR.into())
-            .unwrap(),
+        Ok(json) => json!(json).into(),
+        Err(_) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("No route {}", INTERNAL_SERVER_ERROR.into()),
+        ),
     };
     Ok(res)
 }
-async fn get_prometheus_metrics() -> Result<impl warp::Reply, Infallible> {
+async fn get_prometheus_metrics() -> Result<impl axum::response::IntoResponse, Infallible> {
     let metric_families = prometheus::gather();
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
     encoder.encode(&metric_families, &mut buffer).unwrap();
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .body(String::from_utf8(buffer).unwrap_or(String::from("value")))
-        .map_err(|e| AppError(e.to_string()))
-        .unwrap())
+    Ok((
+        axum::http::StatusCode::OK,
+        String::from_utf8(buffer).unwrap_or(String::from("value")),
+    ))
 }
 async fn post_app_config(
     api_services_vistor: ApiServiceVistor,
-) -> Result<impl warp::Reply, Infallible> {
+) -> Result<impl axum::response::IntoResponse, Infallible> {
     match post_app_config_with_error(api_services_vistor).await {
         Ok(r) => Ok(r),
-        Err(err) => Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(err.to_string())
-            .unwrap()),
+        Err(err) => Ok((
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            err.to_string(),
+        )),
     }
 }
 async fn post_app_config_with_error(
     api_services_vistor: ApiServiceVistor,
-) -> Result<Response<String>, AppError> {
+) -> Result<impl axum::response::IntoResponse, AppError> {
     let current_type = api_services_vistor.service_config.server_type.clone();
     if current_type == ServiceType::Https || current_type == ServiceType::Http2Tls {
         validate_tls_config(
@@ -110,13 +107,9 @@ async fn post_app_config_with_error(
         response_object: 0,
     };
     let json_str = serde_json::to_string(&data).unwrap();
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .body(json_str)
-        .unwrap())
+    Ok(json!(json_str).into())
 }
-async fn delete_route(route_id: String) -> Result<impl warp::Reply, Infallible> {
+async fn delete_route(route_id: String) -> Result<impl axum::response::IntoResponse, Infallible> {
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
     let mut api_services = vec![];
     for mut api_service in rw_global_lock.clone().api_service_config {
@@ -140,25 +133,15 @@ async fn delete_route(route_id: String) -> Result<impl warp::Reply, Infallible> 
         response_object: 0,
     };
     let json_str = serde_json::to_string(&data).unwrap();
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "application/json")
-        .body(json_str)
-        .unwrap())
+    Ok(json!(json_str).into())
 }
 
-async fn put_route(route_vistor: RouteVistor) -> Result<impl warp::Reply, Infallible> {
+async fn put_route(
+    route_vistor: RouteVistor,
+) -> Result<impl axum::response::IntoResponse, Infallible> {
     match post_route_with_error(route_vistor).await {
-        Ok(r) => Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "application/json")
-            .body(r)
-            .unwrap()),
-        Err(e) => Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .header("content-type", "application/json")
-            .body(e.to_string())
-            .unwrap()),
+        Ok(r) => Ok(json!(r).into()),
+        Err(e) => Ok((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
 async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, AppError> {
@@ -261,87 +244,36 @@ fn validate_tls_config(
     }
     Ok(())
 }
-
-fn json_body() -> impl Filter<Extract = (ApiServiceVistor,), Error = warp::Rejection> + Clone {
-    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+fn get_router() -> Router {
+    axum::Router::new()
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
+        .route("/appConfig", get(get_app_config).post(post_app_config))
+        .route("/metrics", get(get_prometheus_metrics))
+        .route("/route", put(put_route).delete(delete_route))
+        .route("/letsEncryptCertificate", post(lets_encrypt_certificate))
 }
-fn route_json_body() -> impl Filter<Extract = (RouteVistor,), Error = warp::Rejection> + Clone {
-    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
-}
-
-pub async fn handle_not_found(reject: Rejection) -> Result<impl Reply, Rejection> {
-    if reject.is_not_found() {
-        Ok(StatusCode::NOT_FOUND)
-    } else {
-        Err(reject)
-    }
-}
-pub async fn _handle_custom(reject: Rejection) -> Result<impl Reply, Rejection> {
-    if reject.find::<MethodError>().is_some() {
-        Ok(StatusCode::METHOD_NOT_ALLOWED)
-    } else {
-        Err(reject)
-    }
-}
-
 pub async fn start_control_plane(port: i32) {
-    let post_app_config = warp::path("appConfig")
-        .and(warp::path::end())
-        .and(json_body())
-        .and_then(post_app_config);
-    let put_route = warp::path("route")
-        .and(warp::path::end())
-        .and(route_json_body())
-        .and_then(put_route);
-    let delete_route = warp::path("route")
-        .and(warp::path::param::<String>())
-        .and(warp::path::end())
-        .and_then(delete_route);
-    let get_app_config = warp::path("appConfig").and_then(get_app_config);
-
-    let get_prometheus_metrics = warp::path("metrics").and_then(get_prometheus_metrics);
-
-    let get_request = warp::get().and(get_app_config.or(get_prometheus_metrics));
-    let post_request = warp::post().and(path().or(post_app_config));
-    let put_request = warp::put().and(put_route);
-    let delete_request = warp::delete().and(delete_route);
-
+    let app = get_router();
     // let put_request = warp::put().and(path()).recover(handle_not_found);
-
-    let log = warp::log("dashbaord-svc");
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
 
-    let cors = warp::cors()
-        .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"])
-        .allow_credentials(true)
-        .allow_headers(vec![
-            "access-control-allow-methods",
-            "access-control-allow-origin",
-            "useragent",
-            "content-type",
-            "x-custom-header",
-        ])
-        .allow_any_origin();
-    warp::serve(
-        post_request
-            .or(get_request)
-            .or(put_request)
-            .or(delete_request)
-            .with(cors)
-            .with(log)
-            .recover(handle_not_found),
-    )
-    .run(addr)
-    .await;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::StatusCode;
+    use axum::{
+        body::Body,
+        extract::connect_info::MockConnectInfo,
+        http::{self, Request},
+    };
     use lazy_static::lazy_static;
     use std::env;
     use tokio::runtime::{Builder, Runtime};
-    use warp::http::StatusCode;
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -358,26 +290,27 @@ mod tests {
             assert_eq!(res.into_response().status(), StatusCode::OK);
         })
     }
-    #[test]
-    fn test_api_post_response_error() {
-        TOKIO_RUNTIME.block_on(async {
-            let post_app_config = warp::post()
-                .and(warp::path("appConfig"))
-                .and(warp::path::end())
-                .and(json_body())
-                .and_then(post_app_config)
-                .recover(handle_not_found);
-            let res = warp::test::request()
-                .method("POST")
-                .body(String::from("some string"))
-                .reply(&post_app_config)
-                .await;
+    #[tokio::test]
+    async fn test_api_post_response_error() {
+        let app = get_router();
 
-            assert_eq!(res.status(), StatusCode::NOT_FOUND);
-        })
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/appConfig")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!([1, 2, 3, 4])).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
-    #[test]
-    fn test_api_post_response_ok() {
+    #[tokio::test]
+    async fn test_api_post_response_ok() {
         let req = r#"
             {
                 "listen_port": 4486,
@@ -405,26 +338,23 @@ mod tests {
                 }
             }
         "#;
-        TOKIO_RUNTIME.block_on(async {
-            let post_app_config = warp::post()
-                .and(warp::path("appConfig"))
-                .and(warp::path::end())
-                .and(json_body())
-                .and_then(post_app_config)
-                .recover(handle_not_found);
-            let res = warp::test::request()
-                .method("POST")
-                .path("/appConfig")
-                .body(req)
-                // .json(&true)
-                .reply(&post_app_config)
-                .await;
+        let app = get_router();
 
-            assert_eq!(res.status(), StatusCode::OK);
-            let body_bytes = res.body();
-            let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
-            assert_eq!(base_response.response_code, 0);
-        })
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/appConfig")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(req))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
+        assert_eq!(base_response.response_code, 0);
     }
     #[test]
     fn test_validate_tls_config_successfully() {
@@ -467,24 +397,9 @@ mod tests {
         let validation_res = validate_tls_config(Some(certificate), Some(private_key));
         assert!(validation_res.is_err());
     }
-    #[test]
-    fn test_response_not_found() {
-        TOKIO_RUNTIME.block_on(async {
-            let post_app_config = warp::post()
-                .and(warp::path("appConfig"))
-                .and(warp::path::end())
-                .and(json_body())
-                .and_then(post_app_config)
-                .recover(handle_not_found);
-            let res = warp::test::request()
-                .method("POST")
-                .reply(&post_app_config)
-                .await;
-            assert_eq!(res.status(), StatusCode::NOT_FOUND);
-        })
-    }
-    #[test]
-    fn test_post_response_ok() {
+
+    #[tokio::test]
+    async fn test_post_response_ok() {
         let body = r#"
             {
                 "listen_port": 4486,
@@ -512,41 +427,40 @@ mod tests {
                 }
             }
         "#;
-        TOKIO_RUNTIME.block_on(async {
-            let post_app_config = warp::post()
-                .and(warp::path("appConfig"))
-                .and(warp::path::end())
-                .and(json_body())
-                .and_then(post_app_config)
-                .recover(handle_not_found);
-            let res = warp::test::request()
-                .method("POST")
-                .path("/appConfig")
-                .body(body)
-                .reply(&post_app_config)
-                .await;
-            assert_eq!(res.status(), StatusCode::OK);
-            let body_bytes = res.body();
-            let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
-            assert_eq!(base_response.response_code, 0);
-            assert_eq!(base_response.response_object, 0);
-        })
+
+        let app = get_router();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/appConfig")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
+        assert_eq!(base_response.response_code, 0);
     }
-    #[test]
-    fn test_get_response_ok() {
-        TOKIO_RUNTIME.block_on(async {
-            let get_app_config = warp::get()
-                .and(warp::path("appConfig"))
-                .and(warp::path::end())
-                .and_then(get_app_config)
-                .recover(handle_not_found);
-            let res = warp::test::request()
-                .method("GET")
-                .path("/appConfig")
-                .reply(&get_app_config)
-                .await;
-            assert_eq!(res.status(), StatusCode::OK);
-        })
+    #[tokio::test]
+    async fn test_get_response_ok() {
+        let app = get_router();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .uri("/appConfig")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
     #[tokio::test]
     async fn test_put_route_ok() {
@@ -577,38 +491,36 @@ mod tests {
             }
         }"#;
 
-        let put_route = warp::path("route")
-            .and(warp::path::end())
-            .and(route_json_body())
-            .and_then(put_route);
-        let res = warp::test::request()
-            .method("PUT")
-            .path("/route")
-            .body(body)
-            .reply(&put_route)
-            .await;
-        assert_eq!(res.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        // let body_bytes = res.body();
-        // let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
-        // assert_eq!(base_response.response_code, 0);
-        // assert_eq!(base_response.response_object, 0);
+        let app = get_router();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::PUT)
+                    .uri("/route")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
     #[tokio::test]
     async fn test_delete_route_ok() {
-        let delete_route = warp::path("route")
-            .and(warp::path::param::<String>())
-            .and(warp::path::end())
-            .and_then(delete_route);
-        let res = warp::test::request()
-            .method("DELETE")
-            .path("/route/90c66439-5c87-4902-aebb-1c2c9443c154")
-            .body("foo=bar&baz=quux")
-            .reply(&delete_route)
-            .await;
-        assert_eq!(res.status(), StatusCode::OK);
-        // let body_bytes = res.body();
-        // let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
-        // assert_eq!(base_response.response_code, 0);
-        // assert_eq!(base_response.response_object, 0);
+        let app = get_router();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::DELETE)
+                    .uri("/route/90c66439-5c87-4902-aebb-1c2c9443c154")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
