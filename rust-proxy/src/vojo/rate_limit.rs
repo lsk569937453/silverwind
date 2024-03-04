@@ -9,7 +9,6 @@ use http::HeaderMap;
 use http::HeaderValue;
 use ipnet::Ipv4Net;
 use iprange::IpRange;
-use log4rs::append::Append;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::net::Ipv4Addr;

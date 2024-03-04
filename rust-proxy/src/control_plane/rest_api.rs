@@ -11,7 +11,6 @@ use crate::vojo::app_config_vistor::RouteVistor;
 use crate::vojo::app_error::AppError;
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::route::BaseRoute;
-use log4rs::append::Append;
 use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::convert::Infallible;
