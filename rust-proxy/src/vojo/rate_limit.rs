@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::RwLock;
 
+use super::app_error::AppError;
+
 #[typetag::serde(tag = "type")]
 #[async_trait]
 pub trait RatelimitStrategy: Sync + Send + DynClone {
@@ -24,7 +26,7 @@ pub trait RatelimitStrategy: Sync + Send + DynClone {
         &mut self,
         headers: HeaderMap<HeaderValue>,
         remote_ip: String,
-    ) -> Result<bool, anyhow::Error>;
+    ) -> Result<bool, AppError>;
 
     fn get_debug(&self) -> String {
         String::from("debug")
@@ -110,11 +112,11 @@ pub struct TokenBucketRateLimit {
 fn default_time() -> Arc<RwLock<SystemTime>> {
     Arc::new(RwLock::new(SystemTime::now()))
 }
-fn get_time_key(time_unit: TimeUnit) -> Result<String, anyhow::Error> {
+fn get_time_key(time_unit: TimeUnit) -> Result<String, AppError> {
     let current_time = SystemTime::now();
     let since_the_epoch = current_time
         .duration_since(UNIX_EPOCH)
-        .map_err(|err| anyhow!(err.to_string()))?;
+        .map_err(|err| AppError(err.to_string()))?;
     let in_ms =
         since_the_epoch.as_secs() * 1000 + since_the_epoch.subsec_nanos() as u64 / 1_000_000;
     let key_u64 = match time_unit {
@@ -131,7 +133,7 @@ fn matched(
     limit_location: LimitLocation,
     headers: HeaderMap<HeaderValue>,
     remote_ip: String,
-) -> Result<bool, anyhow::Error> {
+) -> Result<bool, AppError> {
     return match limit_location {
         LimitLocation::IP(ip_based_ratelimit) => Ok(ip_based_ratelimit.value == remote_ip),
         LimitLocation::Header(header_based_ratelimit) => {
@@ -141,13 +143,13 @@ fn matched(
             let header_value = headers.get(header_based_ratelimit.key.clone()).unwrap();
             let header_value_str = header_value
                 .to_str()
-                .map_err(|err| anyhow!(err.to_string()))?;
+                .map_err(|err| AppError(err.to_string()))?;
 
             return Ok(header_value_str == header_based_ratelimit.value);
         }
         LimitLocation::Iprange(ip_range_based_ratelimit) => {
             if !ip_range_based_ratelimit.value.contains('/') {
-                return Err(anyhow!("The Ip Range should contain '/'."));
+                return Err(AppError(format!("The Ip Range should contain '/'.")));
             }
             let ip_range: IpRange<Ipv4Net> = [ip_range_based_ratelimit.value]
                 .iter()
@@ -155,7 +157,7 @@ fn matched(
                 .collect();
             let source_ip = remote_ip
                 .parse::<Ipv4Addr>()
-                .map_err(|err| anyhow!(err.to_string()))?;
+                .map_err(|err| AppError(err.to_string()))?;
             return Ok(ip_range.contains(&source_ip));
         }
     };
@@ -167,7 +169,7 @@ impl RatelimitStrategy for TokenBucketRateLimit {
         &mut self,
         headers: HeaderMap<HeaderValue>,
         remote_ip: String,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, AppError> {
         let match_or_not = matched(self.limit_location.clone(), headers, remote_ip)?;
         if !match_or_not {
             return Ok(false);
@@ -180,7 +182,7 @@ impl RatelimitStrategy for TokenBucketRateLimit {
                 .read()
                 .await
                 .elapsed()
-                .map_err(|err| anyhow!(err.to_string()))?;
+                .map_err(|err| AppError(err.to_string()))?;
             let elapsed_millis = elapsed.as_millis();
             let mut added_count =
                 elapsed_millis * self.rate_per_unit / self.unit.get_million_second();
@@ -233,7 +235,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         &mut self,
         headers: HeaderMap<HeaderValue>,
         remote_ip: String,
-    ) -> Result<bool, anyhow::Error> {
+    ) -> Result<bool, AppError> {
         let match_or_not = matched(self.limit_location.clone(), headers, remote_ip)?;
         if !match_or_not {
             return Ok(false);
@@ -242,7 +244,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         let location_key = self.limit_location.get_key();
         let key = format!("{}:{}", location_key, time_unit_key);
         if !self.count_map.contains_key(key.as_str()) {
-            let _lock = self.lock.lock().map_err(|err| anyhow!(err.to_string()))?;
+            let _lock = self.lock.lock().map_err(|err| AppError(err.to_string()))?;
             if !self.count_map.contains_key(key.as_str()) {
                 if self.count_map.len() > DEFAULT_FIXEDWINDOW_MAP_SIZE as usize {
                     let first = self.count_map.iter().next().unwrap();
@@ -254,9 +256,12 @@ impl RatelimitStrategy for FixedWindowRateLimit {
                     .insert(key.clone(), Arc::new(AtomicIsize::new(0)));
             }
         }
-        let atomic_isize = self.count_map.get(key.as_str()).ok_or(anyhow!(
-            "Can not find the key in the map of FixedWindowRateLimit!"
-        ))?;
+        let atomic_isize = self
+            .count_map
+            .get(key.as_str())
+            .ok_or(AppError(String::from(
+                "Can not find the key in the map of FixedWindowRateLimit!",
+            )))?;
         let res = atomic_isize.fetch_add(1, Ordering::SeqCst);
         if res as i32 >= self.rate_per_unit as i32 {
             return Ok(true);

@@ -7,12 +7,11 @@ use http::HeaderValue;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 
+use super::app_error::AppError;
+
 #[typetag::serde(tag = "type")]
 pub trait AuthenticationStrategy: Sync + Send + DynClone {
-    fn check_authentication(
-        &mut self,
-        headers: HeaderMap<HeaderValue>,
-    ) -> Result<bool, anyhow::Error>;
+    fn check_authentication(&mut self, headers: HeaderMap<HeaderValue>) -> Result<bool, AppError>;
 
     fn get_debug(&self) -> String {
         String::from("debug")
@@ -33,10 +32,7 @@ pub struct BasicAuth {
 }
 #[typetag::serde]
 impl AuthenticationStrategy for BasicAuth {
-    fn check_authentication(
-        &mut self,
-        headers: HeaderMap<HeaderValue>,
-    ) -> Result<bool, anyhow::Error> {
+    fn check_authentication(&mut self, headers: HeaderMap<HeaderValue>) -> Result<bool, AppError> {
         if headers.is_empty() || !headers.contains_key("Authorization") {
             return Ok(false);
         }
@@ -44,7 +40,7 @@ impl AuthenticationStrategy for BasicAuth {
             .get("Authorization")
             .unwrap()
             .to_str()
-            .map_err(|err| anyhow!(err.to_string()))?;
+            .map_err(|err| AppError(err.to_string()))?;
         let split_list: Vec<_> = value.split(' ').collect();
         if split_list.len() != 2 || split_list[0] != "Basic" {
             return Ok(false);
@@ -68,10 +64,7 @@ pub struct ApiKeyAuth {
 
 #[typetag::serde]
 impl AuthenticationStrategy for ApiKeyAuth {
-    fn check_authentication(
-        &mut self,
-        headers: HeaderMap<HeaderValue>,
-    ) -> Result<bool, anyhow::Error> {
+    fn check_authentication(&mut self, headers: HeaderMap<HeaderValue>) -> Result<bool, AppError> {
         if headers.is_empty() || !headers.contains_key(self.key.clone()) {
             return Ok(false);
         }
@@ -79,7 +72,7 @@ impl AuthenticationStrategy for ApiKeyAuth {
             .get(self.key.clone())
             .unwrap()
             .to_str()
-            .map_err(|err| anyhow!(err.to_string()))?;
+            .map_err(|err| AppError(err.to_string()))?;
         Ok(header_value == self.value)
     }
     fn as_any(&self) -> &dyn Any {

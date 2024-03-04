@@ -2,26 +2,31 @@ use crate::constants::common_constants;
 use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::monitor::prometheus_exporter::{get_timer_list, inc};
 use crate::proxy::http1::http_client::HttpClients;
-use crate::proxy::http1::tls_acceptor::TlsAcceptor;
-use crate::proxy::http1::tls_stream::TlsStream;
+
 use crate::vojo::anomaly_detection::AnomalyDetectionType;
 use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
+use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
+use bytes::Bytes;
 use http::uri::InvalidUri;
-use http::{StatusCode, Uri};
+use http::Uri;
+use hyper::body::Incoming;
 use hyper::header::{CONNECTION, SEC_WEBSOCKET_KEY};
+use hyper::StatusCode;
 
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
 use http::uri::PathAndQuery;
-use hyper::server::conn::AddrIncoming;
-use hyper::server::conn::AddrStream;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
+use http_body_util::{combinators::BoxBody, BodyExt, Full};
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
 use hyper_staticfile::Static;
+use hyper_util::rt::TokioIo;
 use log::Level;
 use prometheus::HistogramTimer;
+use rustls_pki_types::CertificateDer;
 use serde_json::json;
 use std::convert::Infallible;
 use std::io::BufReader;
@@ -29,8 +34,10 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use tokio_rustls::TlsAcceptor;
 #[derive(Debug)]
 pub struct HttpProxy {
     pub port: i32,
@@ -39,111 +46,127 @@ pub struct HttpProxy {
 }
 
 impl HttpProxy {
-    pub async fn start_http_server(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn start_http_server(&mut self) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
-        let make_service = make_service_fn(move |socket: &AddrStream| {
-            let client = client.clone();
-            let mapping_key2 = mapping_key_clone1.clone();
-            let remote_addr = socket.remote_addr();
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy_adapter(client.clone(), req, mapping_key2.clone(), remote_addr)
-                }))
-            }
-        });
-        let server = Server::try_bind(&addr)
-            .map_err(|e| {
-                anyhow!(
-                    "Cause error when binding the socket,the addr is {},the error is {}.",
-                    addr.clone(),
-                    e.to_string()
-                )
-            })?
-            .http1_preserve_header_case(true)
-            .http1_title_case_headers(true)
-            .serve(make_service);
-        info!("Listening on http://{}", addr);
-
         let reveiver = &mut self.channel;
 
-        let graceful = server.with_graceful_shutdown(async move {
-            reveiver.recv().await;
-        });
-        if let Err(e) = graceful.await {
-            info!("server has receive error: {}", e);
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
+        info!("Listening on http://{}", addr);
+        loop {
+            tokio::select! {
+               Ok((stream,addr))= listener.accept()=>{
+                let client_cloned = client.clone();
+                let mapping_key2 = mapping_key_clone1.clone();
+                tokio::spawn(async move {
+                    let io = TokioIo::new(stream);
+
+                    if let Err(err) = http1::Builder::new()
+                    .preserve_header_case(true)
+                    .title_case_headers(true)
+                        .serve_connection(
+                            io,
+                            service_fn(move |req: Request<Incoming>| {
+                                let req = req.map(|item| {
+                                    item.map_err(|_| -> Infallible { unreachable!() }).boxed()
+                                });
+                                proxy_adapter(client_cloned.clone(), req, mapping_key2.clone(), addr)
+                            }),
+                        )
+                        .await
+                    {
+                        error!("Error serving connection: {:?}", err);
+                    }
+                });
+                },
+                _ = reveiver.recv() => {
+                    break;
+                }
+            }
         }
+
         Ok(())
     }
     pub async fn start_https_server(
         &mut self,
         pem_str: String,
         key_str: String,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let client = HttpClients::new();
         let mapping_key_clone1 = self.mapping_key.clone();
 
-        let make_service = make_service_fn(move |socket: &TlsStream| {
-            let client = client.clone();
-            let mapping_key2 = mapping_key_clone1.clone();
-            let remote_addr = socket.remote_addr();
-
-            async move {
-                Ok::<_, Infallible>(service_fn(move |req| {
-                    proxy_adapter(client.clone(), req, mapping_key2.clone(), remote_addr)
-                }))
-            }
-        });
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
-        let certs = rustls_pemfile::certs(&mut cer_reader)
-            .unwrap()
-            .iter()
-            .map(|s| rustls::Certificate((*s).clone()))
-            .collect();
+        let certs: Vec<CertificateDer<'_>> = rustls_pemfile::certs(&mut cer_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError(e.to_string()))?;
 
-        let doc = pkcs8::PrivateKeyDocument::from_pem(&key_str).unwrap();
-        let key_der = rustls::PrivateKey(doc.as_ref().to_owned());
+        let mut key_reader = BufReader::new(key_str.as_bytes());
+        let key_der = rustls_pemfile::private_key(&mut key_reader)
+            .map(|key| key.unwrap())
+            .map_err(|e| AppError(e.to_string()))?;
 
         let tls_cfg = {
             let cfg = rustls::ServerConfig::builder()
-                .with_safe_defaults()
                 .with_no_client_auth()
                 .with_single_cert(certs, key_der)
                 .unwrap();
             Arc::new(cfg)
         };
-        let incoming = AddrIncoming::bind(&addr).map_err(|e| {
-            anyhow!(
-                "Cause error when binding the socket,the addr is {},the error is {}.",
-                addr.clone(),
-                e.to_string()
-            )
-        })?;
-        let server = Server::builder(TlsAcceptor::new(tls_cfg, incoming)).serve(make_service);
-        info!("Listening on https://{}", addr);
-
+        let tls_acceptor = TlsAcceptor::from(tls_cfg);
         let reveiver = &mut self.channel;
 
-        let graceful = server.with_graceful_shutdown(async move {
-            reveiver.recv().await;
-        });
+        let listener = TcpListener::bind(addr)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
+        info!("Listening on http://{}", addr);
+        loop {
+            tokio::select! {
+                    Ok((tcp_stream,addr))= listener.accept()=>{
+                let tls_acceptor = tls_acceptor.clone();
 
-        if let Err(e) = graceful.await {
-            info!("server has receive error: {}", e);
+                let client = client.clone();
+                let mapping_key2 = mapping_key_clone1.clone();
+                tokio::spawn(async move {
+                    let tls_stream = match tls_acceptor.accept(tcp_stream).await {
+                        Ok(tls_stream) => tls_stream,
+                        Err(err) => {
+                            error!("failed to perform tls handshake: {err:#}");
+                            return;
+                        }
+                    };
+                    let io = TokioIo::new(tls_stream);
+                    let service = service_fn(move |req: Request<Incoming>| {
+                        let req = req
+                            .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
+
+                        proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
+                    });
+                    if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+                        error!("Error serving connection: {:?}", err);
+                    }
+                });
+            },
+                    _ = reveiver.recv() => {
+                        break;
+                    }
+                }
         }
+
         Ok(())
     }
 }
 async fn proxy_adapter(
     client: HttpClients,
-    req: Request<Body>,
+    req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
     remote_addr: SocketAddr,
-) -> Result<Response<Body>, Infallible> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, Infallible> {
     let result = proxy_adapter_with_error(client, req, mapping_key, remote_addr).await;
     match result {
         Ok(res) => Ok(res),
@@ -152,19 +175,19 @@ async fn proxy_adapter(
             let json_value = json!({
                 "error": err.to_string(),
             });
-            Ok(Response::builder()
+            return Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .body(Body::from(json_value.to_string()))
-                .unwrap())
+                .body(Full::new(Bytes::copy_from_slice(json_value.to_string().as_bytes())).boxed())
+                .unwrap());
         }
     }
 }
 async fn proxy_adapter_with_error(
     client: HttpClients,
-    req: Request<Body>,
+    req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
     remote_addr: SocketAddr,
-) -> Result<Response<Body>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     let method = req.method().clone();
     let uri = req.uri().clone();
     let path = uri
@@ -193,7 +216,7 @@ async fn proxy_adapter_with_error(
         });
         Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Body::from(json_value.to_string()))
+            .body(Full::new(Bytes::copy_from_slice(json_value.to_string().as_bytes())).boxed())
             .unwrap()
     });
     let mut elapsed_time = 0;
@@ -211,10 +234,13 @@ async fn proxy_adapter_with_error(
 
     if log_enabled!(Level::Debug) {
         let (parts, body) = res.into_parts();
-        let response_bytes = hyper::body::to_bytes(body)
+        let response_bytes = body
+            .collect()
             .await
-            .map_err(|_| anyhow!("Can not get bytes from body"))?;
-        let response_str = String::from_utf8(response_bytes.clone().to_vec())?;
+            .map_err(|_| AppError(String::from("Can not get bytes from body")))?
+            .to_bytes();
+        let response_str =
+            String::from_utf8(response_bytes.to_vec()).map_err(|e| AppError(e.to_string()))?;
         debug!(target: "app",
            "{}$${}$${}$${}$${}$${}$${}$${:?}",
            remote_addr.to_string(),
@@ -226,7 +252,7 @@ async fn proxy_adapter_with_error(
            response_str,
            parts.headers.clone()
         );
-        let res = Response::from_parts(parts, Body::from(response_bytes));
+        let res = Response::from_parts(parts, Full::new(Bytes::from(response_bytes)).boxed());
         Ok(res)
     } else {
         Ok(res)
@@ -235,11 +261,11 @@ async fn proxy_adapter_with_error(
 
 async fn proxy(
     client: HttpClients,
-    mut req: Request<Body>,
+    mut req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
     remote_addr: SocketAddr,
     check_trait: impl CheckTrait,
-) -> Result<Response<Body>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     debug!("req: {:?}", req);
     let inbound_headers = req.headers().clone();
     let uri = req.uri().clone();
@@ -254,7 +280,7 @@ async fn proxy(
     if check_result.is_none() {
         return Ok(Response::builder()
             .status(StatusCode::FORBIDDEN)
-            .body(Body::from(common_constants::DENY_RESPONSE))
+            .body(Full::new(Bytes::from(common_constants::DENY_RESPONSE)).boxed())
             .unwrap());
     }
     if inbound_headers.clone().contains_key(CONNECTION)
@@ -279,15 +305,20 @@ async fn proxy(
         }
         *req.uri_mut() = request_path
             .parse()
-            .map_err(|err: InvalidUri| anyhow!(err.to_string()))?;
+            .map_err(|err: InvalidUri| AppError(err.to_string()))?;
         let request_future = if request_path.contains("https") {
             client.request_https(req, DEFAULT_HTTP_TIMEOUT)
         } else {
             client.request_http(req, DEFAULT_HTTP_TIMEOUT)
         };
         let response_result = match request_future.await {
-            Ok(response) => response.map_err(|e| anyhow!(e)),
-            _ => return Err(anyhow!("Request time out,the uri is {}", request_path)),
+            Ok(response) => response.map_err(|e| AppError(String::from(e.to_string()))),
+            _ => {
+                return Err(AppError(format!(
+                    "Request time out,the uri is {}",
+                    request_path
+                )))
+            }
         };
         if let (Some(anomaly_detection), Some(liveness_config)) = (
             route.clone().anomaly_detection,
@@ -318,11 +349,14 @@ async fn proxy(
                 }
             }
         }
-        return response_result;
+        let res = response_result?
+            .map(|b| b.boxed())
+            .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
+        return Ok(res);
     }
     Ok(Response::builder()
         .status(StatusCode::NOT_FOUND)
-        .body(Body::from(common_constants::NOT_FOUND))
+        .body(Full::new(Bytes::from(common_constants::NOT_FOUND)).boxed())
         .unwrap())
 }
 async fn trigger_anomaly_detection(
@@ -331,7 +365,7 @@ async fn trigger_anomaly_detection(
     base_route: BaseRoute,
     is_5xx: bool,
     liveness_config: LivenessConfig,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     let AnomalyDetectionType::Http(http_anomaly_detection_param) = anomaly_detection;
     let res = base_route
         .trigger_http_anomaly_detection(
@@ -352,8 +386,8 @@ async fn trigger_anomaly_detection(
 }
 async fn route_file(
     base_route: BaseRoute,
-    req: Request<Body>,
-) -> Result<Response<Body>, anyhow::Error> {
+    req: Request<BoxBody<Bytes, Infallible>>,
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     let static_ = Static::new(Path::new(base_route.endpoint.as_str()));
     let current_res = static_.clone().serve(req).await;
     if current_res.is_ok() {
@@ -361,28 +395,46 @@ async fn route_file(
         if res.status() == StatusCode::NOT_FOUND {
             let mut request: Request<()> = Request::default();
             if base_route.try_file.is_none() {
-                return Err(anyhow!("Please config the try_file!"));
+                return Err(AppError(String::from("Please config the try_file!")));
             }
             *request.uri_mut() = base_route.try_file.unwrap().parse().unwrap();
             return static_
                 .clone()
                 .serve(request)
                 .await
-                .map_err(|e| anyhow!(e.to_string()));
+                .map(|item| {
+                    item.map(|body| {
+                        body.boxed()
+                            .map_err(|_| -> Infallible { unreachable!() })
+                            .boxed()
+                    })
+                })
+                .map_err(|e| AppError(e.to_string()));
         } else {
-            return Ok(res);
+            return Ok(res.map(|body| {
+                body.boxed()
+                    .map_err(|_| -> Infallible { unreachable!() })
+                    .boxed()
+            }));
         }
     }
     let mut request: Request<()> = Request::default();
     if base_route.try_file.is_none() {
-        return Err(anyhow!("Please config the try_file!"));
+        return Err(AppError(String::from("Please config the try_file!")));
     }
     *request.uri_mut() = base_route.try_file.unwrap().parse().unwrap();
     static_
         .clone()
         .serve(request)
         .await
-        .map_err(|e| anyhow!(e.to_string()))
+        .map(|item| {
+            item.map(|body| {
+                body.boxed()
+                    .map_err(|_| -> Infallible { unreachable!() })
+                    .boxed()
+            })
+        })
+        .map_err(|e| AppError(e.to_string()))
 }
 
 #[cfg(test)]
@@ -446,11 +498,9 @@ mod tests {
             .join("test_cert.pem");
         let file = File::open(current_dir).unwrap();
         let mut reader = BufReader::new(file);
-        let certs_result = rustls_pemfile::certs(&mut reader);
-        assert!(certs_result.is_ok());
-
-        let cert = certs_result.unwrap();
-        assert_eq!(cert.len(), 1);
+        let mut certs_result = rustls_pemfile::certs(&mut reader);
+        let first = certs_result.next().unwrap();
+        assert!(first.is_ok());
     }
     #[test]
     fn test_private_key() {
@@ -482,13 +532,14 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://127.0.0.1:9987/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::from("value")).boxed())
                 .unwrap();
             let response_result = client.request_http(request, 5).await;
             assert!(response_result.is_ok());
             let response = response_result.unwrap().unwrap();
             assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let body_bytes = response.collect().await.unwrap().to_bytes();
+            // let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
             let base_response: BaseResponse<String> = serde_json::from_slice(&body_bytes).unwrap();
             assert_eq!(base_response.response_code, -1);
         });
@@ -527,13 +578,13 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("https://localhost:4450/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let response_result = client.request_https(request, 5).await;
             assert!(response_result.is_ok());
             let response = response_result.unwrap().unwrap();
             assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
+            let body_bytes = response.collect().await.unwrap().to_bytes();
             println!("{:?}", body_bytes);
             let base_response: BaseResponse<String> = serde_json::from_slice(&body_bytes).unwrap();
             assert_eq!(base_response.response_code, -1);
@@ -547,7 +598,7 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("https://localhost:4450/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let mapping_key = String::from("test");
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
@@ -561,7 +612,7 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let mapping_key = String::from("test");
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
@@ -574,7 +625,7 @@ mod tests {
         TOKIO_RUNTIME.spawn(async {
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let base_route = BaseRoute {
                 endpoint: String::from("not_found"),
@@ -596,7 +647,7 @@ mod tests {
         TOKIO_RUNTIME.spawn(async {
             let request = Request::builder()
                 .uri("http://localhost:4450/app_config.yaml")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
@@ -615,7 +666,7 @@ mod tests {
         TOKIO_RUNTIME.spawn(async {
             let request = Request::builder()
                 .uri("http://localhost:4450/xxxxxx")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let base_route = BaseRoute {
                 endpoint: String::from("config"),
@@ -687,7 +738,7 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = proxy(
@@ -758,7 +809,7 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = proxy(
@@ -837,7 +888,7 @@ mod tests {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://localhost:10024/get")
-                .body(Body::empty())
+                .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = proxy(

@@ -1,6 +1,7 @@
 use super::app_config::LivenessConfig;
 use super::app_config::LivenessStatus;
 use super::app_config_vistor::BaseRouteVistor;
+use super::app_error::AppError;
 use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
 use crate::vojo::app_config_vistor::{
     HeaderBasedRouteVistor, HeaderRouteVistor, PollBaseRouteVistor, PollRouteVistor,
@@ -30,7 +31,7 @@ impl LoadbalancerStrategy {
     pub async fn get_route(
         &mut self,
         headers: HeaderMap<HeaderValue>,
-    ) -> Result<BaseRoute, anyhow::Error> {
+    ) -> Result<BaseRoute, AppError> {
         match self {
             LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_route(headers).await,
 
@@ -41,7 +42,7 @@ impl LoadbalancerStrategy {
             LoadbalancerStrategy::WeightBased(poll_route) => poll_route.get_route(headers).await,
         }
     }
-    pub async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+    pub async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         match self {
             LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_all_route().await,
             LoadbalancerStrategy::HeaderBased(poll_route) => poll_route.get_all_route().await,
@@ -169,12 +170,12 @@ impl BaseRoute {
         liveness_status_lock: Arc<RwLock<LivenessStatus>>,
         is_5xx: bool,
         liveness_config: LivenessConfig,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AppError> {
         let consecutive_5xx_config = http_anomaly_detection_param.consecutive_5xx;
         let mut anomaly_detection_status = self
             .anomaly_detection_status
             .try_write()
-            .map_err(|e| anyhow!("{}", e))?;
+            .map_err(|e| AppError(e.to_string()))?;
         if !is_5xx && anomaly_detection_status.consecutive_5xx > 0 {
             anomaly_detection_status.consecutive_5xx = 0;
             return Ok(());
@@ -301,7 +302,7 @@ impl HeaderBasedRoute {
 // #[typetag::serde]
 // #[async_trait]
 impl HeaderBasedRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         Ok(self
             .routes
             .iter()
@@ -309,10 +310,7 @@ impl HeaderBasedRoute {
             .collect::<Vec<BaseRoute>>())
     }
 
-    async fn get_route(
-        &mut self,
-        headers: HeaderMap<HeaderValue>,
-    ) -> Result<BaseRoute, anyhow::Error> {
+    async fn get_route(&mut self, headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
         let mut alive_cluster: Vec<HeaderRoute> = vec![];
         for item in self.routes.clone() {
             let is_alve_result = item.base_route.is_alive.read().await;
@@ -398,7 +396,7 @@ impl RandomRoute {
 }
 
 impl RandomRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         Ok(self
             .routes
             .iter()
@@ -406,10 +404,7 @@ impl RandomRoute {
             .collect::<Vec<BaseRoute>>())
     }
 
-    async fn get_route(
-        &mut self,
-        _headers: HeaderMap<HeaderValue>,
-    ) -> Result<BaseRoute, anyhow::Error> {
+    async fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
         let mut alive_cluster: Vec<BaseRoute> = vec![];
         for item in self.routes.clone() {
             let is_alve_result = item.base_route.is_alive.read().await;
@@ -454,7 +449,7 @@ impl PollRoute {
 }
 
 impl PollRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         Ok(self
             .routes
             .iter_mut()
@@ -462,10 +457,7 @@ impl PollRoute {
             .collect::<Vec<BaseRoute>>())
     }
 
-    async fn get_route(
-        &mut self,
-        _headers: HeaderMap<HeaderValue>,
-    ) -> Result<BaseRoute, anyhow::Error> {
+    async fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
         let mut alive_cluster: Vec<PollBaseRoute> = vec![];
         for item in self.routes.clone() {
             let is_alve_result = item.base_route.is_alive.read().await;
@@ -475,7 +467,9 @@ impl PollRoute {
             }
         }
         if alive_cluster.is_empty() {
-            return Err(anyhow!("Can not find alive host in the clusters"));
+            return Err(AppError(String::from(
+                "Can not find alive host in the clusters",
+            )));
         }
         let older = self.current_index.fetch_add(1, Ordering::SeqCst);
         let len = alive_cluster.len();
@@ -502,7 +496,7 @@ impl WeightBasedRoute {
 }
 
 impl WeightBasedRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, anyhow::Error> {
+    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         let read_lock = self.routes.read().await;
         let array = read_lock
             .iter()
@@ -511,10 +505,7 @@ impl WeightBasedRoute {
         Ok(array)
     }
 
-    async fn get_route(
-        &mut self,
-        _headers: HeaderMap<HeaderValue>,
-    ) -> Result<BaseRoute, anyhow::Error> {
+    async fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
         let cluster_read_lock = self.routes.read().await;
         let mut all_cluster_dead = true;
         for (pos, e) in cluster_read_lock.iter().enumerate() {
@@ -534,7 +525,7 @@ impl WeightBasedRoute {
 
         drop(cluster_read_lock);
         if all_cluster_dead {
-            return Err(anyhow!("There are no alive host!"));
+            return Err(AppError(String::from("There are no alive host!")));
         }
         let mut new_lock = self.routes.write().await;
         let index_is_alive = new_lock.iter().any(|f| {
@@ -562,7 +553,7 @@ impl WeightBasedRoute {
                 }
             }
         }
-        Err(anyhow!("WeightRoute get route error"))
+        Err(AppError(String::from("WeightRoute get route error")))
     }
 }
 #[cfg(test)]

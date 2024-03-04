@@ -2,23 +2,24 @@ use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::proxy::http1::http_client::HttpClients;
 use crate::vojo::app_config::Route;
+use crate::vojo::app_error::AppError;
 use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
+use bytes::Bytes;
 use delay_timer::prelude::*;
 use futures;
 use futures::future::join_all;
 use futures::FutureExt;
 use http::Request;
 use http::StatusCode;
-use hyper::Body;
+use http_body_util::BodyExt;
+use http_body_util::Full;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-// use std::time::Duration;
-use url::Url;
-
 use std::sync::Arc;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
+use url::Url;
 
 #[derive(Clone)]
 pub struct HealthCheckClient {
@@ -88,7 +89,7 @@ impl HealthCheck {
         }
     }
 
-    async fn do_health_check(&mut self) -> Result<(), anyhow::Error> {
+    async fn do_health_check(&mut self) -> Result<(), AppError> {
         let handles = GLOBAL_CONFIG_MAPPING
             .iter()
             .flat_map(|item| item.service_config.routes.clone())
@@ -161,7 +162,7 @@ async fn do_http_health_check(
     mut route: Route,
     timeout_number: i32,
     http_health_check_client: HealthCheckClient,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     let route_list = route.route_cluster.get_all_route().await?;
     let http_client = http_health_check_client.http_clients.clone();
     let mut set = JoinSet::new();
@@ -190,7 +191,7 @@ async fn do_http_health_check(
         let req = Request::builder()
             .uri(join_option.unwrap().to_string())
             .method("GET")
-            .body(Body::empty())
+            .body(Full::new(Bytes::new()).boxed())
             .unwrap();
         let task_with_timeout = http_client_shared
             .clone()
@@ -234,7 +235,7 @@ fn submit_task(
     task_id: u64,
     route: Route,
     health_check_clients: HealthCheckClient,
-) -> Result<Task, anyhow::Error> {
+) -> Result<Task, AppError> {
     if let Some(health_check) = route.health_check.clone() {
         let mut task_builder = TaskBuilder::default();
         let base_param = health_check.get_base_param();
@@ -269,9 +270,9 @@ fn submit_task(
             .set_frequency_repeated_by_seconds(base_param.interval as u64)
             .set_maximum_parallel_runnable_num(1)
             .spawn_async_routine(task)
-            .map_err(|err| anyhow!(err.to_string()));
+            .map_err(|err| AppError(err.to_string()));
     }
-    Err(anyhow!("Submit task error!"))
+    Err(AppError(String::from("Submit task error!")))
 }
 #[cfg(test)]
 mod tests {
