@@ -114,7 +114,7 @@ impl GrpcProxy {
                 }
                },
                _=reveiver.recv()=>{
-                info!("close the socket!");
+                info!("close the socket of grpc!");
                 return Ok(());
                }
             };

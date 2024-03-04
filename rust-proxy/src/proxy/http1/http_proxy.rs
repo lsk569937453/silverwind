@@ -84,6 +84,7 @@ impl HttpProxy {
                 });
                 },
                 _ = reveiver.recv() => {
+                    info!("http server stoped");
                     break;
                 }
             }
@@ -153,6 +154,7 @@ impl HttpProxy {
                 });
             },
                     _ = reveiver.recv() => {
+                        info!("https server stoped");
                         break;
                     }
                 }
