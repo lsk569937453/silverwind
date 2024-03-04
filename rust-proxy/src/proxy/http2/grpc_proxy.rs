@@ -2,6 +2,7 @@ use crate::constants::common_constants::GRPC_STATUS_HEADER;
 use crate::constants::common_constants::GRPC_STATUS_OK;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
+use crate::vojo::app_error::AppError;
 use h2::client;
 use h2::server;
 use h2::server::SendResponse;
@@ -12,6 +13,7 @@ use http::Response;
 use http::{Method, Request};
 use hyper::body::Bytes;
 
+use rustls_pki_types::CertificateDer;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
@@ -19,11 +21,11 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio_rustls::rustls::OwnedTrustAnchor;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::{rustls, TlsAcceptor};
 use url::Url;
+
 pub struct GrpcProxy {
     pub port: i32,
     pub channel: mpsc::Receiver<()>,
@@ -33,8 +35,10 @@ pub async fn start_task(
     tcp_stream: TcpStream,
     mapping_key: String,
     peer_addr: SocketAddr,
-) -> Result<(), anyhow::Error> {
-    let mut connection = server::handshake(tcp_stream).await?;
+) -> Result<(), AppError> {
+    let mut connection = server::handshake(tcp_stream)
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
     while let Some(request_result) = connection.accept().await {
         if let Ok((request, respond)) = request_result {
             let mapping_key_cloned = mapping_key.clone();
@@ -56,8 +60,10 @@ pub async fn start_tls_task(
     tcp_stream: TlsStream<TcpStream>,
     mapping_key: String,
     peer_addr: SocketAddr,
-) -> Result<(), anyhow::Error> {
-    let mut connection = server::handshake(tcp_stream).await?;
+) -> Result<(), AppError> {
+    let mut connection = server::handshake(tcp_stream)
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
     while let Some(request_result) = connection.accept().await {
         if let Ok((request, respond)) = request_result {
             let mapping_key_cloned = mapping_key.clone();
@@ -80,7 +86,7 @@ async fn request_outbound_adapter(
     inbound_respond: SendResponse<Bytes>,
     mapping_key: String,
     peer_addr: SocketAddr,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     request_outbound(
         inbount_request,
         inbound_respond,
@@ -91,7 +97,7 @@ async fn request_outbound_adapter(
     .await
 }
 impl GrpcProxy {
-    pub async fn start_proxy(&mut self) -> Result<(), anyhow::Error> {
+    pub async fn start_proxy(&mut self) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         info!("Listening on grpc://{}", addr);
@@ -118,22 +124,26 @@ impl GrpcProxy {
         &mut self,
         pem_str: String,
         key_str: String,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
-        let certs = rustls_pemfile::certs(&mut cer_reader)
-            .unwrap()
-            .iter()
-            .map(|s| rustls::Certificate((*s).clone()))
-            .collect();
+        // let certs = rustls_pemfile::certs(&mut cer_reader)
+        //     .unwrap()
+        //     .iter()
+        //     .map(|s| rustls::Certificate((*s).clone()))
+        //     .collect();
+        let certs: Vec<CertificateDer<'_>> = rustls_pemfile::certs(&mut cer_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| AppError(e.to_string()))?;
 
-        let doc = pkcs8::PrivateKeyDocument::from_pem(&key_str).unwrap();
-        let key_der = rustls::PrivateKey(doc.as_ref().to_owned());
+        let mut key_reader = BufReader::new(key_str.as_bytes());
+        let key_der = rustls_pemfile::private_key(&mut key_reader)
+            .map(|key| key.unwrap())
+            .map_err(|e| AppError(e.to_string()))?;
 
         let tls_cfg = {
             let cfg = rustls::ServerConfig::builder()
-                .with_safe_defaults()
                 .with_no_client_auth()
                 .with_single_cert(certs, key_der)
                 .unwrap();
@@ -168,16 +178,22 @@ impl GrpcProxy {
 async fn copy_io(
     mut send_stream: SendStream<Bytes>,
     mut recv_stream: RecvStream,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     let mut flow_control = recv_stream.flow_control().clone();
     while let Some(chunk_result) = recv_stream.data().await {
-        let chunk_bytes = chunk_result?;
+        let chunk_bytes = chunk_result.map_err(|e| AppError(e.to_string()))?;
         debug!("Data from outbound: {:?}", chunk_bytes.clone());
-        send_stream.send_data(chunk_bytes.clone(), false)?;
-        flow_control.release_capacity(chunk_bytes.len())?;
+        send_stream
+            .send_data(chunk_bytes.clone(), false)
+            .map_err(|e| AppError(e.to_string()))?;
+        flow_control
+            .release_capacity(chunk_bytes.len())
+            .map_err(|e| AppError(e.to_string()))?;
     }
     if let Ok(Some(header)) = recv_stream.trailers().await {
-        send_stream.send_trailers(header)?;
+        send_stream
+            .send_trailers(header)
+            .map_err(|e| AppError(e.to_string()))?;
     }
     Ok(())
 }
@@ -187,7 +203,7 @@ async fn request_outbound(
     mapping_key: String,
     peer_addr: SocketAddr,
     check_trait: impl CheckTrait,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     debug!("{:?}", inbount_request);
     let (inbound_parts, inbound_body) = inbount_request.into_parts();
 
@@ -197,43 +213,52 @@ async fn request_outbound(
         .check_before_request(mapping_key.clone(), inbound_headers, uri, peer_addr)
         .await?;
     if check_result.is_none() {
-        return Err(anyhow!("The request has been denied by the proxy!"));
+        return Err(AppError(String::from(
+            "The request has been denied by the proxy!",
+        )));
     }
     let request_path = check_result.unwrap().request_path;
-    let url = Url::parse(&request_path)?;
+    let url = Url::parse(&request_path).map_err(|e| AppError(e.to_string()))?;
     let cloned_url = url.clone();
-    let host = cloned_url.host().ok_or(anyhow!("Parse host error!"))?;
-    let port = cloned_url.port().ok_or(anyhow!("Parse host error!"))?;
+    let host = cloned_url
+        .host()
+        .ok_or(AppError(String::from("Parse host error!")))?;
+    let port = cloned_url
+        .port()
+        .ok_or(AppError(String::from("Parse host error!")))?;
     debug!("The host is {}", host);
 
     let addr = format!("{}:{}", host, port)
-        .to_socket_addrs()?
+        .to_socket_addrs()
+        .map_err(|e| AppError(e.to_string()))?
         .next()
-        .ok_or(anyhow!("Parse the domain error!"))?;
+        .ok_or(AppError(String::from("Parse the domain error!")))?;
     debug!("The addr is {}", addr);
+    let host_str = host.to_string();
 
     let send_request_poll = if request_path.clone().contains("https") {
         let mut root_cert_store = rustls::RootCertStore::empty();
-        root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-            |ta| {
-                OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    ta.subject,
-                    ta.spki,
-                    ta.name_constraints,
-                )
-            },
-        ));
+        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
         let mut config = rustls::ClientConfig::builder()
-            .with_safe_defaults()
             .with_root_certificates(root_cert_store)
             .with_no_client_auth();
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         let tls_connector = TlsConnector::from(Arc::new(config));
-        let stream = TcpStream::connect(&addr).await?;
-        let domain = rustls::ServerName::try_from(host.to_string().as_str())?;
+        let stream = TcpStream::connect(&addr)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
+        let domain = rustls_pki_types::ServerName::try_from(host_str.as_str())
+            .map_err(|e| AppError(e.to_string()))?
+            .to_owned();
         debug!("The domain name is {}", host);
-        let stream = tls_connector.connect(domain, stream).await?;
-        let (send_request, connection) = client::handshake(stream).await?;
+        let stream = tls_connector
+            .connect(domain, stream)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
+        let (send_request, connection) = client::handshake(stream)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
         tokio::spawn(async move {
             let connection_result = connection.await;
             if let Err(err) = connection_result {
@@ -244,8 +269,12 @@ async fn request_outbound(
         });
         send_request
     } else {
-        let tcpstream = TcpStream::connect(addr).await?;
-        let (send_request, connection) = client::handshake(tcpstream).await?;
+        let tcpstream = TcpStream::connect(addr)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
+        let (send_request, connection) = client::handshake(tcpstream)
+            .await
+            .map_err(|e| AppError(e.to_string()))?;
         tokio::spawn(async move {
             connection.await.unwrap();
             debug!("The connection has closed!");
@@ -254,7 +283,10 @@ async fn request_outbound(
     };
 
     debug!("request path is {}", url.to_string());
-    let mut send_request = send_request_poll.ready().await?;
+    let mut send_request = send_request_poll
+        .ready()
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
     let request = Request::builder()
         .method(Method::POST)
         .version(Version::HTTP_2)
@@ -264,7 +296,9 @@ async fn request_outbound(
         .body(())
         .unwrap();
     debug!("Our bound request is {:?}", request);
-    let (response, outbound_send_stream) = send_request.send_request(request, false)?;
+    let (response, outbound_send_stream) = send_request
+        .send_request(request, false)
+        .map_err(|e| AppError(e.to_string()))?;
     tokio::spawn(async {
         if let Err(err) = copy_io(outbound_send_stream, inbound_body).await {
             error!("Copy from inbound to outboud error,the error is {}", err);
@@ -273,7 +307,7 @@ async fn request_outbound(
 
     let (head, outboud_response_body) = response
         .await
-        .map_err(|e| anyhow!(e.to_string()))?
+        .map_err(|e| AppError(e.to_string()))?
         .into_parts();
 
     debug!("Received response: {:?}", head);
@@ -287,7 +321,7 @@ async fn request_outbound(
 
     let send_stream = inbound_respond
         .send_response(inbound_response, is_grpc_status_ok)
-        .map_err(|e| anyhow!(e.to_string()))?;
+        .map_err(|e| AppError(e.to_string()))?;
 
     tokio::spawn(async {
         if let Err(err) = copy_io(send_stream, outboud_response_body).await {
@@ -306,7 +340,8 @@ mod tests {
     use hyper::HeaderMap;
     use hyper::Uri;
 
-    use hyper::Body;
+    use http_body_util::BodyExt;
+    use http_body_util::Full;
     use hyper::StatusCode;
     use lazy_static::lazy_static;
     use std::env;
@@ -322,7 +357,7 @@ mod tests {
             _headers: HeaderMap,
             _uri: Uri,
             _peer_addr: SocketAddr,
-        ) -> Result<Option<CheckResult>, anyhow::Error> {
+        ) -> Result<Option<CheckResult>, AppError> {
             let route = Route::from(Default::default()).await?;
             Ok(Some(CheckResult {
                 request_path: String::from("http://127.0.0.1:50051"),
@@ -363,7 +398,7 @@ mod tests {
             .uri("http://127.0.0.1:3527")
             .header("content-type", "application/grpc")
             .header("te", "trailers")
-            .body(Body::empty())
+            .body(Full::new(Bytes::new()).boxed())
             .unwrap();
         let http_clients = HttpClients::new();
         let outbound_res = http_clients.request_http(request, 3).await;
@@ -406,7 +441,7 @@ mod tests {
             .uri("https://127.0.0.1:5746")
             .header("content-type", "application/grpc")
             .header("te", "trailers")
-            .body(Body::empty())
+            .body(Full::new(Bytes::new()).boxed())
             .unwrap();
         let http_clients = HttpClients::new();
         let outbound_res = http_clients.request_http(request, 3).await;

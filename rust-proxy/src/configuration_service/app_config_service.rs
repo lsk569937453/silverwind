@@ -13,6 +13,7 @@ use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::ServiceConfig;
 use crate::vojo::app_config::{ApiService, AppConfig, ServiceType};
 use crate::vojo::app_config_vistor::ApiServiceVistor;
+use crate::vojo::app_error::AppError;
 use dashmap::DashMap;
 use futures::FutureExt;
 use lazy_static::lazy_static;
@@ -56,10 +57,10 @@ async fn sync_mapping_from_global_app_config() {
 *Key in Old Map:[1,2]
  Key in Current Map:[2,4,5]
 */
-async fn update_mapping_from_global_appconfig() -> Result<(), anyhow::Error> {
+async fn update_mapping_from_global_appconfig() -> Result<(), AppError> {
     let rw_global_app_config = GLOBAL_APP_CONFIG
         .try_read()
-        .map_err(|err| anyhow!(err.to_string()))?;
+        .map_err(|err| AppError(err.to_string()))?;
     let api_services = rw_global_app_config.api_service_config.clone();
 
     let new_item_hash = api_services
@@ -133,7 +134,7 @@ pub async fn start_proxy(
     channel: mpsc::Receiver<()>,
     server_type: ServiceType,
     mapping_key: String,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), AppError> {
     if server_type == ServiceType::Http {
         let mut http_proxy = HttpProxy {
             port,
@@ -212,7 +213,7 @@ async fn init_static_config() {
         global_app_config.static_config.config_file_path = Some(config_file_path);
     }
 }
-async fn init_app_service_config() -> Result<(), anyhow::Error> {
+async fn init_app_service_config() -> Result<(), AppError> {
     let rw_app_config_read = GLOBAL_APP_CONFIG.read().await;
 
     let config_file_path = rw_app_config_read.static_config.config_file_path.clone();
@@ -222,10 +223,10 @@ async fn init_app_service_config() -> Result<(), anyhow::Error> {
     drop(rw_app_config_read);
     let file_path = config_file_path.unwrap().clone();
     info!("the config file is in{}", file_path.clone());
-    let file = std::fs::File::open(file_path)?;
+    let file = std::fs::File::open(file_path).map_err(|e| AppError(e.to_string()))?;
     let scrape_config: Vec<ApiServiceVistor> = match serde_yaml::from_reader(file) {
         Ok(apiservices) => apiservices,
-        Err(err) => return Err(anyhow!(err.to_string())),
+        Err(err) => return Err(AppError(err.to_string())),
     };
     let mut rw_app_config_write = GLOBAL_APP_CONFIG.write().await;
 

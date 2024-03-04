@@ -3,6 +3,8 @@ use iprange::IpRange;
 use serde::{Deserialize, Serialize};
 use std::net::Ipv4Addr;
 
+use super::app_error::AppError;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct AllowDenyObject {
     pub limit_type: AllowType,
@@ -24,7 +26,7 @@ pub enum AllowResult {
     Notmapping,
 }
 impl AllowDenyObject {
-    pub fn is_allow(&self, client_ip: String) -> Result<AllowResult, anyhow::Error> {
+    pub fn is_allow(&self, client_ip: String) -> Result<AllowResult, AppError> {
         if self.limit_type == AllowType::AllowAll {
             return Ok(AllowResult::Allow);
         }
@@ -32,9 +34,9 @@ impl AllowDenyObject {
             return Ok(AllowResult::Deny);
         }
         if self.value.is_none() {
-            return Err(anyhow!(
-                "the value counld not be none when the limit_type is not AllowAll or DenyAll!"
-            ));
+            return Err(AppError(String::from(
+                "the value counld not be none when the limit_type is not AllowAll or DenyAll!",
+            )));
         }
         let config_ip = self.value.clone().unwrap();
         let value_mapped_ip;

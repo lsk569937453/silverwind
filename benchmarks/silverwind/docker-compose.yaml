@@ -3,7 +3,8 @@ version: '3.9'
 services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
-    tty: true 
+    container_name: hey
+    tty: true
     deploy:
       resources:
         limits:
@@ -11,6 +12,7 @@ services:
           memory: 8192M
   backend:
     image: jmalloc/echo-server
+    container_name: backend
     ports:
     - "9394:8080"
     deploy:
@@ -21,11 +23,11 @@ services:
   silverwind:
     image: lsk569937453/silverwind:0.0.8
     #image: lsk569937453/silverwind:test
+    container_name: silverwind
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml
       RUST_BACKTRACE: 1
       JEMALLOC_SYS_WITH_MALLOC_CONF: background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true
-    container_name: silverwind
     volumes:
     - ./app_config.yaml:/data/app/app_config.yaml
     restart: unless-stopped

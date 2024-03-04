@@ -1,23 +1,34 @@
+use hyper::body::Incoming;
 use tokio::io;
 
 use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::proxy::http1::http_client::HttpClients;
-
+use crate::vojo::app_error::AppError;
 use base64::{engine::general_purpose, Engine as _};
+use bytes::Bytes;
+use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::header::{HeaderValue, CONNECTION, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, UPGRADE};
-use hyper::{Body, Request, Response, StatusCode};
-
+use hyper::{Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use sha1::{Digest, Sha1};
-
+use std::convert::Infallible;
 use tokio::io::AsyncWriteExt;
 
 use crate::proxy::proxy_trait::CheckResult;
 async fn server_upgraded_io(
-    inbound_req: Request<Body>,
-    outbound_res: Response<Body>,
-) -> Result<(), anyhow::Error> {
-    let inbound = hyper::upgrade::on(inbound_req).await?;
-    let outbound = hyper::upgrade::on(outbound_res).await?;
+    inbound_req: Request<BoxBody<Bytes, Infallible>>,
+    outbound_res: Response<Incoming>,
+) -> Result<(), AppError> {
+    let upgraded_inbound = hyper::upgrade::on(inbound_req)
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
+    let inbound = TokioIo::new(upgraded_inbound);
+
+    let upgraded_outbound = hyper::upgrade::on(outbound_res)
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
+    let outbound = TokioIo::new(upgraded_outbound);
+
     let (mut ri, mut wi) = tokio::io::split(inbound);
     let (mut ro, mut wo) = tokio::io::split(outbound);
     let client_to_server = async {
@@ -39,12 +50,12 @@ async fn server_upgraded_io(
     Ok(())
 }
 pub async fn server_upgrade(
-    req: Request<Body>,
+    req: Request<BoxBody<Bytes, Infallible>>,
     check_result: Option<CheckResult>,
     http_client: HttpClients,
-) -> Result<Response<Body>, anyhow::Error> {
+) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
     debug!("The source request:{:?}.", req);
-    let mut res = Response::new(Body::empty());
+    let mut res = Response::new(Full::new(Bytes::new()).boxed());
     if !req.headers().contains_key(UPGRADE) {
         *res.status_mut() = StatusCode::BAD_REQUEST;
         return Ok(res);
@@ -54,15 +65,17 @@ pub async fn server_upgrade(
     let upgrade_value = header_map.get(UPGRADE).unwrap();
     let sec_websocke_key = header_map
         .get(SEC_WEBSOCKET_KEY)
-        .ok_or(anyhow!("Can not get the websocket key!"))?
-        .to_str()?
+        .ok_or(AppError(String::from("Can not get the websocket key!")))?
+        .to_str()
+        .map_err(|e| AppError(e.to_string()))?
         .to_string();
 
     let request_path = check_result.unwrap().request_path;
     let mut new_request = Request::builder()
         .method(req.method().clone())
         .uri(request_path.clone())
-        .body(Body::empty())?;
+        .body(Full::new(Bytes::new()).boxed())
+        .map_err(|e| AppError(e.to_string()))?;
 
     let new_header = new_request.headers_mut();
     header_map.iter().for_each(|(key, value)| {
@@ -76,11 +89,14 @@ pub async fn server_upgrade(
         http_client.request_http(new_request, DEFAULT_HTTP_TIMEOUT)
     };
     let outbound_res = match request_future.await {
-        Ok(response) => response.map_err(|e| anyhow!(e.to_string())),
-        Err(_) => Err(anyhow!("Request time out,the uri is {}", request_path)),
+        Ok(response) => response.map_err(|e| AppError(e.to_string())),
+        Err(_) => Err(AppError(format!(
+            "Request time out,the uri is {}",
+            request_path
+        ))),
     }?;
     if outbound_res.status() != StatusCode::SWITCHING_PROTOCOLS {
-        return Err(anyhow!("Request error!"));
+        return Err(AppError(String::from("Request error!")));
     }
     tokio::task::spawn(async move {
         let res = server_upgraded_io(req, outbound_res).await;
@@ -97,9 +113,11 @@ pub async fn server_upgrade(
     res.headers_mut().insert(UPGRADE, upgrade_value.clone());
     res.headers_mut().insert(
         SEC_WEBSOCKET_ACCEPT,
-        HeaderValue::from_str(encoded.as_str())?,
+        HeaderValue::from_str(encoded.as_str()).map_err(|e| AppError(e.to_string()))?,
     );
-    res.headers_mut()
-        .insert(CONNECTION, HeaderValue::from_str("Upgrade")?);
+    res.headers_mut().insert(
+        CONNECTION,
+        HeaderValue::from_str("Upgrade").map_err(|e| AppError(e.to_string()))?,
+    );
     Ok(res)
 }
