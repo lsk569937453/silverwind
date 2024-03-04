@@ -1,6 +1,8 @@
 [package]
 name = "silverwind"
-version = "0.0.11"
+version = "0.0.12"
+authors = ["lsk"]
+license = "MIT"
 edition = "2021"
 
 [profile.dev]
@@ -51,7 +53,7 @@ bb8 = "0.8.3"
 tokio-util = { version = "0.7.10",  features = ["full","time"] }
 http-body = "1.0.0"
 http-body-util = { version = "0.1.0"}
-hyper = { version = "0.14.25",  features = ["full"] }
+hyper = { version = "0.14.28",  features = ["full"] }
 http = "0.2.9"
 oas3 = "0.2.1"
 warp = "0.3.4"

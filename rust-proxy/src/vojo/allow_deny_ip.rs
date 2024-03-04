@@ -42,11 +42,7 @@ impl AllowDenyObject {
             let ip_range: IpRange<Ipv4Net> =
                 [config_ip].iter().map(|s| s.parse().unwrap()).collect();
             let source_ip = client_ip.parse::<Ipv4Addr>().unwrap();
-            if ip_range.contains(&source_ip) {
-                value_mapped_ip = true;
-            } else {
-                value_mapped_ip = false;
-            }
+            value_mapped_ip = ip_range.contains(&source_ip);
         } else if self.value.clone().unwrap() == client_ip {
             value_mapped_ip = true;
         } else {
