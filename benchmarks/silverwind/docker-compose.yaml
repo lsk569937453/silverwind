@@ -4,7 +4,7 @@ services:
   test:
     image: demisto/rakyll-hey:1.0.0.44140
     container_name: hey
-    tty: true 
+    tty: true
     deploy:
       resources:
         limits:
@@ -21,8 +21,8 @@ services:
           cpus: "4.0"
           memory: 8192M
   silverwind:
-    image: lsk569937453/silverwind:test
-    #image: lsk569937453/silverwind:0.0.6
+    image: lsk569937453/silverwind:0.0.8
+    #image: lsk569937453/silverwind:test
     container_name: silverwind
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml
