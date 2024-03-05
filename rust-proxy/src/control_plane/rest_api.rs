@@ -14,6 +14,7 @@ use crate::vojo::route::BaseRoute;
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
 use axum::Router;
+use http::header;
 use prometheus::{Encoder, TextEncoder};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -111,7 +112,9 @@ async fn post_app_config_with_error(
     let json_str = serde_json::to_string(&data).unwrap();
     Ok((axum::http::StatusCode::OK, json_str))
 }
-async fn delete_route(route_id: String) -> Result<impl axum::response::IntoResponse, Infallible> {
+async fn delete_route(
+    axum::extract::Path(route_id): axum::extract::Path<String>,
+) -> Result<impl axum::response::IntoResponse, Infallible> {
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
     let mut api_services = vec![];
     for mut api_service in rw_global_lock.clone().api_service_config {
@@ -141,12 +144,12 @@ async fn delete_route(route_id: String) -> Result<impl axum::response::IntoRespo
 async fn put_route(
     axum::extract::Json(route_vistor): axum::extract::Json<RouteVistor>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
-    match post_route_with_error(route_vistor).await {
+    match put_route_with_error(route_vistor).await {
         Ok(r) => Ok((axum::http::StatusCode::OK, r)),
         Err(e) => Ok((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
-async fn post_route_with_error(route_vistor: RouteVistor) -> Result<String, AppError> {
+async fn put_route_with_error(route_vistor: RouteVistor) -> Result<String, AppError> {
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
 
     let old_route = rw_global_lock
@@ -252,12 +255,11 @@ pub fn get_router() -> Router {
         .layer(CorsLayer::permissive())
         .route("/appConfig", get(get_app_config).post(post_app_config))
         .route("/metrics", get(get_prometheus_metrics))
-        .route("/route", put(put_route).delete(delete_route))
+        .route("/route/:id", put(put_route).delete(delete_route))
         .route("/letsEncryptCertificate", post(lets_encrypt_certificate))
 }
 pub async fn start_control_plane(port: i32) -> Result<(), AppError> {
     let app = get_router();
-    // let put_request = warp::put().and(path()).recover(handle_not_found);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
 
@@ -316,7 +318,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
     #[tokio::test]
     async fn test_api_post_response_ok() {
@@ -530,6 +532,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }

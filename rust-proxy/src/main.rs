@@ -68,7 +68,7 @@ mod tests {
         });
         let sleep_time = time::Duration::from_millis(5000);
         thread::sleep(sleep_time);
-        let listener = TcpListener::bind("127.0.0.1:5402");
+        let listener = TcpListener::bind("0.0.0.0:5402");
         assert!(listener.is_err());
     }
 }

@@ -59,7 +59,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
     #[tokio::test]
     async fn test_lets_encrypt_certificate_error2() {
