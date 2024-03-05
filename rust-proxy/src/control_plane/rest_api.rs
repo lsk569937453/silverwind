@@ -12,6 +12,7 @@ use crate::vojo::app_error::AppError;
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::route::BaseRoute;
 use axum::response::IntoResponse;
+use axum::routing::delete;
 use axum::routing::{get, post, put};
 use axum::Router;
 use http::header;
@@ -251,12 +252,13 @@ fn validate_tls_config(
 }
 pub fn get_router() -> Router {
     axum::Router::new()
-        .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive())
         .route("/appConfig", get(get_app_config).post(post_app_config))
         .route("/metrics", get(get_prometheus_metrics))
-        .route("/route/:id", put(put_route).delete(delete_route))
+        .route("/route/:id", delete(delete_route))
+        .route("/route", put(put_route))
         .route("/letsEncryptCertificate", post(lets_encrypt_certificate))
+        .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
 }
 pub async fn start_control_plane(port: i32) -> Result<(), AppError> {
     let app = get_router();
