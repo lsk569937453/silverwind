@@ -11,10 +11,10 @@ use crate::vojo::app_config_vistor::RouteVistor;
 use crate::vojo::app_error::AppError;
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::route::BaseRoute;
+use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
 use axum::Router;
 use prometheus::{Encoder, TextEncoder};
-use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
@@ -31,20 +31,20 @@ async fn get_app_config() -> Result<impl axum::response::IntoResponse, Infallibl
 
     let app_config_vistor_result = AppConfigVistor::from(app_config.clone()).await;
     if app_config_vistor_result.is_err() {
-        return (
+        return Ok((
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("No route {}", INTERNAL_SERVER_ERROR.into()),
-        );
+            format!("No route {}", INTERNAL_SERVER_ERROR),
+        ));
     }
     let data = BaseResponse {
         response_code: 0,
         response_object: app_config_vistor_result.unwrap(),
     };
     let res = match serde_json::to_string(&data) {
-        Ok(json) => json!(json).into(),
+        Ok(json) => (axum::http::StatusCode::OK, json),
         Err(_) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("No route {}", INTERNAL_SERVER_ERROR.into()),
+            format!("No route {}", INTERNAL_SERVER_ERROR),
         ),
     };
     Ok(res)
@@ -60,15 +60,17 @@ async fn get_prometheus_metrics() -> Result<impl axum::response::IntoResponse, I
     ))
 }
 async fn post_app_config(
-    api_services_vistor: ApiServiceVistor,
+    axum::extract::Json(api_services_vistor): axum::extract::Json<ApiServiceVistor>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
-    match post_app_config_with_error(api_services_vistor).await {
-        Ok(r) => Ok(r),
-        Err(err) => Ok((
+    let t = match post_app_config_with_error(api_services_vistor).await {
+        Ok(r) => r.into_response(),
+        Err(err) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
-        )),
-    }
+        )
+            .into_response(),
+    };
+    return Ok(t);
 }
 async fn post_app_config_with_error(
     api_services_vistor: ApiServiceVistor,
@@ -107,7 +109,7 @@ async fn post_app_config_with_error(
         response_object: 0,
     };
     let json_str = serde_json::to_string(&data).unwrap();
-    Ok(json!(json_str).into())
+    Ok((axum::http::StatusCode::OK, json_str))
 }
 async fn delete_route(route_id: String) -> Result<impl axum::response::IntoResponse, Infallible> {
     let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
@@ -133,14 +135,14 @@ async fn delete_route(route_id: String) -> Result<impl axum::response::IntoRespo
         response_object: 0,
     };
     let json_str = serde_json::to_string(&data).unwrap();
-    Ok(json!(json_str).into())
+    Ok((axum::http::StatusCode::OK, json_str))
 }
 
 async fn put_route(
-    route_vistor: RouteVistor,
+    axum::extract::Json(route_vistor): axum::extract::Json<RouteVistor>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     match post_route_with_error(route_vistor).await {
-        Ok(r) => Ok(json!(r).into()),
+        Ok(r) => Ok((axum::http::StatusCode::OK, r)),
         Err(e) => Ok((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
@@ -253,14 +255,19 @@ pub fn get_router() -> Router {
         .route("/route", put(put_route).delete(delete_route))
         .route("/letsEncryptCertificate", post(lets_encrypt_certificate))
 }
-pub async fn start_control_plane(port: i32) {
+pub async fn start_control_plane(port: i32) -> Result<(), AppError> {
     let app = get_router();
     // let put_request = warp::put().and(path()).recover(handle_not_found);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
+    axum::serve(listener, app)
+        .await
+        .map_err(|e| AppError(e.to_string()))?;
+    Ok(())
 }
 #[cfg(test)]
 mod tests {
@@ -268,12 +275,14 @@ mod tests {
     use axum::http::StatusCode;
     use axum::{
         body::Body,
-        extract::connect_info::MockConnectInfo,
         http::{self, Request},
     };
+    use http_body_util::BodyExt;
     use lazy_static::lazy_static;
+    use serde_json::json;
     use std::env;
     use tokio::runtime::{Builder, Runtime};
+    use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
     lazy_static! {
         pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
             .worker_threads(4)
@@ -353,7 +362,7 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
-        let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
+        let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(base_response.response_code, 0);
     }
     #[test]
@@ -443,7 +452,7 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
-        let base_response: BaseResponse<i32> = serde_json::from_slice(body_bytes).unwrap();
+        let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(base_response.response_code, 0);
     }
     #[tokio::test]

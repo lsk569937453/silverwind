@@ -1,7 +1,6 @@
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::lets_encrypt::LetsEntrypt;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::convert::Infallible;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 struct LetsEncryptResponse {
@@ -9,14 +8,14 @@ struct LetsEncryptResponse {
     certificate_perm: String,
 }
 pub async fn lets_encrypt_certificate(
-    lets_encrypt_object: LetsEntrypt,
+    axum::extract::Json(lets_encrypt_object): axum::extract::Json<LetsEntrypt>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     let request_result = lets_encrypt_object.start_request().await;
     if let Err(err) = request_result {
-        return (
+        return Ok((
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             err.to_string(),
-        );
+        ));
     }
     let certificate = request_result.unwrap();
     let response = LetsEncryptResponse {
@@ -29,7 +28,7 @@ pub async fn lets_encrypt_certificate(
     };
     let json_str = serde_json::to_string(&data).unwrap();
 
-    Ok(json!(json_str).into())
+    Ok((axum::http::StatusCode::OK, json_str))
 }
 
 #[cfg(test)]
@@ -37,13 +36,9 @@ mod tests {
     use super::*;
     use crate::control_plane::rest_api::get_router;
     use axum::http::StatusCode;
-    use axum::{
-        body::Body,
-        extract::connect_info::MockConnectInfo,
-        http::{self, Request},
-    };
-    use lazy_static::lazy_static;
-    use std::env;
+    use axum::http::{self, Request};
+
+    use tower::ServiceExt;
     #[tokio::test]
     async fn test_lets_encrypt_certificate_error1() {
         let lets_entrypt = LetsEntrypt::_new(
