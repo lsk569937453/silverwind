@@ -1,21 +1,18 @@
+use super::app_error::AppError;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use acme_lib::persist::FilePersist;
 use acme_lib::{create_p384_key, Certificate};
 use acme_lib::{Directory, DirectoryUrl, Error};
+use axum::extract::State;
+use axum::{routing::get, Router};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 use std::env;
-use std::net::TcpListener;
 use std::path::Path;
 use std::sync::Arc;
-use std::thread;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
-use warp::http::StatusCode;
-use warp::Filter;
-use warp::{Rejection, Reply};
-
-use super::app_error::AppError;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc::{self, Receiver};
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 
 pub struct LetsEntrypt {
@@ -24,22 +21,16 @@ pub struct LetsEntrypt {
     #[serde(skip_serializing, skip_deserializing)]
     pub token_map: Arc<DashMap<String, String>>,
 }
-pub async fn handle_not_found(reject: Rejection) -> Result<impl Reply, Rejection> {
-    if reject.is_not_found() {
-        Ok(StatusCode::NOT_FOUND)
-    } else {
-        Err(reject)
-    }
-}
+
 pub async fn dyn_reply(
-    token: String,
-    token_map_shared: Arc<DashMap<String, String>>,
-) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
+    axum::extract::Path(token): axum::extract::Path<String>,
+    State(token_map_shared): State<Arc<DashMap<String, String>>>,
+) -> Result<impl axum::response::IntoResponse, Infallible> {
     info!("The server has received the token,the token is {}", token);
 
     if !token_map_shared.contains_key(&token) {
         error!("Can not find the token:{} from memory.", token);
-        return Ok(Box::new(StatusCode::BAD_REQUEST));
+        return Ok((axum::http::StatusCode::BAD_REQUEST, String::from("")));
     } else {
         // let cloned_map = token_map.clone();
         let proof_option = token_map_shared.get(&token);
@@ -49,17 +40,12 @@ pub async fn dyn_reply(
                 token,
                 proof.clone()
             );
-            return Ok(Box::new(proof.clone()));
+            return Ok((axum::http::StatusCode::OK, proof.clone().to_string()));
         }
     }
-    Ok(Box::new(StatusCode::BAD_REQUEST))
+    Ok((axum::http::StatusCode::OK, String::from("")))
 }
-pub fn with_token_map(
-    token_map: Arc<DashMap<String, String>>,
-) -> impl Filter<Extract = (Arc<DashMap<String, String>>,), Error = std::convert::Infallible> + Clone
-{
-    warp::any().map(move || token_map.clone())
-}
+
 impl LetsEntrypt {
     pub fn _new(mail_name: String, domain_name: String) -> Self {
         LetsEntrypt {
@@ -68,43 +54,32 @@ impl LetsEntrypt {
             token_map: Arc::new(DashMap::new()),
         }
     }
+    async fn create_temp_server(
+        token_map: Arc<DashMap<String, String>>,
+        mut rx: Receiver<()>,
+    ) -> Result<(), AppError> {
+        let app = Router::new()
+            .route("/.well-known/acme-challenge/:token", get(dyn_reply))
+            .with_state(token_map);
+        // Create a `TcpListener` using tokio.
+        let listener = TcpListener::bind("0.0.0.0:80").await.unwrap();
+
+        // Run the server with graceful shutdown
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                rx.recv().await;
+                info!("Close the port 80 successfully!");
+            })
+            .await
+            .unwrap();
+        info!("Stop listening on the port 80");
+        Ok(())
+    }
     pub async fn start_request(&self) -> Result<Certificate, AppError> {
-        let listener = TcpListener::bind("0.0.0.0:80").map_err(|e| AppError(e.to_string()))?;
-        drop(listener);
-
-        let incoming_log = warp::log::custom(|info| {
-            eprintln!(
-                "{} {} {} {:?}",
-                info.method(),
-                info.path(),
-                info.status(),
-                info.elapsed(),
-            );
-        });
-        let (tx, mut rx) = mpsc::channel(100);
+        let (tx, rx) = mpsc::channel(100);
         let cloned_map = self.token_map.clone();
-        thread::spawn(move || {
-            let rt = Runtime::new().unwrap();
-            rt.block_on(async move {
-                let token_routes = warp::path(".well-known")
-                    .and(warp::path("acme-challenge"))
-                    .and(warp::path::param())
-                    .and(with_token_map(cloned_map))
-                    .and_then(dyn_reply)
-                    .with(incoming_log);
-                let get_request = warp::get().and(token_routes).recover(handle_not_found);
-                info!("Listening on the port 80");
-                let (_addr, server) = warp::serve(get_request).bind_with_graceful_shutdown(
-                    ([0, 0, 0, 0], 80),
-                    async move {
-                        rx.recv().await;
-
-                        info!("Close the port 80 successfully!");
-                    },
-                );
-                server.await;
-                info!("Stop listening on the port 80");
-            });
+        tokio::spawn(async move {
+            let _ = LetsEntrypt::create_temp_server(cloned_map, rx).await;
         });
 
         let request_result = self.request_cert(DirectoryUrl::LetsEncrypt);

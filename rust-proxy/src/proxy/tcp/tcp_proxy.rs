@@ -36,7 +36,7 @@ impl TcpProxy {
                 }
                },
                _=reveiver.recv()=>{
-                info!("close the socket!");
+                info!("close the socket of tcp!");
                 return Ok(());
                }
             };
