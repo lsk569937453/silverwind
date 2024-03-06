@@ -2,7 +2,7 @@
 name = "silverwind"
 version = "0.0.22"
 authors = ["lsk"]
-license = "MIT"
+license = "Apache-2.0"
 edition = "2021"
 
 [profile.dev]
