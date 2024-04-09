@@ -438,7 +438,7 @@ impl WeightBasedRoute {
         if all_cluster_dead {
             return Err(AppError(String::from("There are no alive host!")));
         }
-        let mut new_lock = self.routes;
+        let mut new_lock = self.routes.clone();
         let index_is_alive = new_lock.iter().any(|f| {
             let tt = f.index;
             tt.is_positive()
@@ -449,13 +449,13 @@ impl WeightBasedRoute {
                 .for_each(|weight_route| weight_route.index = weight_route.weight as i64);
         }
         drop(new_lock);
-        let cluster_read_lock2 = self.routes;
+        let cluster_read_lock2 = self.routes.clone();
 
         for (pos, e) in cluster_read_lock2.iter().enumerate() {
             let is_alive_option_lock = e.base_route.is_alive;
             let is_alive = is_alive_option_lock.unwrap_or(true);
             if is_alive {
-                let old_value = e.index.fetch_sub(1, Ordering::SeqCst);
+                let old_value = e.index;
                 if old_value > 0 {
                     if log_enabled!(Level::Debug) {
                         debug!("WeightRoute current index:{}", pos as i32);

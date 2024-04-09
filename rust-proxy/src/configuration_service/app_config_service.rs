@@ -20,11 +20,11 @@ use log::Level;
 use std::collections::HashMap;
 use std::env;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 lazy_static! {
-    pub static ref GLOBAL_APP_CONFIG: RwLock<AppConfig> = RwLock::new(Default::default());
-    pub static ref GLOBAL_CONFIG_MAPPING: DashMap<String, ApiServiceManager> = Default::default();
+    pub static ref GLOBAL_APP_CONFIG: Mutex<AppConfig> = Mutex::new(Default::default());
 }
 
 pub async fn init() {
@@ -57,9 +57,7 @@ async fn sync_mapping_from_global_app_config() {
  Key in Current Map:[2,4,5]
 */
 async fn update_mapping_from_global_appconfig() -> Result<(), AppError> {
-    let rw_global_app_config = GLOBAL_APP_CONFIG
-        .try_read()
-        .map_err(|err| AppError(err.to_string()))?;
+    let rw_global_app_config = GLOBAL_APP_CONFIG.lock().await;
     let api_services = rw_global_app_config.api_service_config.clone();
 
     let new_item_hash = api_services
