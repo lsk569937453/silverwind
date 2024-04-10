@@ -16,11 +16,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[allow(clippy::enum_variant_names)]
+#[serde(tag = "type")]
 pub enum LoadbalancerStrategy {
     PollRoute(PollRoute),
-    HeaderBased(HeaderBasedRoute),
-    Random(RandomRoute),
-    WeightBased(WeightBasedRoute),
+    HeaderBasedRoute(HeaderBasedRoute),
+    RandomRoute(RandomRoute),
+    WeightBasedRoute(WeightBasedRoute),
 }
 
 impl LoadbalancerStrategy {
@@ -31,21 +33,25 @@ impl LoadbalancerStrategy {
         match self {
             LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_route(headers).await,
 
-            LoadbalancerStrategy::HeaderBased(poll_route) => poll_route.get_route(headers).await,
+            LoadbalancerStrategy::HeaderBasedRoute(poll_route) => {
+                poll_route.get_route(headers).await
+            }
 
-            LoadbalancerStrategy::Random(poll_route) => poll_route.get_route(headers).await,
+            LoadbalancerStrategy::RandomRoute(poll_route) => poll_route.get_route(headers).await,
 
-            LoadbalancerStrategy::WeightBased(poll_route) => poll_route.get_route(headers).await,
+            LoadbalancerStrategy::WeightBasedRoute(poll_route) => {
+                poll_route.get_route(headers).await
+            }
         }
     }
     pub async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         match self {
             LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_all_route().await,
-            LoadbalancerStrategy::HeaderBased(poll_route) => poll_route.get_all_route().await,
+            LoadbalancerStrategy::HeaderBasedRoute(poll_route) => poll_route.get_all_route().await,
 
-            LoadbalancerStrategy::Random(poll_route) => poll_route.get_all_route().await,
+            LoadbalancerStrategy::RandomRoute(poll_route) => poll_route.get_all_route().await,
 
-            LoadbalancerStrategy::WeightBased(poll_route) => poll_route.get_all_route().await,
+            LoadbalancerStrategy::WeightBasedRoute(poll_route) => poll_route.get_all_route().await,
         }
     }
 }
@@ -364,6 +370,7 @@ pub struct PollBaseRoute {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PollRoute {
+    #[serde(skip)]
     pub current_index: i64,
     pub routes: Vec<PollBaseRoute>,
 }

@@ -1,4 +1,3 @@
-use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::vojo::app_error::AppError;
 use futures::FutureExt;
 use http::HeaderMap;
@@ -71,32 +70,8 @@ async fn transfer(mut inbound: TcpStream, mapping_key: String) -> Result<(), App
     Ok(())
 }
 async fn check(mapping_key: String, remote_addr: SocketAddr) -> Result<bool, AppError> {
-    let value = GLOBAL_CONFIG_MAPPING
-        .get(&mapping_key)
-        .ok_or("Can not get apiservice from global_mapping")
-        .map_err(|err| AppError(err.to_string()))?;
-    let service_config = &value.service_config.routes.clone();
-    let service_config_clone = service_config.clone();
-    if service_config_clone.is_empty() {
-        return Err(AppError(String::from("The len of routes is 0")));
-    }
-    let route = service_config_clone.first().unwrap();
-    let is_allowed = route
-        .clone()
-        .is_allowed(remote_addr.ip().to_string(), None)
-        .await?;
-    Ok(is_allowed)
+    Err(AppError(String::from("not impl")))
 }
 async fn get_route_cluster(mapping_key: String) -> Result<String, AppError> {
-    let value = GLOBAL_CONFIG_MAPPING
-        .get(&mapping_key)
-        .ok_or("Can not get apiservice from global_mapping")
-        .map_err(|err| AppError(err.to_string()))?;
-    let service_config = &value.service_config.routes.clone();
-    let service_config_clone = service_config.clone();
-    if service_config_clone.is_empty() {
-        return Err(AppError(String::from("The len of routes is 0")));
-    }
-    let mut route = service_config_clone.first().unwrap().route_cluster.clone();
-    route.get_route(HeaderMap::new()).await.map(|s| s.endpoint)
+    Err(AppError(String::from("not impl")))
 }

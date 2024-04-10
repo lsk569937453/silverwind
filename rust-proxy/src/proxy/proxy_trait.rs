@@ -1,4 +1,4 @@
-use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
+use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
@@ -44,7 +44,9 @@ impl CheckTrait for CommonCheckRequest {
             .path_and_query()
             .ok_or(AppError(String::from("")))?
             .to_string();
-        let api_service_manager = GLOBAL_CONFIG_MAPPING
+        let app_config = GLOBAL_APP_CONFIG.lock().await;
+        let api_service_manager = app_config
+            .api_service_config
             .get(&mapping_key)
             .ok_or(AppError(format!(
                 "Can not find the config mapping on the key {}!",

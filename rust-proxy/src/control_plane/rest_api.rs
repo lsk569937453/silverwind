@@ -1,3 +1,4 @@
+use crate::configuration_service::app_config_service::start_proxy;
 use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::constants::common_constants::DEFAULT_TEMPORARY_DIR;
 use crate::control_plane::lets_encrypt::lets_encrypt_certificate;
@@ -20,24 +21,20 @@ use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+use uuid::Uuid;
 static INTERNAL_SERVER_ERROR: &str = "Internal Server Error";
 #[derive(Debug)]
 struct MethodError;
 async fn get_app_config() -> Result<impl axum::response::IntoResponse, Infallible> {
-    let app_config = GLOBAL_APP_CONFIG.read().await;
-
-    let app_config_vistor_result = AppConfigVistor::from(app_config.clone()).await;
-    if app_config_vistor_result.is_err() {
-        return Ok((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("No route {}", INTERNAL_SERVER_ERROR),
-        ));
-    }
+    let app_config = GLOBAL_APP_CONFIG.lock().await;
+    let cloned_config = app_config.clone();
+    drop(app_config);
     let data = BaseResponse {
         response_code: 0,
-        response_object: app_config_vistor_result.unwrap(),
+        response_object: cloned_config,
     };
     let res = match serde_json::to_string(&data) {
         Ok(json) => (axum::http::StatusCode::OK, json),
@@ -59,7 +56,7 @@ async fn get_prometheus_metrics() -> Result<impl axum::response::IntoResponse, I
     ))
 }
 async fn post_app_config(
-    axum::extract::Json(api_services_vistor): axum::extract::Json<ApiServiceVistor>,
+    axum::extract::Json(api_services_vistor): axum::extract::Json<ApiService>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     let t = match post_app_config_with_error(api_services_vistor).await {
         Ok(r) => r.into_response(),
@@ -72,36 +69,31 @@ async fn post_app_config(
     return Ok(t);
 }
 async fn post_app_config_with_error(
-    api_services_vistor: ApiServiceVistor,
+    mut api_service: ApiService,
 ) -> Result<impl axum::response::IntoResponse, AppError> {
-    let current_type = api_services_vistor.service_config.server_type.clone();
+    let current_type = api_service.service_config.server_type.clone();
     if current_type == ServiceType::Https || current_type == ServiceType::Http2Tls {
         validate_tls_config(
-            api_services_vistor.service_config.cert_str.clone(),
-            api_services_vistor.service_config.key_str.clone(),
+            api_service.service_config.cert_str.clone(),
+            api_service.service_config.key_str.clone(),
         )?;
     }
-    let api_service = ApiService::from(api_services_vistor).await?;
-    let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
-    match rw_global_lock
+    let uuid = Uuid::new_v4().to_string();
+    let cloned_port = api_service.listen_port.clone();
+    let (sender, receiver) = mpsc::channel::<()>(1);
+    api_service.api_service_id = uuid.clone();
+    api_service.sender = sender;
+    let mut rw_global_lock = GLOBAL_APP_CONFIG.lock().await;
+    rw_global_lock
         .api_service_config
-        .iter_mut()
-        .find(|item| item.listen_port == api_service.listen_port)
-    {
-        Some(data) => data.service_config.routes.push(
-            api_service
-                .service_config
-                .routes
-                .first()
-                .ok_or(AppError(String::from("The route is empty!")))?
-                .clone(),
-        ),
-        None => rw_global_lock.api_service_config.push(api_service),
-    };
-    tokio::spawn(async {
+        .insert(uuid.clone(), api_service);
+    drop(rw_global_lock);
+
+    tokio::spawn(async move {
         if let Err(err) = save_config_to_file().await {
             error!("Save file error,the error is {}!", err);
         }
+        start_proxy(cloned_port, receiver, current_type, uuid).await;
     });
     let data = BaseResponse {
         response_code: 0,
@@ -113,18 +105,18 @@ async fn post_app_config_with_error(
 async fn delete_route(
     axum::extract::Path(route_id): axum::extract::Path<String>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
-    let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
-    let mut api_services = vec![];
-    for mut api_service in rw_global_lock.clone().api_service_config {
-        api_service
-            .service_config
-            .routes
-            .retain(|route| route.route_id != route_id);
-        if !api_service.service_config.routes.is_empty() {
-            api_services.push(api_service);
-        }
-    }
-    rw_global_lock.api_service_config = api_services;
+    let mut rw_global_lock = GLOBAL_APP_CONFIG.lock().await;
+    // let mut api_services = vec![];
+    // for mut api_service in rw_global_lock.clone().api_service_config {
+    //     api_service
+    //         .service_config
+    //         .routes
+    //         .retain(|route| route.route_id != route_id);
+    //     if !api_service.service_config.routes.is_empty() {
+    //         api_services.push(api_service);
+    //     }
+    // }
+    // rw_global_lock.api_service_config = api_services;
     tokio::spawn(async {
         if let Err(err) = save_config_to_file().await {
             error!("Save file error,the error is {}!", err);
@@ -140,56 +132,54 @@ async fn delete_route(
 }
 
 async fn put_route(
-    axum::extract::Json(route_vistor): axum::extract::Json<RouteVistor>,
+    axum::extract::Json(route_vistor): axum::extract::Json<Route>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     match put_route_with_error(route_vistor).await {
         Ok(r) => Ok((axum::http::StatusCode::OK, r)),
         Err(e) => Ok((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
-async fn put_route_with_error(route_vistor: RouteVistor) -> Result<String, AppError> {
-    let mut rw_global_lock = GLOBAL_APP_CONFIG.write().await;
+async fn put_route_with_error(route_vistor: Route) -> Result<String, AppError> {
+    let mut rw_global_lock = GLOBAL_APP_CONFIG.lock().await;
 
-    let old_route = rw_global_lock
-        .api_service_config
-        .iter_mut()
-        .flat_map(|item| item.service_config.routes.clone())
-        .find(|item| item.route_id == route_vistor.route_id)
-        .ok_or(AppError(String::from(
-            "Can not find the route by route id!",
-        )))?;
+    // let old_route = rw_global_lock
+    //     .api_service_config
+    //     .iter_mut()
+    //     .flat_map(|item| item.service_config.routes.clone())
+    //     .find(|item| item.route_id == route_vistor.route_id)
+    //     .ok_or(AppError(String::from(
+    //         "Can not find the route by route id!",
+    //     )))?;
 
-    let mut new_route = Route::from(route_vistor.clone()).await?;
-    let mut new_liveness_status = new_route.liveness_status.write().await;
-    *new_liveness_status = old_route.liveness_status.write().await.clone();
+    // let mut new_route = route_vistor;
 
-    let old_base_clusters = old_route.clone().route_cluster.get_all_route().await?;
-    let hashmap = old_base_clusters
-        .iter()
-        .map(|item| (item.endpoint.clone(), item.clone()))
-        .collect::<HashMap<String, BaseRoute>>();
-    let mut new_routes = new_route.route_cluster.get_all_route().await?;
-    for new_base_route in new_routes.iter_mut() {
-        if hashmap.clone().contains_key(&new_base_route.endpoint) {
-            let old_base_route = hashmap.get(&new_base_route.endpoint).unwrap();
-            let mut alive = new_base_route.is_alive.write().await;
-            *alive = *old_base_route.is_alive.write().await;
-            let mut anomaly_detection_status =
-                new_base_route.anomaly_detection_status.write().await;
-            *anomaly_detection_status = old_base_route
-                .anomaly_detection_status
-                .write()
-                .await
-                .clone();
-        }
-    }
-    for api_service in rw_global_lock.api_service_config.iter_mut() {
-        for route in api_service.service_config.routes.iter_mut() {
-            if route.route_id == route_vistor.route_id {
-                *route = new_route.clone();
-            }
-        }
-    }
+    // let old_base_clusters = old_route.clone().route_cluster.get_all_route().await?;
+    // let hashmap = old_base_clusters
+    //     .iter()
+    //     .map(|item| (item.endpoint.clone(), item.clone()))
+    //     .collect::<HashMap<String, BaseRoute>>();
+    // let mut new_routes = new_route.route_cluster.get_all_route().await?;
+    // for new_base_route in new_routes.iter_mut() {
+    //     if hashmap.clone().contains_key(&new_base_route.endpoint) {
+    //         let old_base_route = hashmap.get(&new_base_route.endpoint).unwrap();
+    //         let mut alive = new_base_route.is_alive.write().await;
+    //         *alive = *old_base_route.is_alive.write().await;
+    //         let mut anomaly_detection_status =
+    //             new_base_route.anomaly_detection_status.write().await;
+    //         *anomaly_detection_status = old_base_route
+    //             .anomaly_detection_status
+    //             .write()
+    //             .await
+    //             .clone();
+    //     }
+    // }
+    // for api_service in rw_global_lock.api_service_config.iter_mut() {
+    //     for route in api_service.service_config.routes.iter_mut() {
+    //         if route.route_id == route_vistor.route_id {
+    //             *route = new_route.clone();
+    //         }
+    //     }
+    // }
     tokio::spawn(async {
         if let Err(err) = save_config_to_file().await {
             error!("Save file error,the error is {}!", err);
@@ -202,10 +192,9 @@ async fn put_route_with_error(route_vistor: RouteVistor) -> Result<String, AppEr
     Ok(serde_json::to_string(&data).unwrap())
 }
 async fn save_config_to_file() -> Result<(), AppError> {
-    let read_global_lock = GLOBAL_APP_CONFIG.read().await;
+    let read_global_lock = GLOBAL_APP_CONFIG.lock().await;
     let data = read_global_lock.clone();
     drop(read_global_lock);
-    let api_services_vistor = from_api_service(data.api_service_config.clone()).await?;
     let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
     if !result {
         let path = env::current_dir().map_err(|e| AppError(e.to_string()))?;
@@ -220,8 +209,7 @@ async fn save_config_to_file() -> Result<(), AppError> {
         .open("temporary/new_silverwind_config.yml")
         .await
         .map_err(|e| AppError(e.to_string()))?;
-    let api_service_str =
-        serde_yaml::to_string(&api_services_vistor).map_err(|e| AppError(e.to_string()))?;
+    let api_service_str = serde_yaml::to_string(&data).map_err(|e| AppError(e.to_string()))?;
     f.write_all(api_service_str.as_bytes())
         .await
         .map_err(|e| AppError(e.to_string()))?;

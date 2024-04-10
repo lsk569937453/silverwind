@@ -14,6 +14,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
@@ -30,12 +31,14 @@ pub struct LivenessStatus {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
+    #[serde(skip)]
     pub route_id: String,
     pub host_name: Option<String>,
     pub matcher: Option<Matcher>,
     pub allow_deny_list: Option<Vec<AllowDenyObject>>,
     pub authentication: Option<Box<dyn AuthenticationStrategy>>,
     pub anomaly_detection: Option<AnomalyDetectionType>,
+    #[serde(skip)]
     pub liveness_status: LivenessStatus,
     pub rewrite_headers: Option<HashMap<String, String>>,
     pub liveness_config: Option<LivenessConfig>,
@@ -155,13 +158,31 @@ pub struct ServiceConfig {
     pub routes: Vec<Route>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiService {
     pub listen_port: i32,
+    #[serde(skip)]
     pub api_service_id: String,
     pub service_config: ServiceConfig,
+    #[serde(skip, default = "default_sender")]
+    pub sender: mpsc::Sender<()>,
+}
+fn default_sender() -> mpsc::Sender<()> {
+    let (sender, receiver) = mpsc::channel(1);
+    sender
 }
 
+impl Default for ApiService {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel(1);
+        Self {
+            listen_port: 0, // Provide default values for each field
+            api_service_id: String::default(),
+            service_config: ServiceConfig::default(), // Initialize ServiceConfig with its default value
+            sender,                                   // Use the default value for Sender<()>
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct StaticConifg {
     pub access_log: Option<String>,
@@ -169,8 +190,8 @@ pub struct StaticConifg {
     pub admin_port: String,
     pub config_file_path: Option<String>,
 }
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     pub static_config: StaticConifg,
-    pub api_service_config: Vec<ApiService>,
+    pub api_service_config: HashMap<String, ApiService>,
 }

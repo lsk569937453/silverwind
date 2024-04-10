@@ -1,4 +1,3 @@
-use crate::configuration_service::app_config_service::GLOBAL_CONFIG_MAPPING;
 use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::proxy::http1::http_client::HttpClients;
 use crate::vojo::app_config::Route;
