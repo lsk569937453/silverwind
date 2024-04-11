@@ -17,6 +17,7 @@ use hyper::StatusCode;
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
 use crate::proxy::proxy_trait::CommonCheckRequest;
+use crate::vojo::app_config::AppConfig;
 use http::uri::PathAndQuery;
 use http_body_util::{combinators::BoxBody, BodyExt, Full};
 use hyper::server::conn::http1;
@@ -36,6 +37,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
 #[derive(Debug)]
@@ -43,6 +45,7 @@ pub struct HttpProxy {
     pub port: i32,
     pub channel: mpsc::Receiver<()>,
     pub mapping_key: String,
+    pub shared_config: Arc<Mutex<AppConfig>>,
 }
 
 impl HttpProxy {
@@ -62,6 +65,7 @@ impl HttpProxy {
                Ok((stream,addr))= listener.accept()=>{
                 let client_cloned = client.clone();
                 let mapping_key2 = mapping_key_clone1.clone();
+                let shared_app_config=self.shared_config.clone();
                 tokio::spawn(async move {
                     let io = TokioIo::new(stream);
 
@@ -74,7 +78,7 @@ impl HttpProxy {
                                 let req = req.map(|item| {
                                     item.map_err(|_| -> Infallible { unreachable!() }).boxed()
                                 });
-                                proxy_adapter(client_cloned.clone(), req, mapping_key2.clone(), addr)
+                                proxy_adapter(shared_app_config.clone(),client_cloned.clone(), req, mapping_key2.clone(), addr)
                             }),
                         )
                         .await
@@ -133,6 +137,8 @@ impl HttpProxy {
 
                 let client = client.clone();
                 let mapping_key2 = mapping_key_clone1.clone();
+                let shared_app_config=self.shared_config.clone();
+
                 tokio::spawn(async move {
                     let tls_stream = match tls_acceptor.accept(tcp_stream).await {
                         Ok(tls_stream) => tls_stream,
@@ -146,7 +152,7 @@ impl HttpProxy {
                         let req = req
                             .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
 
-                        proxy_adapter(client.clone(), req, mapping_key2.clone(), addr)
+                        proxy_adapter(shared_app_config.clone(),client.clone(), req, mapping_key2.clone(), addr)
                     });
                     if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
                         error!("Error serving connection: {:?}", err);
@@ -164,12 +170,14 @@ impl HttpProxy {
     }
 }
 async fn proxy_adapter(
+    shared_config: Arc<Mutex<AppConfig>>,
     client: HttpClients,
     req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
     remote_addr: SocketAddr,
 ) -> Result<Response<BoxBody<Bytes, Infallible>>, Infallible> {
-    let result = proxy_adapter_with_error(client, req, mapping_key, remote_addr).await;
+    let result =
+        proxy_adapter_with_error(shared_config, client, req, mapping_key, remote_addr).await;
     match result {
         Ok(res) => Ok(res),
         Err(err) => {
@@ -185,6 +193,7 @@ async fn proxy_adapter(
     }
 }
 async fn proxy_adapter_with_error(
+    shared_config: Arc<Mutex<AppConfig>>,
     client: HttpClients,
     req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
@@ -203,6 +212,7 @@ async fn proxy_adapter_with_error(
         .map(|item| item.start_timer())
         .collect::<Vec<HistogramTimer>>();
     let res = proxy(
+        shared_config,
         client,
         req,
         mapping_key.clone(),
@@ -262,6 +272,7 @@ async fn proxy_adapter_with_error(
 }
 
 async fn proxy(
+    shared_config: Arc<Mutex<AppConfig>>,
     client: HttpClients,
     mut req: Request<BoxBody<Bytes, Infallible>>,
     mapping_key: String,
@@ -273,6 +284,7 @@ async fn proxy(
     let uri = req.uri().clone();
     let check_result = check_trait
         .check_before_request(
+            shared_config,
             mapping_key.clone(),
             inbound_headers.clone(),
             uri,

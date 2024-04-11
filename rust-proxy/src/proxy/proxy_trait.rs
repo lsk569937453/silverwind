@@ -1,3 +1,4 @@
+use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
@@ -6,11 +7,15 @@ use http::HeaderMap;
 use hyper::Uri;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use url::Url;
 #[async_trait]
 pub trait CheckTrait {
     async fn check_before_request(
         &self,
+        shared_config: Arc<Mutex<AppConfig>>,
+
         mapping_key: String,
         headers: HeaderMap,
         uri: Uri,
@@ -34,6 +39,8 @@ pub struct CheckResult {
 impl CheckTrait for CommonCheckRequest {
     async fn check_before_request(
         &self,
+        shared_config: Arc<Mutex<AppConfig>>,
+
         mapping_key: String,
         headers: HeaderMap,
         uri: Uri,
@@ -43,7 +50,7 @@ impl CheckTrait for CommonCheckRequest {
             .path_and_query()
             .ok_or(AppError(String::from("")))?
             .to_string();
-        let app_config = GLOBAL_APP_CONFIG.lock().await;
+        let app_config = shared_config.lock().await;
         let api_service_manager = app_config
             .api_service_config
             .get(&mapping_key)

@@ -21,11 +21,11 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::{rustls, TlsAcceptor};
 use url::Url;
-
 pub struct GrpcProxy {
     pub port: i32,
     pub channel: mpsc::Receiver<()>,
@@ -210,7 +210,13 @@ async fn request_outbound(
     let inbound_headers = inbound_parts.headers.clone();
     let uri = inbound_parts.uri.clone();
     let check_result = check_trait
-        .check_before_request(mapping_key.clone(), inbound_headers, uri, peer_addr)
+        .check_before_request(
+            Arc::new(Mutex::new(Default::default())),
+            mapping_key.clone(),
+            inbound_headers,
+            uri,
+            peer_addr,
+        )
         .await?;
     if check_result.is_none() {
         return Err(AppError(String::from(

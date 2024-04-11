@@ -55,6 +55,7 @@ impl Handler {
                 port,
                 channel,
                 mapping_key: mapping_key.clone(),
+                shared_config: self.shared_app_config.clone(),
             };
             http_proxy.start_http_server().await
         } else if server_type == ServiceType::Https {
@@ -66,6 +67,7 @@ impl Handler {
                 port,
                 channel,
                 mapping_key: mapping_key.clone(),
+                shared_config: self.shared_app_config.clone(),
             };
             http_proxy.start_https_server(pem_str, key_str).await
         } else if server_type == ServiceType::Tcp {
