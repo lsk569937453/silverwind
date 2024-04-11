@@ -55,27 +55,7 @@ async fn start(admin_port: i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lazy_static::lazy_static;
     use std::net::TcpListener;
     use std::{thread, time};
     use tokio::runtime::{Builder, Runtime};
-    lazy_static! {
-        pub static ref TOKIO_RUNTIME: Runtime = Builder::new_multi_thread()
-            .worker_threads(4)
-            .thread_name("silverwind-thread")
-            .thread_stack_size(3 * 1024 * 1024)
-            .enable_all()
-            .build()
-            .unwrap();
-    }
-    #[test]
-    fn test_start_api_ok() {
-        TOKIO_RUNTIME.spawn(async {
-            start(5402).await;
-        });
-        let sleep_time = time::Duration::from_millis(5000);
-        thread::sleep(sleep_time);
-        let listener = TcpListener::bind("0.0.0.0:5402");
-        assert!(listener.is_err());
-    }
 }

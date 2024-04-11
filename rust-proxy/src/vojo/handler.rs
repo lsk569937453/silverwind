@@ -17,7 +17,6 @@ use crate::vojo::app_config::{ApiService, ServiceType};
 use crate::vojo::app_error::AppError;
 use dashmap::DashMap;
 use futures::FutureExt;
-use lazy_static::lazy_static;
 use log::Level;
 use std::collections::HashMap;
 use std::env;
