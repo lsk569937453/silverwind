@@ -6,6 +6,7 @@ pub mod anomaly_detection;
 pub mod app_error;
 pub mod authentication;
 pub mod base_response;
+pub mod handler;
 pub mod health_check;
 pub mod lets_encrypt;
 pub mod rate_limit;

@@ -1,5 +1,6 @@
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
+use vojo::handler::Handler;
 
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -17,6 +18,8 @@ mod vojo;
 use crate::constants::common_constants::DEFAULT_ADMIN_PORT;
 use crate::constants::common_constants::ENV_ADMIN_PORT;
 use std::env;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 #[macro_use]
 extern crate log;
 use crate::control_plane::rest_api::start_control_plane;
@@ -41,8 +44,12 @@ fn main() {
     });
 }
 async fn start(admin_port: i32) {
-    configuration_service::app_config_service::init().await;
-    start_control_plane(admin_port).await;
+    let mut handler = Handler {
+        shared_app_config: Arc::new(Mutex::new(Default::default())),
+    };
+    // configuration_service::app_config_service::init().await;
+    // start_control_plane(admin_port).await;
+    handler.run(admin_port).await;
 }
 
 #[cfg(test)]

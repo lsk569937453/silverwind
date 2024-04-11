@@ -184,7 +184,7 @@ impl Default for ApiService {
     }
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct StaticConifg {
+pub struct StaticConfig {
     pub access_log: Option<String>,
     pub database_url: Option<String>,
     pub admin_port: String,
@@ -192,6 +192,6 @@ pub struct StaticConifg {
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
-    pub static_config: StaticConifg,
+    pub static_config: StaticConfig,
     pub api_service_config: HashMap<String, ApiService>,
 }

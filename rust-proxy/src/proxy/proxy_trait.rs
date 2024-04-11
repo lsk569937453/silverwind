@@ -1,4 +1,3 @@
-use crate::configuration_service::app_config_service::GLOBAL_APP_CONFIG;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
