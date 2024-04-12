@@ -22,7 +22,7 @@ services:
           memory: 8192M
   silverwind:
     image: ghcr.io/lsk569937453/silverwind:0.0.20
-    #image: lsk569937453/silverwind:test
+    # image: lsk569937453/silverwind:test
     container_name: silverwind
     environment:
       CONFIG_FILE_PATH: /data/app/app_config.yaml

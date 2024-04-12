@@ -8,7 +8,7 @@ struct LetsEncryptResponse {
     certificate_perm: String,
 }
 pub async fn lets_encrypt_certificate(
-    axum::extract::Json(lets_encrypt_object): axum::extract::Json<LetsEntrypt>,
+    axum::extract::Json(mut lets_encrypt_object): axum::extract::Json<LetsEntrypt>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     let request_result = lets_encrypt_object.start_request().await;
     if let Err(err) = request_result {

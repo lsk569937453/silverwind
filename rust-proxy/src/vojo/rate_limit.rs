@@ -1,9 +1,9 @@
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::constants::common_constants::DEFAULT_FIXEDWINDOW_MAP_SIZE;
 use async_trait::async_trait;
 use core::fmt::Debug;
-use dashmap::DashMap;
 use dyn_clone::DynClone;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -223,9 +223,9 @@ pub struct FixedWindowRateLimit {
     pub unit: TimeUnit,
     pub limit_location: LimitLocation,
     #[serde(skip_serializing, skip_deserializing)]
-    pub count_map: Arc<DashMap<String, Arc<AtomicIsize>>>,
+    pub count_map: HashMap<String, i64>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub lock: Arc<Mutex<i32>>,
+    pub lock: i32,
 }
 #[typetag::serde]
 #[async_trait]
@@ -244,17 +244,16 @@ impl RatelimitStrategy for FixedWindowRateLimit {
         let location_key = self.limit_location.get_key();
         let key = format!("{}:{}", location_key, time_unit_key);
         if !self.count_map.contains_key(key.as_str()) {
-            let _lock = self.lock.lock().map_err(|err| AppError(err.to_string()))?;
-            if !self.count_map.contains_key(key.as_str()) {
-                if self.count_map.len() > DEFAULT_FIXEDWINDOW_MAP_SIZE as usize {
-                    let first = self.count_map.iter().next().unwrap();
-                    let first_key = first.key().clone();
-                    drop(first);
-                    self.count_map.remove(first_key.as_str());
-                }
-                self.count_map
-                    .insert(key.clone(), Arc::new(AtomicIsize::new(0)));
+            if self.count_map.len() > DEFAULT_FIXEDWINDOW_MAP_SIZE as usize {
+                let (key, _) = self
+                    .count_map
+                    .iter()
+                    .next()
+                    .ok_or(AppError(String::from("")))?;
+                let cloned_key = key.clone();
+                self.count_map.remove(&cloned_key);
             }
+            self.count_map.insert(key.clone(), 0);
         }
         let atomic_isize = self
             .count_map
@@ -262,7 +261,7 @@ impl RatelimitStrategy for FixedWindowRateLimit {
             .ok_or(AppError(String::from(
                 "Can not find the key in the map of FixedWindowRateLimit!",
             )))?;
-        let res = atomic_isize.fetch_add(1, Ordering::SeqCst);
+        let res = atomic_isize + 1;
         if res as i32 >= self.rate_per_unit as i32 {
             return Ok(true);
         }

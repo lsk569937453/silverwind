@@ -1,5 +1,4 @@
 use super::app_config::AppConfig;
-use super::app_config::ServiceConfig;
 use super::app_config::StaticConfig;
 use crate::configuration_service::logger;
 use crate::constants;
@@ -7,24 +6,18 @@ use crate::constants::common_constants::ENV_ACCESS_LOG;
 use crate::constants::common_constants::ENV_ADMIN_PORT;
 use crate::constants::common_constants::ENV_CONFIG_FILE_PATH;
 use crate::constants::common_constants::ENV_DATABASE_URL;
-use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::control_plane::rest_api::start_control_plane;
 use crate::proxy::http1::http_proxy::HttpProxy;
 use crate::proxy::http2::grpc_proxy::GrpcProxy;
 use crate::proxy::tcp::tcp_proxy::TcpProxy;
-use crate::vojo::api_service_manager::ApiServiceManager;
 use crate::vojo::app_config::{ApiService, ServiceType};
 use crate::vojo::app_error::AppError;
-use dashmap::DashMap;
-use futures::FutureExt;
-use log::Level;
+
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use tokio::sync::RwLock;
-use tokio::time::sleep;
 use uuid::Uuid;
 
 #[derive(Clone)]

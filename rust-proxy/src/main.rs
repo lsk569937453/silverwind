@@ -22,8 +22,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 #[macro_use]
 extern crate log;
-use crate::control_plane::rest_api::start_control_plane;
-use env_logger::Env;
 
 use tokio::runtime;
 
@@ -47,15 +45,20 @@ async fn start(admin_port: i32) {
     let mut handler = Handler {
         shared_app_config: Arc::new(Mutex::new(Default::default())),
     };
-    // configuration_service::app_config_service::init().await;
-    // start_control_plane(admin_port).await;
-    handler.run(admin_port).await;
+    let _ = handler.run(admin_port).await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::net::TcpListener;
-    use std::{thread, time};
-    use tokio::runtime::{Builder, Runtime};
+    use std::time::Duration;
+    use tokio::time::sleep;
+    #[tokio::test]
+    async fn pool_key_value_get_set() {
+        tokio::spawn(async move { start(5402).await });
+        sleep(Duration::from_millis(1000)).await;
+        let listener = TcpListener::bind("0.0.0.0:5402");
+        assert!(listener.is_err());
+    }
 }

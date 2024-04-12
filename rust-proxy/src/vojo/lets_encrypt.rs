@@ -5,8 +5,8 @@ use acme_lib::{create_p384_key, Certificate};
 use acme_lib::{Directory, DirectoryUrl, Error};
 use axum::extract::State;
 use axum::{routing::get, Router};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
 use std::path::Path;
@@ -19,12 +19,12 @@ pub struct LetsEntrypt {
     pub mail_name: String,
     pub domain_name: String,
     #[serde(skip_serializing, skip_deserializing)]
-    pub token_map: Arc<DashMap<String, String>>,
+    pub token_map: HashMap<String, String>,
 }
 
 pub async fn dyn_reply(
     axum::extract::Path(token): axum::extract::Path<String>,
-    State(token_map_shared): State<Arc<DashMap<String, String>>>,
+    State(token_map_shared): State<HashMap<String, String>>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     info!("The server has received the token,the token is {}", token);
 
@@ -51,11 +51,11 @@ impl LetsEntrypt {
         LetsEntrypt {
             mail_name,
             domain_name,
-            token_map: Arc::new(DashMap::new()),
+            token_map: HashMap::new(),
         }
     }
     async fn create_temp_server(
-        token_map: Arc<DashMap<String, String>>,
+        token_map: HashMap<String, String>,
         mut rx: Receiver<()>,
     ) -> Result<(), AppError> {
         let app = Router::new()
@@ -75,7 +75,7 @@ impl LetsEntrypt {
         info!("Stop listening on the port 80");
         Ok(())
     }
-    pub async fn start_request(&self) -> Result<Certificate, AppError> {
+    pub async fn start_request(&mut self) -> Result<Certificate, AppError> {
         let (tx, rx) = mpsc::channel(100);
         let cloned_map = self.token_map.clone();
         tokio::spawn(async move {
@@ -98,7 +98,7 @@ impl LetsEntrypt {
 
         Err(AppError(format!("Request the lets_encrypt fails")))
     }
-    pub fn request_cert(&self, directory_url: DirectoryUrl) -> Result<Certificate, Error> {
+    pub fn request_cert(&mut self, directory_url: DirectoryUrl) -> Result<Certificate, Error> {
         let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();
         if !result {
             let path = env::current_dir()?;
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_request_cert_ok1() {
-        let lets_entrypt = LetsEntrypt::_new(
+        let mut lets_entrypt = LetsEntrypt::_new(
             String::from("lsk@gmail.com"),
             String::from("www.silverwind.top"),
         );
@@ -149,7 +149,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_start_request_ok1() {
-        let lets_entrypt = LetsEntrypt::_new(
+        let mut lets_entrypt = LetsEntrypt::_new(
             String::from("lsk@gmail.com"),
             String::from("www.silverwind.top"),
         );
