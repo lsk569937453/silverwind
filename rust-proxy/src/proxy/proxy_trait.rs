@@ -50,17 +50,17 @@ impl CheckTrait for CommonCheckRequest {
             .path_and_query()
             .ok_or(AppError(String::from("")))?
             .to_string();
-        let app_config = shared_config.lock().await;
-        let api_service_manager = app_config
-            .api_service_config
-            .get(&mapping_key)
-            .ok_or(AppError(format!(
-                "Can not find the config mapping on the key {}!",
-                mapping_key.clone()
-            )))?
-            .clone();
+        let mut app_config = shared_config.lock().await;
+        let api_service_manager =
+            app_config
+                .api_service_config
+                .get_mut(&mapping_key)
+                .ok_or(AppError(format!(
+                    "Can not find the config mapping on the key {}!",
+                    mapping_key.clone()
+                )))?;
         let addr_string = peer_addr.ip().to_string();
-        for item in api_service_manager.service_config.routes {
+        for item in api_service_manager.service_config.routes.iter_mut() {
             let back_path_clone = backend_path.clone();
             let match_result = item.is_matched(back_path_clone, Some(headers.clone()))?;
             if match_result.clone().is_none() {
@@ -72,11 +72,7 @@ impl CheckTrait for CommonCheckRequest {
             if !is_allowed {
                 return Ok(None);
             }
-            let base_route = item
-                .route_cluster
-                .clone()
-                .get_route(headers.clone())
-                .await?;
+            let base_route = item.route_cluster.get_route(headers.clone()).await?;
             let endpoint = base_route.endpoint.clone();
             debug!("The endpoint is {}", endpoint);
             if endpoint.contains("http") {
@@ -89,7 +85,7 @@ impl CheckTrait for CommonCheckRequest {
                     .to_string();
                 return Ok(Some(CheckResult {
                     request_path,
-                    route: item,
+                    route: item.clone(),
                     base_route,
                 }));
             } else {
@@ -98,7 +94,7 @@ impl CheckTrait for CommonCheckRequest {
                 let request_path = path.join(rest_path);
                 return Ok(Some(CheckResult {
                     request_path: String::from(request_path.to_str().unwrap_or_default()),
-                    route: item,
+                    route: item.clone(),
                     base_route,
                 }));
             }

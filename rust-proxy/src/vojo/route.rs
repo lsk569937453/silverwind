@@ -400,10 +400,14 @@ impl PollRoute {
         }
         let older = self.current_index;
         let len = alive_cluster.len();
-        let current_index = older % len as i64;
+        let current_index = (older + 1) % len as i64;
+        self.current_index = current_index;
         let dst = alive_cluster[current_index as usize].clone();
         if log_enabled!(Level::Debug) {
-            debug!("PollRoute current index:{}", current_index as i32);
+            debug!(
+                "PollRoute current index:{},cluter len:{},older index:{}",
+                current_index as i32, len, older
+            );
         }
         Ok(dst.base_route)
     }
