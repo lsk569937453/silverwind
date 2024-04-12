@@ -478,3 +478,577 @@ impl WeightBasedRoute {
         Err(AppError(String::from("WeightRoute get route error")))
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
+    use std::vec;
+    #[derive(PartialEq, Eq, Debug)]
+    pub struct BaseRouteWithoutLock {
+        pub endpoint: String,
+        pub try_file: Option<String>,
+        pub is_alive: Option<bool>,
+        pub anomaly_detection_status: AnomalyDetectionStatus,
+    }
+    impl BaseRouteWithoutLock {
+        async fn new(base_route: BaseRoute) -> Self {
+            let is_alive = *base_route.is_alive.read().await;
+            let anomaly_detection_status = base_route.anomaly_detection_status.read().await.clone();
+            BaseRouteWithoutLock {
+                endpoint: base_route.endpoint,
+                try_file: base_route.try_file,
+                is_alive,
+                anomaly_detection_status,
+            }
+        }
+    }
+
+    fn get_random_routes() -> Vec<RandomBaseRoute> {
+        vec![
+            RandomBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:4444"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    }
+                },
+            },
+            RandomBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    }
+                },
+            },
+            RandomBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    }
+                },
+            },
+        ]
+    }
+    fn get_poll_routes() -> Vec<PollBaseRoute> {
+        vec![
+            PollBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:4444"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    }
+                },
+            },
+            PollBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    }
+                },
+            },
+            PollBaseRoute {
+                base_route: {
+                    BaseRoute {
+                        endpoint: String::from("http://localhost:5555"),
+                        try_file: None,
+                        is_alive: Arc::new(RwLock::new(None)),
+                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        })),
+                    }
+                },
+            },
+        ]
+    }
+    fn get_weight_routes() -> Vec<WeightRoute> {
+        vec![
+            WeightRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:4444"),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                },
+                weight: 100,
+                index: Arc::new(AtomicIsize::new(0)),
+            },
+            WeightRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:5555"),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                },
+                weight: 100,
+                index: Arc::new(AtomicIsize::new(0)),
+            },
+            WeightRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:6666"),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                },
+                weight: 100,
+                index: Arc::new(AtomicIsize::new(0)),
+            },
+        ]
+    }
+    fn get_header_based_routes() -> Vec<HeaderRoute> {
+        vec![
+            HeaderRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:4444"),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                },
+                header_key: String::from("x-client"),
+                header_value_mapping_type: HeaderValueMappingType::Regex(RegexMatch {
+                    value: String::from("^100*"),
+                }),
+            },
+            HeaderRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:5555"),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                },
+                header_key: String::from("x-client"),
+                header_value_mapping_type: HeaderValueMappingType::Split(SplitSegment {
+                    split_by: String::from(";"),
+                    split_list: vec![
+                        String::from("a=1"),
+                        String::from("b=2"),
+                        String::from("c:3"),
+                    ],
+                }),
+            },
+            HeaderRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:7777"),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                },
+                header_key: String::from("x-client"),
+                header_value_mapping_type: HeaderValueMappingType::Split(SplitSegment {
+                    split_by: String::from(","),
+                    split_list: vec![
+                        String::from("a:12"),
+                        String::from("b:9"),
+                        String::from("c=7"),
+                    ],
+                }),
+            },
+            HeaderRoute {
+                base_route: BaseRoute {
+                    endpoint: String::from("http://localhost:8888"),
+                    try_file: None,
+                    is_alive: Arc::new(RwLock::new(None)),
+                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        consecutive_5xx: 100,
+                    })),
+                },
+                header_key: String::from("x-client"),
+                header_value_mapping_type: HeaderValueMappingType::Text(TextMatch {
+                    value: String::from("google chrome"),
+                }),
+            },
+        ]
+    }
+
+    #[test]
+    fn test_max_value() {
+        let atomic = AtomicUsize::new(0);
+        let old_value = atomic.fetch_add(1, Ordering::SeqCst);
+        println!("{}", old_value);
+    }
+    #[tokio::test]
+    async fn test_poll_route_successfully() {
+        let routes = get_poll_routes();
+        let mut poll_rate = PollRoute {
+            current_index: Default::default(),
+            routes: routes.clone(),
+        };
+        for i in 0..100 {
+            let current_route = poll_rate.get_route(HeaderMap::new()).await.unwrap();
+            let current_route_vistor = BaseRouteVistor::from(current_route).await;
+            let another_route_vistor =
+                BaseRouteVistor::from(routes[i % routes.len()].base_route.clone()).await;
+            assert_eq!(another_route_vistor, current_route_vistor);
+        }
+    }
+    #[tokio::test]
+    async fn test_random_route_successfully() {
+        let routes = get_random_routes();
+        let mut random_rate = RandomRoute { routes };
+        for _ in 0..100 {
+            random_rate.get_route(HeaderMap::new()).await.unwrap();
+        }
+    }
+    #[tokio::test]
+    async fn test_weight_route_successfully() {
+        let routes = get_weight_routes();
+        let mut weight_route = WeightBasedRoute {
+            routes: Arc::new(RwLock::new(routes.clone())),
+        };
+
+        for _ in 0..100 {
+            let current_route = weight_route.get_route(HeaderMap::new()).await.unwrap();
+            assert_eq!(
+                BaseRouteWithoutLock::new(current_route).await,
+                BaseRouteWithoutLock::new(routes[0].base_route.clone()).await
+            );
+        }
+        for _ in 0..100 {
+            let current_route = weight_route.get_route(HeaderMap::new()).await.unwrap();
+            assert_eq!(
+                BaseRouteWithoutLock::new(current_route.clone()).await,
+                BaseRouteWithoutLock::new(routes[1].base_route.clone()).await
+            );
+        }
+        for _ in 0..100 {
+            let current_route = weight_route.get_route(HeaderMap::new()).await.unwrap();
+
+            assert_eq!(
+                BaseRouteWithoutLock::new(current_route.clone()).await,
+                BaseRouteWithoutLock::new(routes[2].base_route.clone()).await
+            );
+        }
+        for _ in 0..100 {
+            let current_route = weight_route.get_route(HeaderMap::new()).await.unwrap();
+
+            assert_eq!(
+                BaseRouteWithoutLock::new(current_route).await,
+                BaseRouteWithoutLock::new(routes[0].base_route.clone()).await
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_header_based_route_successfully() {
+        let routes = get_header_based_routes();
+        let header_route = HeaderBasedRoute { routes };
+        let mut header_route = LoadbalancerStrategy::HeaderBased(header_route);
+        let mut headermap1 = HeaderMap::new();
+        headermap1.insert("x-client", "100zh-CN,zh;q=0.9,en;q=0.8".parse().unwrap());
+        let result1 = header_route.get_route(headermap1.clone()).await;
+        assert!(result1.is_ok());
+        assert_eq!(result1.unwrap().endpoint, "http://localhost:4444");
+
+        let mut headermap2 = HeaderMap::new();
+        headermap2.insert("x-client", "a=1;b=2;c:3;d=4;f5=6667".parse().unwrap());
+        let result2 = header_route.get_route(headermap2.clone()).await;
+        assert!(result2.is_ok());
+        assert_eq!(result2.unwrap().endpoint, "http://localhost:5555");
+
+        let mut headermap3 = HeaderMap::new();
+        headermap3.insert("x-client", "a:12,b:9,c=7,d=4;f5=6667".parse().unwrap());
+        let result3 = header_route.get_route(headermap3.clone()).await;
+        assert!(result3.is_ok());
+        assert_eq!(result3.unwrap().endpoint, "http://localhost:7777");
+
+        let mut headermap4 = HeaderMap::new();
+        headermap4.insert("x-client", "google chrome".parse().unwrap());
+        let result4 = header_route.get_route(headermap4.clone()).await;
+        assert!(result4.is_ok());
+        assert_eq!(result4.unwrap().endpoint, "http://localhost:8888");
+    }
+    #[tokio::test]
+    async fn test_update_health_check_status_with_ok_success1() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(None)),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        base_route
+            .update_health_check_status_with_ok(liveness_status_lock.clone())
+            .await;
+        let is_alive_option = base_route.is_alive.read().await;
+        assert!(is_alive_option.is_some(),);
+        assert!(is_alive_option.unwrap(),);
+        let liveness_status = liveness_status_lock.read().await;
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+    #[tokio::test]
+    async fn test_update_health_check_status_with_ok_success2() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(true))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        base_route
+            .update_health_check_status_with_ok(liveness_status_lock.clone())
+            .await;
+        let is_alive_option = base_route.is_alive.read().await;
+        assert!(is_alive_option.is_some(),);
+        assert!(is_alive_option.unwrap(),);
+        let liveness_status = liveness_status_lock.read().await;
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+    #[tokio::test]
+    async fn test_update_health_check_status_with_ok_success3() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(false))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        base_route
+            .update_health_check_status_with_ok(liveness_status_lock.clone())
+            .await;
+        let is_alive_option = base_route.is_alive.read().await;
+        assert!(is_alive_option.is_some(),);
+        assert!(is_alive_option.unwrap(),);
+        let liveness_status = liveness_status_lock.read().await;
+        assert_eq!(liveness_status.current_liveness_count, 4);
+    }
+
+    #[tokio::test]
+    async fn test_update_health_check_status_with_fail_success1() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(None)),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route
+            .update_health_check_status_with_fail(
+                liveness_status_lock,
+                LivenessConfig {
+                    min_liveness_count: 3,
+                },
+            )
+            .await;
+        assert!(!result);
+        let is_alive_option = base_route.is_alive.read().await;
+        assert!(is_alive_option.is_none());
+    }
+    #[tokio::test]
+    async fn test_update_health_check_status_with_fail_success2() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(true))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route
+            .update_health_check_status_with_fail(
+                liveness_status_lock.clone(),
+                LivenessConfig {
+                    min_liveness_count: 3,
+                },
+            )
+            .await;
+        //update fails
+        assert!(!result);
+        let is_alive_option = base_route.is_alive.read().await;
+        assert!(is_alive_option.is_some());
+        assert!(is_alive_option.unwrap());
+        let liveness_status = liveness_status_lock.read().await;
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+    #[tokio::test]
+    async fn test_update_health_check_status_with_fail_success3() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(false))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+
+        let result = base_route
+            .update_health_check_status_with_fail(
+                liveness_status_lock.clone(),
+                LivenessConfig {
+                    min_liveness_count: 3,
+                },
+            )
+            .await;
+        assert!(!result);
+        let is_alive_option = base_route.is_alive.read().await;
+        assert!(is_alive_option.is_some(),);
+        assert!(!is_alive_option.unwrap(),);
+        let liveness_status = liveness_status_lock.read().await;
+        assert_eq!(liveness_status.current_liveness_count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_trigger_http_anomaly_detection_success1() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(false))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 0,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 3,
+        }));
+        let http_anomaly_detection_param = HttpAnomalyDetectionParam {
+            consecutive_5xx: 2,
+            base_anomaly_detection_param: BaseAnomalyDetectionParam { ejection_second: 3 },
+        };
+        let result = base_route
+            .trigger_http_anomaly_detection(
+                http_anomaly_detection_param,
+                liveness_status_lock,
+                true,
+                LivenessConfig {
+                    min_liveness_count: 3,
+                },
+            )
+            .await;
+        assert!(result.is_ok());
+        let anomaly_detection_status = base_route.anomaly_detection_status.read().await;
+        assert_eq!(anomaly_detection_status.consecutive_5xx, 1);
+    }
+    #[tokio::test]
+    async fn test_trigger_http_anomaly_detection_success2() {
+        let base_route = BaseRoute {
+            endpoint: String::from("/"),
+            try_file: None,
+            is_alive: Arc::new(RwLock::new(Some(true))),
+            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                consecutive_5xx: 1,
+            })),
+        };
+        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
+            current_liveness_count: 4,
+        }));
+        let http_anomaly_detection_param = HttpAnomalyDetectionParam {
+            consecutive_5xx: 3,
+            base_anomaly_detection_param: BaseAnomalyDetectionParam { ejection_second: 3 },
+        };
+        let result = base_route
+            .trigger_http_anomaly_detection(
+                http_anomaly_detection_param.clone(),
+                liveness_status_lock.clone(),
+                true,
+                LivenessConfig {
+                    min_liveness_count: 3,
+                },
+            )
+            .await;
+        assert!(result.is_ok(),);
+        {
+            let anomaly_detection_status1 = base_route.anomaly_detection_status.read().await;
+            assert_eq!(anomaly_detection_status1.consecutive_5xx, 2);
+            drop(anomaly_detection_status1);
+            let is_alive_option1 = base_route.is_alive.read().await;
+            assert!(is_alive_option1.unwrap(),);
+            drop(is_alive_option1);
+            let liveness_status1 = liveness_status_lock.read().await;
+            assert_eq!(liveness_status1.current_liveness_count, 4);
+            drop(liveness_status1);
+        }
+        {
+            let result2 = base_route
+                .trigger_http_anomaly_detection(
+                    http_anomaly_detection_param,
+                    liveness_status_lock.clone(),
+                    true,
+                    LivenessConfig {
+                        min_liveness_count: 3,
+                    },
+                )
+                .await;
+            assert!(result2.is_ok(),);
+            let anomaly_detection_status2 = base_route.anomaly_detection_status.read().await;
+            assert_eq!(anomaly_detection_status2.consecutive_5xx, 2);
+            drop(anomaly_detection_status2);
+
+            let is_alive_option2 = base_route.is_alive.read().await;
+            assert!(!is_alive_option2.unwrap(),);
+            drop(is_alive_option2);
+
+            let liveness_status2 = liveness_status_lock.read().await;
+            assert_eq!(liveness_status2.current_liveness_count, 3);
+            drop(liveness_status2);
+        }
+        sleep(Duration::from_secs(4)).await;
+        {
+            let anomaly_detection_status3 = base_route.anomaly_detection_status.read().await;
+            assert_eq!(anomaly_detection_status3.consecutive_5xx, 0);
+            let is_alive_option3 = base_route.is_alive.read().await;
+            assert!(is_alive_option3.unwrap());
+            let liveness_status3 = liveness_status_lock.read().await;
+            assert_eq!(liveness_status3.current_liveness_count, 4);
+        }
+    }
+}
