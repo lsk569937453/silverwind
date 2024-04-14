@@ -492,8 +492,8 @@ mod tests {
     }
     impl BaseRouteWithoutLock {
         async fn new(base_route: BaseRoute) -> Self {
-            let is_alive = *base_route.is_alive.read().await;
-            let anomaly_detection_status = base_route.anomaly_detection_status.read().await.clone();
+            let is_alive = base_route.is_alive;
+            let anomaly_detection_status = base_route.anomaly_detection_status;
             BaseRouteWithoutLock {
                 endpoint: base_route.endpoint,
                 try_file: base_route.try_file,
@@ -510,10 +510,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:4444"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     }
                 },
             },
@@ -522,10 +522,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     }
                 },
             },
@@ -534,10 +534,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     }
                 },
             },
@@ -550,10 +550,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:4444"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     }
                 },
             },
@@ -562,10 +562,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     }
                 },
             },
@@ -574,10 +574,10 @@ mod tests {
                     BaseRoute {
                         endpoint: String::from("http://localhost:5555"),
                         try_file: None,
-                        is_alive: Arc::new(RwLock::new(None)),
-                        anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
                             consecutive_5xx: 100,
-                        })),
+                        },
                     }
                 },
             },
@@ -589,37 +589,37 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    is_alive: None,
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                 },
                 weight: 100,
-                index: Arc::new(AtomicIsize::new(0)),
+                index: 0,
             },
             WeightRoute {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
+                    is_alive: None,
                 },
                 weight: 100,
-                index: Arc::new(AtomicIsize::new(0)),
+                index: 0,
             },
             WeightRoute {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:6666"),
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    is_alive: None,
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                 },
                 weight: 100,
-                index: Arc::new(AtomicIsize::new(0)),
+                index: 0,
             },
         ]
     }
@@ -629,10 +629,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    is_alive: None,
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::Regex(RegexMatch {
@@ -643,10 +643,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    is_alive: None,
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::Split(SplitSegment {
@@ -662,10 +662,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:7777"),
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    is_alive: None,
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::Split(SplitSegment {
@@ -681,10 +681,10 @@ mod tests {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:8888"),
                     try_file: None,
-                    is_alive: Arc::new(RwLock::new(None)),
-                    anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
+                    is_alive: None,
+                    anomaly_detection_status: AnomalyDetectionStatus {
                         consecutive_5xx: 100,
-                    })),
+                    },
                 },
                 header_key: String::from("x-client"),
                 header_value_mapping_type: HeaderValueMappingType::Text(TextMatch {
@@ -709,10 +709,9 @@ mod tests {
         };
         for i in 0..100 {
             let current_route = poll_rate.get_route(HeaderMap::new()).await.unwrap();
-            let current_route_vistor = BaseRouteVistor::from(current_route).await;
-            let another_route_vistor =
-                BaseRouteVistor::from(routes[i % routes.len()].base_route.clone()).await;
-            assert_eq!(another_route_vistor, current_route_vistor);
+
+            let another_route_vistor = routes[i % routes.len()].base_route.clone();
+            assert_eq!(another_route_vistor, current_route);
         }
     }
     #[tokio::test]
@@ -727,7 +726,7 @@ mod tests {
     async fn test_weight_route_successfully() {
         let routes = get_weight_routes();
         let mut weight_route = WeightBasedRoute {
-            routes: Arc::new(RwLock::new(routes.clone())),
+            routes: routes.clone(),
         };
 
         for _ in 0..100 {
@@ -766,7 +765,7 @@ mod tests {
     async fn test_header_based_route_successfully() {
         let routes = get_header_based_routes();
         let header_route = HeaderBasedRoute { routes };
-        let mut header_route = LoadbalancerStrategy::HeaderBased(header_route);
+        let mut header_route = LoadbalancerStrategy::HeaderBasedRoute(header_route);
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("x-client", "100zh-CN,zh;q=0.9,en;q=0.8".parse().unwrap());
         let result1 = header_route.get_route(headermap1.clone()).await;
@@ -796,10 +795,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(None)),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: None,
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -808,8 +805,8 @@ mod tests {
         base_route
             .update_health_check_status_with_ok(liveness_status_lock.clone())
             .await;
-        let is_alive_option = base_route.is_alive.read().await;
-        assert!(is_alive_option.is_some(),);
+        let is_alive_option = base_route.is_alive;
+        assert!(is_alive_option.is_some());
         assert!(is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().await;
         assert_eq!(liveness_status.current_liveness_count, 3);
@@ -819,10 +816,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(Some(true))),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: Some(true),
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -831,7 +826,7 @@ mod tests {
         base_route
             .update_health_check_status_with_ok(liveness_status_lock.clone())
             .await;
-        let is_alive_option = base_route.is_alive.read().await;
+        let is_alive_option = base_route.is_alive;
         assert!(is_alive_option.is_some(),);
         assert!(is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().await;
@@ -842,10 +837,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(Some(false))),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: Some(false),
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -854,7 +847,7 @@ mod tests {
         base_route
             .update_health_check_status_with_ok(liveness_status_lock.clone())
             .await;
-        let is_alive_option = base_route.is_alive.read().await;
+        let is_alive_option = base_route.is_alive;
         assert!(is_alive_option.is_some(),);
         assert!(is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().await;
@@ -866,10 +859,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(None)),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: None,
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -884,7 +875,7 @@ mod tests {
             )
             .await;
         assert!(!result);
-        let is_alive_option = base_route.is_alive.read().await;
+        let is_alive_option = base_route.is_alive;
         assert!(is_alive_option.is_none());
     }
     #[tokio::test]
@@ -892,10 +883,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(Some(true))),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: Some(true),
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -911,7 +900,7 @@ mod tests {
             .await;
         //update fails
         assert!(!result);
-        let is_alive_option = base_route.is_alive.read().await;
+        let is_alive_option = base_route.is_alive;
         assert!(is_alive_option.is_some());
         assert!(is_alive_option.unwrap());
         let liveness_status = liveness_status_lock.read().await;
@@ -922,10 +911,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(Some(false))),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: Some(false),
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -940,7 +927,7 @@ mod tests {
             )
             .await;
         assert!(!result);
-        let is_alive_option = base_route.is_alive.read().await;
+        let is_alive_option = base_route.is_alive;
         assert!(is_alive_option.is_some(),);
         assert!(!is_alive_option.unwrap(),);
         let liveness_status = liveness_status_lock.read().await;
@@ -952,10 +939,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(Some(false))),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 0,
-            })),
+            is_alive: Some(false),
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 3,
@@ -975,7 +960,7 @@ mod tests {
             )
             .await;
         assert!(result.is_ok());
-        let anomaly_detection_status = base_route.anomaly_detection_status.read().await;
+        let anomaly_detection_status = base_route.anomaly_detection_status;
         assert_eq!(anomaly_detection_status.consecutive_5xx, 1);
     }
     #[tokio::test]
@@ -983,10 +968,8 @@ mod tests {
         let base_route = BaseRoute {
             endpoint: String::from("/"),
             try_file: None,
-            is_alive: Arc::new(RwLock::new(Some(true))),
-            anomaly_detection_status: Arc::new(RwLock::new(AnomalyDetectionStatus {
-                consecutive_5xx: 1,
-            })),
+            is_alive: Some(true),
+            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 1 },
         };
         let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
             current_liveness_count: 4,
@@ -1007,10 +990,10 @@ mod tests {
             .await;
         assert!(result.is_ok(),);
         {
-            let anomaly_detection_status1 = base_route.anomaly_detection_status.read().await;
+            let anomaly_detection_status1 = base_route.anomaly_detection_status.clone();
             assert_eq!(anomaly_detection_status1.consecutive_5xx, 2);
             drop(anomaly_detection_status1);
-            let is_alive_option1 = base_route.is_alive.read().await;
+            let is_alive_option1 = base_route.is_alive;
             assert!(is_alive_option1.unwrap(),);
             drop(is_alive_option1);
             let liveness_status1 = liveness_status_lock.read().await;
@@ -1029,11 +1012,11 @@ mod tests {
                 )
                 .await;
             assert!(result2.is_ok(),);
-            let anomaly_detection_status2 = base_route.anomaly_detection_status.read().await;
+            let anomaly_detection_status2 = base_route.anomaly_detection_status.clone();
             assert_eq!(anomaly_detection_status2.consecutive_5xx, 2);
             drop(anomaly_detection_status2);
 
-            let is_alive_option2 = base_route.is_alive.read().await;
+            let is_alive_option2 = base_route.is_alive;
             assert!(!is_alive_option2.unwrap(),);
             drop(is_alive_option2);
 
@@ -1043,9 +1026,9 @@ mod tests {
         }
         sleep(Duration::from_secs(4)).await;
         {
-            let anomaly_detection_status3 = base_route.anomaly_detection_status.read().await;
+            let anomaly_detection_status3 = base_route.anomaly_detection_status;
             assert_eq!(anomaly_detection_status3.consecutive_5xx, 0);
-            let is_alive_option3 = base_route.is_alive.read().await;
+            let is_alive_option3 = base_route.is_alive;
             assert!(is_alive_option3.unwrap());
             let liveness_status3 = liveness_status_lock.read().await;
             assert_eq!(liveness_status3.current_liveness_count, 4);
