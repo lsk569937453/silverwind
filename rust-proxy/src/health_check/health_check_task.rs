@@ -1,5 +1,6 @@
-use crate::constants::common_constants::TIMER_WAIT_SECONDS;
 use crate::proxy::http1::http_client::HttpClients;
+use crate::vojo::app_config::ApiService;
+use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_error::AppError;
 use crate::vojo::health_check::HealthCheckType;
@@ -16,10 +17,10 @@ use http_body_util::Full;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 use url::Url;
-
 #[derive(Clone)]
 pub struct HealthCheckClient {
     pub http_clients: HttpClients,
@@ -66,14 +67,16 @@ pub struct HealthCheck {
     pub delay_timer: DelayTimer,
     pub health_check_client: HealthCheckClient,
     pub current_id: Arc<AtomicU64>,
+    pub shared_config: Arc<Mutex<AppConfig>>,
 }
 impl HealthCheck {
-    pub fn new() -> Self {
+    pub fn new(shared_config: Arc<Mutex<AppConfig>>) -> Self {
         HealthCheck {
             task_id_map: HashMap::new(),
             delay_timer: DelayTimerBuilder::default().build(),
             health_check_client: HealthCheckClient::new(),
             current_id: Arc::new(AtomicU64::new(0)),
+            shared_config,
         }
     }
     pub async fn start_health_check_loop(&mut self) {
@@ -84,12 +87,19 @@ impl HealthCheck {
             if async_result.is_err() {
                 error!("start_health_check_loop catch panic successfully!");
             }
-            sleep(std::time::Duration::from_secs(TIMER_WAIT_SECONDS)).await;
+            sleep(std::time::Duration::from_secs(5)).await;
         }
     }
 
     async fn do_health_check(&mut self) -> Result<(), AppError> {
-        let handles = GLOBAL_CONFIG_MAPPING
+        let app_config = self.shared_config.lock().await;
+        let apiservice_list = app_config
+            .api_service_config
+            .values()
+            .cloned()
+            .collect::<Vec<ApiService>>();
+        drop(app_config);
+        let handles = apiservice_list
             .iter()
             .flat_map(|item| item.service_config.routes.clone())
             .filter(|item| item.health_check.is_some() && item.liveness_config.is_some())
@@ -118,7 +128,7 @@ impl HealthCheck {
                 (a.clone(), b.clone())
             })
             .collect::<HashMap<TaskKey, Route>>();
-
+        // Remove tasks from task_id_map for routes not present in route_list
         self.task_id_map.retain(|route_id, task_id| {
             if !route_list.contains_key(route_id) {
                 let res = self.delay_timer.remove_task(*task_id);
@@ -135,6 +145,8 @@ impl HealthCheck {
             true
         });
         let old_map = self.task_id_map.clone();
+        // For each route in route_list that is not in the old_map, submit a health check task
+
         route_list
             .iter()
             .filter(|(task_key, _)| !old_map.contains_key(&(*task_key).clone()))

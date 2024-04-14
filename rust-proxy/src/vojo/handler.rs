@@ -13,13 +13,13 @@ use crate::proxy::tcp::tcp_proxy::TcpProxy;
 use crate::vojo::app_config::{ApiService, ServiceType};
 use crate::vojo::app_error::AppError;
 
+use crate::health_check::health_check_task::HealthCheck;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
-
 #[derive(Clone)]
 pub struct Handler {
     pub shared_app_config: Arc<Mutex<AppConfig>>,
@@ -34,6 +34,13 @@ impl Handler {
         drop(lock);
         start_control_plane(self.clone(), admin_port).await;
         Ok(())
+    }
+    async fn start_health_check(&mut self) {
+        let cloned_appconfig = self.shared_app_config.clone();
+        tokio::spawn(async move {
+            let mut health_check = HealthCheck::new(cloned_appconfig);
+            health_check.start_health_check_loop().await;
+        });
     }
     pub async fn start_proxy(
         &mut self,
