@@ -44,14 +44,14 @@ impl LoadbalancerStrategy {
             }
         }
     }
-    pub async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
+    pub fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         match self {
-            LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_all_route().await,
-            LoadbalancerStrategy::HeaderBasedRoute(poll_route) => poll_route.get_all_route().await,
+            LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_all_route(),
+            LoadbalancerStrategy::HeaderBasedRoute(poll_route) => poll_route.get_all_route(),
 
-            LoadbalancerStrategy::RandomRoute(poll_route) => poll_route.get_all_route().await,
+            LoadbalancerStrategy::RandomRoute(poll_route) => poll_route.get_all_route(),
 
-            LoadbalancerStrategy::WeightBasedRoute(poll_route) => poll_route.get_all_route().await,
+            LoadbalancerStrategy::WeightBasedRoute(poll_route) => poll_route.get_all_route(),
         }
     }
 }
@@ -262,7 +262,7 @@ pub struct HeaderBasedRoute {
 // #[typetag::serde]
 // #[async_trait]
 impl HeaderBasedRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         Ok(self
             .routes
             .iter()
@@ -339,7 +339,7 @@ pub struct RandomRoute {
 }
 
 impl RandomRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         Ok(self
             .routes
             .iter()
@@ -376,10 +376,10 @@ pub struct PollRoute {
 }
 
 impl PollRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         Ok(self
             .routes
-            .iter_mut()
+            .iter()
             .map(|item| item.base_route.clone())
             .collect::<Vec<BaseRoute>>())
     }
@@ -418,7 +418,7 @@ pub struct WeightBasedRoute {
 }
 
 impl WeightBasedRoute {
-    async fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
+    fn get_all_route(&mut self) -> Result<Vec<BaseRoute>, AppError> {
         let read_lock = self.routes.clone();
         let array = read_lock
             .iter()
