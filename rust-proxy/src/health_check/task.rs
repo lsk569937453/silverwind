@@ -15,6 +15,7 @@ use http::Request;
 use http::StatusCode;
 use http_body_util::BodyExt;
 use http_body_util::Full;
+use openssl::sha;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -39,7 +40,7 @@ pub struct TaskKey {
     pub route_id: String,
     pub api_service_id: String,
     pub health_check_type: HealthCheckType,
-    pub endpoint_list: Vec<String>,
+    pub endpoint_list: Vec<(String, String)>,
     pub min_liveness_count: i32,
 }
 impl TaskKey {
@@ -47,7 +48,7 @@ impl TaskKey {
         route_id: String,
         api_service_id: String,
         health_check_type: HealthCheckType,
-        endpoint_list: Vec<String>,
+        endpoint_list: Vec<(String, String)>,
         min_liveness_count: i32,
     ) -> Self {
         TaskKey {
@@ -137,18 +138,24 @@ impl HealthCheck {
                 let task_id = value.clone().route_id;
                 let health_check_client = self.health_check_client.clone();
                 let health_check_type = value.health_check.clone().unwrap();
-                let route_share = value.clone();
+                let route_list = get_endpoint_list(value.clone());
+                let route_id = value.route_id.clone();
+                let api_service_id = key.api_service_id.clone();
                 let timeout_share = 20;
                 let health_check_client_shared = health_check_client.clone();
                 let health_check_type_shared = health_check_type.clone();
+                let shared_config = self.shared_config.clone();
                 let task = async move {
                     match health_check_type_shared {
                         HealthCheckType::HttpGet(http_health_check_param) => {
                             do_http_health_check(
                                 http_health_check_param,
-                                route_share,
+                                route_list,
+                                route_id,
                                 timeout_share,
                                 health_check_client_shared,
+                                shared_config,
+                                api_service_id,
                             )
                             .await
                         }
@@ -156,33 +163,35 @@ impl HealthCheck {
                         HealthCheckType::Redis(_) => Ok(()),
                     }
                 };
-                let submit_task_result = self.task_pool.submit_task(task_id, task).await;
+                let _ = self.task_pool.submit_task(task_id, task).await;
                 self.task_id_map.insert(key.clone());
             }
         }
         Ok(())
     }
 }
-fn get_endpoint_list(mut route: Route) -> Vec<String> {
+fn get_endpoint_list(mut route: Route) -> Vec<(String, String)> {
     let mut result = vec![];
     let base_route_list = route.route_cluster.get_all_route().unwrap_or(vec![]);
     for item in base_route_list {
-        result.push(item.endpoint);
+        result.push((item.endpoint.clone(), item.base_route_id.clone()));
     }
     result
 }
 async fn do_http_health_check(
     http_health_check_param: HttpHealthCheckParam,
-    mut route: Route,
+    route_list: Vec<(String, String)>,
+    route_id: String,
     timeout_number: i32,
     http_health_check_client: HealthCheckClient,
+    shared_config: Arc<Mutex<AppConfig>>,
+    api_service_id: String,
 ) -> Result<(), AppError> {
-    let route_list = route.route_cluster.get_all_route()?;
     let http_client = http_health_check_client.http_clients.clone();
     let mut set = JoinSet::new();
-    for item in route_list {
+    for (item, base_route_id) in route_list {
         let http_client_shared = http_client.clone();
-        let host_option = Url::parse(item.endpoint.as_str());
+        let host_option = Url::parse(item.as_str());
         if host_option.is_err() {
             error!(
                 "Parse host error,the error is {}",
@@ -201,47 +210,107 @@ async fn do_http_health_check(
             );
             continue;
         }
+        let route_id_cloned = route_id.clone();
+        let shared_config_cloned = shared_config.clone();
+        let api_service_id_cloned = api_service_id.clone();
+        let base_route_id_cloned = base_route_id.clone();
 
         let req = Request::builder()
             .uri(join_option.unwrap().to_string())
             .method("GET")
             .body(Full::new(Bytes::new()).boxed())
-            .unwrap();
+            .map_err(|err| AppError(err.to_string()))?;
         let task_with_timeout = http_client_shared
             .clone()
             .request_http(req, timeout_number as u64);
-        set.spawn(async {
+        set.spawn(async move {
             let res = task_with_timeout.await;
-            (res, item)
+            (
+                res,
+                route_id_cloned,
+                shared_config_cloned,
+                api_service_id_cloned,
+                base_route_id_cloned,
+            )
         });
     }
     while let Some(response_result1) = set.join_next().await {
-        if let Ok((response_result2, base_route)) = response_result1 {
+        if let Ok((response_result2, route_id, shared_config, api_service_id, base_route_id)) =
+            response_result1
+        {
             match response_result2 {
                 Ok(Ok(t)) => {
                     if t.status() == StatusCode::OK {
-                        base_route
-                            .update_health_check_status_with_ok(route.liveness_status.clone())
-                            .await;
+                        update_status(
+                            shared_config,
+                            api_service_id,
+                            route_id.clone(),
+                            base_route_id,
+                            true,
+                        )
+                        .await;
                     }
                 }
                 _ => {
-                    if let Some(current_liveness_config) = route.liveness_config.clone() {
-                        let _update_result = base_route
-                            .update_health_check_status_with_fail(
-                                route.liveness_status.clone(),
-                                current_liveness_config,
-                            )
-                            .await;
-                    } else {
-                        error!(
-                            "Can not update the route-{} to fail,as the liveness_status is empty!",
-                            base_route.endpoint.clone()
-                        );
-                    }
+                    update_status(
+                        shared_config,
+                        api_service_id,
+                        route_id,
+                        base_route_id,
+                        false,
+                    )
+                    .await;
                 }
             }
         }
     }
     Ok(())
+}
+async fn update_status(
+    shared_config: Arc<Mutex<AppConfig>>,
+    api_service_id: String,
+    route_id: String,
+    base_route_id: String,
+    status: bool,
+) -> Result<(), AppError> {
+    let mut shared_config_lock = shared_config.lock().await;
+    let api_service = shared_config_lock
+        .api_service_config
+        .get_mut(&api_service_id)
+        .ok_or(AppError("Can not get the api service config".to_string()))?;
+    let cc = api_service
+        .service_config
+        .routes
+        .iter_mut()
+        .filter(|item| item.route_id == route_id)
+        .next()
+        .ok_or(AppError("Can not get the route config".to_string()))?;
+    let mut ss = cc.route_cluster.get_all_route()?;
+    // Modify one of the BaseRoute objects (assuming you have access to the original objects)
+    let tt = ss
+        .iter_mut()
+        .filter(|route| route.base_route_id == base_route_id)
+        .next()
+        .ok_or(AppError("Can not get the route config".to_string()))?;
+    tt.is_alive = Some(status);
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::time::Duration;
+    use tokio::time::sleep;
+    #[tokio::test]
+    async fn pool_key_value_get_set() {
+        let mut vec = vec![];
+        vec.push(Some("a"));
+        vec.push(Some("b"));
+        let item = vec
+            .iter_mut()
+            .filter(|item| **item == Some("a"))
+            .next()
+            .unwrap();
+        *item = Some("c");
+    }
 }

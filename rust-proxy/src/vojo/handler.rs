@@ -13,7 +13,7 @@ use crate::proxy::tcp::tcp_proxy::TcpProxy;
 use crate::vojo::app_config::{ApiService, ServiceType};
 use crate::vojo::app_error::AppError;
 
-use crate::health_check::health_check_task::HealthCheck;
+use crate::health_check::task::HealthCheck;
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -32,7 +32,9 @@ impl Handler {
         lock.api_service_config = map;
         lock.static_config = static_config;
         drop(lock);
-        start_control_plane(self.clone(), admin_port).await;
+        let _ = start_control_plane(self.clone(), admin_port).await;
+        let _ = self.start_health_check().await;
+
         Ok(())
     }
     async fn start_health_check(&mut self) {
