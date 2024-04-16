@@ -46,14 +46,16 @@ where
     F: Future<Output = Result<(), AppError>> + Send + 'static,
 {
     pub async fn run(&mut self) {
-        let mut interval = time::interval(Duration::from_millis(self.interval.clone()));
-        tokio::select! {
-            _ = interval.tick() => {},
-            _=&mut self.receiver => {
-                info!("Health check timer stop!");
-                return
-            },
+        let mut interval = time::interval(Duration::from_millis(self.interval));
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {},
+                _=&mut self.receiver => {
+                    info!("Health check timer stop!");
+                    return
+                },
 
+            }
         }
     }
     pub fn new(interval: u64, timeout: u64, receiver: oneshot::Receiver<()>, task: F) -> Self {

@@ -282,15 +282,13 @@ async fn update_status(
         .service_config
         .routes
         .iter_mut()
-        .filter(|item| item.route_id == route_id)
-        .next()
+        .find(|item| item.route_id == route_id)
         .ok_or(AppError("Can not get the route config".to_string()))?;
     let mut baseroutes = routes.route_cluster.get_all_route()?;
     // Modify one of the BaseRoute objects (assuming you have access to the original objects)
     let base_route = baseroutes
         .iter_mut()
-        .filter(|route| route.base_route_id == base_route_id)
-        .next()
+        .find(|route| route.base_route_id == base_route_id)
         .ok_or(AppError("Can not get the route config".to_string()))?;
     base_route.is_alive = Some(status);
     Ok(())
