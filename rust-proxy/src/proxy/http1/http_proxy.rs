@@ -275,7 +275,7 @@ async fn proxy(
     shared_config: Arc<Mutex<AppConfig>>,
     client: HttpClients,
     mut req: Request<BoxBody<Bytes, Infallible>>,
-    mapping_key: String,
+    api_service_id: String,
     remote_addr: SocketAddr,
     check_trait: impl CheckTrait,
 ) -> Result<Response<BoxBody<Bytes, Infallible>>, AppError> {
@@ -285,7 +285,7 @@ async fn proxy(
     let check_result = check_trait
         .check_before_request(
             shared_config,
-            mapping_key.clone(),
+            api_service_id.clone(),
             inbound_headers.clone(),
             uri,
             remote_addr,
@@ -334,35 +334,7 @@ async fn proxy(
                 )))
             }
         };
-        if let (Some(anomaly_detection), Some(liveness_config)) = (
-            route.clone().anomaly_detection,
-            route.clone().liveness_config,
-        ) {
-            let is_5xx = match response_result.as_ref() {
-                Ok(response) => {
-                    let status_code = response.status();
-                    status_code.clone().as_u16() >= StatusCode::INTERNAL_SERVER_ERROR.as_u16()
-                }
-                Err(_) => true,
-            };
-            let temporary_base_route = base_route.clone();
-            // let anomaly_detection_status_lock =
-            //     temporary_base_route.anomaly_detection_status.read().await;
-            // let consecutive_5xx = anomaly_detection_status_lock.consecutive_5xx;
-            // if is_5xx || consecutive_5xx > 0 {
-            //     if let Err(err) = trigger_anomaly_detection(
-            //         anomaly_detection,
-            //         route.liveness_status.clone(),
-            //         base_route,
-            //         is_5xx,
-            //         liveness_config,
-            //     )
-            //     .await
-            //     {
-            //         error!("{}", err);
-            //     }
-            // }
-        }
+
         let res = response_result?
             .map(|b| b.boxed())
             .map(|item| item.map_err(|_| -> Infallible { unreachable!() }).boxed());
@@ -373,31 +345,7 @@ async fn proxy(
         .body(Full::new(Bytes::from(common_constants::NOT_FOUND)).boxed())
         .unwrap())
 }
-async fn trigger_anomaly_detection(
-    anomaly_detection: AnomalyDetectionType,
-    liveness_status_lock: Arc<RwLock<LivenessStatus>>,
-    base_route: BaseRoute,
-    is_5xx: bool,
-    liveness_config: LivenessConfig,
-) -> Result<(), AppError> {
-    let AnomalyDetectionType::Http(http_anomaly_detection_param) = anomaly_detection;
-    let res = base_route
-        .trigger_http_anomaly_detection(
-            http_anomaly_detection_param,
-            liveness_status_lock,
-            is_5xx,
-            liveness_config,
-        )
-        .await;
-    if res.is_err() {
-        error!(
-            "trigger_http_anomaly_detection error,the error is {}",
-            res.unwrap_err()
-        );
-    }
 
-    Ok(())
-}
 async fn route_file(
     base_route: BaseRoute,
     req: Request<BoxBody<Bytes, Infallible>>,

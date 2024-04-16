@@ -74,156 +74,11 @@ fn default_base_route_id() -> String {
     let id = Uuid::new_v4();
     id.to_string()
 }
-impl BaseRoute {
-    async fn update_ok(&self, liveness_status_lock: Arc<RwLock<LivenessStatus>>) -> bool {
-        // let mut is_alive_lock = self.is_alive.write().await;
-        // if is_alive_lock.is_none() {
-        //     *is_alive_lock = Some(true);
-        //     info!(
-        //         "Update the liveness of route-{} to ok succesfully!",
-        //         self.endpoint.clone(),
-        //     );
-        //     return true;
-        // } else if !is_alive_lock.unwrap() {
-        //     *is_alive_lock = Some(true);
-        //     let mut liveness_status = liveness_status_lock.write().await;
-        //     liveness_status.current_liveness_count += 1;
-        //     info!(
-        //         "Update the liveness of route-{} to ok succesfully,and the current liveness count is {}.",
-        //         self.endpoint.clone(),liveness_status.current_liveness_count);
-        //     return true;
-        // }
-        false
-    }
-    async fn update_fail(&self, liveness_status_lock: Arc<RwLock<LivenessStatus>>) -> bool {
-        // let mut is_alive_lock = self.is_alive.write().await;
-        // if is_alive_lock.is_none() || is_alive_lock.unwrap() {
-        //     let mut liveness_status = liveness_status_lock.write().await;
-        //     liveness_status.current_liveness_count -= 1;
-        //     *is_alive_lock = Some(false);
-        //     info!(
-        //         "Update the liveness of route-{} to fail succesfully,and the current liveness count is {}.",
-        //         self.endpoint.clone(),liveness_status.current_liveness_count);
-        //     return true;
-        // }
-        false
-    }
-    pub async fn update_health_check_status_with_ok(
-        &self,
-        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
-    ) -> bool {
-        // let is_alive_lock = self.is_alive.read().await;
-        // let is_alive = is_alive_lock.unwrap_or(false);
-        // if !is_alive {
-        //     drop(is_alive_lock);
-        //     self.update_ok(liveness_status_lock).await
-        // } else {
-        //     info!(
-        //     "Update the liveness of route-{} to ok unsuccesfully,as the current status of the endpoint is alive!",
-        //     self.endpoint.clone(),
-        // );
-        false
-    }
-    pub async fn update_health_check_status_with_fail(
-        &self,
-        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
-        liveness_config: LivenessConfig,
-    ) -> bool {
-        // let liveness_status = liveness_status_lock.read().await;
-        // if liveness_status.current_liveness_count <= liveness_config.min_liveness_count {
-        //     error!(
-        //         "Update the liveness of route-{} to fail unsuccesfully,as the current liveness count:{} is less than the liveness count:{} in the config!",
-        //         self.endpoint.clone(),
-        //         liveness_status.current_liveness_count,
-        //         liveness_config.min_liveness_count
-        //     );
-        //     return false;
-        // }
-        // let is_alive_lock = self.is_alive.read().await;
-        // let is_alive = is_alive_lock.unwrap_or(true);
-        // if is_alive {
-        //     drop(liveness_status);
-        //     drop(is_alive_lock);
-        //     self.update_fail(liveness_status_lock.clone()).await;
-        //     info!(
-        //         "Update the liveness of route-{} to fail succesfully!",
-        //         self.endpoint.clone()
-        //     );
-        //     return true;
-        // } else {
-        //     info!(
-        //     "Update the liveness of route-{} to fail unsuccesfully,as the current status of the endpoint is not alive!",
-        //     self.endpoint.clone(),
-        // );
-        // }
-        false
-    }
-    pub async fn trigger_http_anomaly_detection(
-        &self,
-        http_anomaly_detection_param: HttpAnomalyDetectionParam,
-        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
-        is_5xx: bool,
-        liveness_config: LivenessConfig,
-    ) -> Result<(), AppError> {
-        // let consecutive_5xx_config = http_anomaly_detection_param.consecutive_5xx;
-        // let mut anomaly_detection_status = self
-        //     .anomaly_detection_status
-        //     .try_write()
-        //     .map_err(|e| AppError(e.to_string()))?;
-        // if !is_5xx && anomaly_detection_status.consecutive_5xx > 0 {
-        //     anomaly_detection_status.consecutive_5xx = 0;
-        //     return Ok(());
-        // }
-
-        // if anomaly_detection_status.consecutive_5xx < consecutive_5xx_config - 1 {
-        //     anomaly_detection_status.consecutive_5xx += 1;
-        // } else {
-        //     drop(anomaly_detection_status);
-        //     let update_success = self
-        //         .update_health_check_status_with_fail(liveness_status_lock.clone(), liveness_config)
-        //         .await;
-        //     if update_success {
-        //         let alive_lock = self.is_alive.clone();
-        //         let ejection_second = http_anomaly_detection_param
-        //             .base_anomaly_detection_param
-        //             .ejection_second;
-        //         let anomaly_detection_status_lock = self.anomaly_detection_status.clone();
-        //         tokio::spawn(async move {
-        //             BaseRoute::wait_for_alive(
-        //                 alive_lock,
-        //                 ejection_second,
-        //                 liveness_status_lock,
-        //                 anomaly_detection_status_lock,
-        //             )
-        //             .await;
-        //             info!("Wait for alive successfully!");
-        //         });
-        //     }
-        // }
-        Ok(())
-    }
-
-    pub async fn wait_for_alive(
-        is_alive_lock: Arc<RwLock<Option<bool>>>,
-        wait_second: u64,
-        liveness_status_lock: Arc<RwLock<LivenessStatus>>,
-        anomaly_detection_status_lock: Arc<RwLock<AnomalyDetectionStatus>>,
-    ) {
-        sleep(Duration::from_secs(wait_second)).await;
-        let mut is_alive_option = is_alive_lock.write().await;
-        let mut liveness_status = liveness_status_lock.write().await;
-        let mut anomaly_detection_status = anomaly_detection_status_lock.write().await;
-        *is_alive_option = Some(true);
-        liveness_status.current_liveness_count += 1;
-        anomaly_detection_status.consecutive_5xx = 0;
-    }
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct WeightRoute {
     pub base_route: BaseRoute,
-    pub weight: i32,
-    pub index: i64,
+    pub weight: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -423,6 +278,8 @@ impl PollRoute {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct WeightBasedRoute {
     pub routes: Vec<WeightRoute>,
+    pub index: u64,
+    pub offset: u64,
 }
 
 impl WeightBasedRoute {
@@ -436,53 +293,43 @@ impl WeightBasedRoute {
     }
 
     async fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
-        let cluster_read_lock = self.routes.clone();
-        let mut all_cluster_dead = true;
-        for (pos, e) in cluster_read_lock.iter().enumerate() {
-            let is_alive_option_lock = e.base_route.is_alive;
-            let is_alive = is_alive_option_lock.unwrap_or(true);
-            if is_alive {
-                all_cluster_dead = false;
-                let old_value = e.index;
-                if old_value > 0 {
-                    if log_enabled!(Level::Debug) {
-                        debug!("WeightRoute current index:{}", pos as i32);
-                    }
-                    return Ok(e.base_route.clone());
-                }
-            }
-        }
-
-        drop(cluster_read_lock);
-        if all_cluster_dead {
-            return Err(AppError(String::from("There are no alive host!")));
-        }
-        let mut new_lock = self.routes.clone();
-        let index_is_alive = new_lock.iter().any(|f| {
-            let tt = f.index;
-            tt.is_positive()
-        });
-        if !index_is_alive {
-            (*new_lock)
-                .iter_mut()
-                .for_each(|weight_route| weight_route.index = weight_route.weight as i64);
-        }
-        drop(new_lock);
         let cluster_read_lock2 = self.routes.clone();
-
-        for (pos, e) in cluster_read_lock2.iter().enumerate() {
-            let is_alive_option_lock = e.base_route.is_alive;
-            let is_alive = is_alive_option_lock.unwrap_or(true);
-            if is_alive {
-                let old_value = e.index;
-                if old_value > 0 {
-                    if log_enabled!(Level::Debug) {
-                        debug!("WeightRoute current index:{}", pos as i32);
-                    }
-                    return Ok(e.base_route.clone());
-                }
+        loop {
+            let currnet_index = self.index.clone();
+            let offset = self.offset.clone();
+            let current_weight = cluster_read_lock2
+                .get(currnet_index as usize)
+                .ok_or(AppError(String::from("")))?;
+            let is_alive = current_weight.base_route.is_alive.unwrap_or(true);
+            if current_weight.weight > offset && is_alive {
+                self.offset += 1;
+                return Ok(current_weight.base_route.clone());
+            }
+            if current_weight.weight <= offset {
+                self.offset = 0;
+                self.index = (self.index + 1) % cluster_read_lock2.len() as u64;
+                continue;
+            }
+            if !is_alive {
+                self.offset = 0;
+                self.index = (self.index + 1) % cluster_read_lock2.len() as u64;
+                continue;
             }
         }
+
+        // for (pos, e) in cluster_read_lock2.iter_mut().enumerate() {
+        //     let is_alive_option_lock = e.base_route.is_alive;
+        //     let is_alive = is_alive_option_lock.unwrap_or(true);
+        //     if is_alive {
+        //         let old_value = e.index;
+        //         if old_value > 0 {
+        //             if log_enabled!(Level::Debug) {
+        //                 debug!("WeightRoute current index:{}", pos as i32);
+        //             }
+        //             return Ok(e.base_route.clone());
+        //         }
+        //     }
+        // }
         Err(AppError(String::from("WeightRoute get route error")))
     }
 }
@@ -589,7 +436,7 @@ mod tests {
             PollBaseRoute {
                 base_route: {
                     BaseRoute {
-                        endpoint: String::from("http://localhost:5555"),
+                        endpoint: String::from("http://localhost:6666"),
                         try_file: None,
                         is_alive: None,
                         base_route_id: String::from(""),
@@ -616,7 +463,6 @@ mod tests {
                     },
                 },
                 weight: 100,
-                index: 0,
             },
             WeightRoute {
                 base_route: BaseRoute {
@@ -630,7 +476,6 @@ mod tests {
                     is_alive: None,
                 },
                 weight: 100,
-                index: 0,
             },
             WeightRoute {
                 base_route: BaseRoute {
@@ -644,7 +489,6 @@ mod tests {
                     },
                 },
                 weight: 100,
-                index: 0,
             },
         ]
     }
@@ -731,7 +575,7 @@ mod tests {
     async fn test_poll_route_successfully() {
         let routes = get_poll_routes();
         let mut poll_rate = PollRoute {
-            current_index: Default::default(),
+            current_index: -1,
             routes: routes.clone(),
         };
         for i in 0..100 {
@@ -754,6 +598,8 @@ mod tests {
         let routes = get_weight_routes();
         let mut weight_route = WeightBasedRoute {
             routes: routes.clone(),
+            index: 0,
+            offset: 0,
         };
 
         for _ in 0..100 {
@@ -816,265 +662,5 @@ mod tests {
         let result4 = header_route.get_route(headermap4.clone()).await;
         assert!(result4.is_ok());
         assert_eq!(result4.unwrap().endpoint, "http://localhost:8888");
-    }
-    #[tokio::test]
-    async fn test_update_health_check_status_with_ok_success1() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: None,
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-
-        base_route
-            .update_health_check_status_with_ok(liveness_status_lock.clone())
-            .await;
-        let is_alive_option = base_route.is_alive;
-        assert!(is_alive_option.is_some());
-        assert!(is_alive_option.unwrap(),);
-        let liveness_status = liveness_status_lock.read().await;
-        assert_eq!(liveness_status.current_liveness_count, 3);
-    }
-    #[tokio::test]
-    async fn test_update_health_check_status_with_ok_success2() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: Some(true),
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-
-        base_route
-            .update_health_check_status_with_ok(liveness_status_lock.clone())
-            .await;
-        let is_alive_option = base_route.is_alive;
-        assert!(is_alive_option.is_some(),);
-        assert!(is_alive_option.unwrap(),);
-        let liveness_status = liveness_status_lock.read().await;
-        assert_eq!(liveness_status.current_liveness_count, 3);
-    }
-    #[tokio::test]
-    async fn test_update_health_check_status_with_ok_success3() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: Some(false),
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-
-        base_route
-            .update_health_check_status_with_ok(liveness_status_lock.clone())
-            .await;
-        let is_alive_option = base_route.is_alive;
-        assert!(is_alive_option.is_some(),);
-        assert!(is_alive_option.unwrap(),);
-        let liveness_status = liveness_status_lock.read().await;
-        assert_eq!(liveness_status.current_liveness_count, 4);
-    }
-
-    #[tokio::test]
-    async fn test_update_health_check_status_with_fail_success1() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: None,
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-
-        let result = base_route
-            .update_health_check_status_with_fail(
-                liveness_status_lock,
-                LivenessConfig {
-                    min_liveness_count: 3,
-                },
-            )
-            .await;
-        assert!(!result);
-        let is_alive_option = base_route.is_alive;
-        assert!(is_alive_option.is_none());
-    }
-    #[tokio::test]
-    async fn test_update_health_check_status_with_fail_success2() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: Some(true),
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-
-        let result = base_route
-            .update_health_check_status_with_fail(
-                liveness_status_lock.clone(),
-                LivenessConfig {
-                    min_liveness_count: 3,
-                },
-            )
-            .await;
-        //update fails
-        assert!(!result);
-        let is_alive_option = base_route.is_alive;
-        assert!(is_alive_option.is_some());
-        assert!(is_alive_option.unwrap());
-        let liveness_status = liveness_status_lock.read().await;
-        assert_eq!(liveness_status.current_liveness_count, 3);
-    }
-    #[tokio::test]
-    async fn test_update_health_check_status_with_fail_success3() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            base_route_id: String::from(""),
-
-            is_alive: Some(false),
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-
-        let result = base_route
-            .update_health_check_status_with_fail(
-                liveness_status_lock.clone(),
-                LivenessConfig {
-                    min_liveness_count: 3,
-                },
-            )
-            .await;
-        assert!(!result);
-        let is_alive_option = base_route.is_alive;
-        assert!(is_alive_option.is_some(),);
-        assert!(!is_alive_option.unwrap(),);
-        let liveness_status = liveness_status_lock.read().await;
-        assert_eq!(liveness_status.current_liveness_count, 3);
-    }
-
-    #[tokio::test]
-    async fn test_trigger_http_anomaly_detection_success1() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: Some(false),
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 0 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 3,
-        }));
-        let http_anomaly_detection_param = HttpAnomalyDetectionParam {
-            consecutive_5xx: 2,
-            base_anomaly_detection_param: BaseAnomalyDetectionParam { ejection_second: 3 },
-        };
-        let result = base_route
-            .trigger_http_anomaly_detection(
-                http_anomaly_detection_param,
-                liveness_status_lock,
-                true,
-                LivenessConfig {
-                    min_liveness_count: 3,
-                },
-            )
-            .await;
-        assert!(result.is_ok());
-        let anomaly_detection_status = base_route.anomaly_detection_status;
-        assert_eq!(anomaly_detection_status.consecutive_5xx, 1);
-    }
-    #[tokio::test]
-    async fn test_trigger_http_anomaly_detection_success2() {
-        let base_route = BaseRoute {
-            endpoint: String::from("/"),
-            try_file: None,
-            is_alive: Some(true),
-            base_route_id: String::from(""),
-
-            anomaly_detection_status: AnomalyDetectionStatus { consecutive_5xx: 1 },
-        };
-        let liveness_status_lock = Arc::new(RwLock::new(LivenessStatus {
-            current_liveness_count: 4,
-        }));
-        let http_anomaly_detection_param = HttpAnomalyDetectionParam {
-            consecutive_5xx: 3,
-            base_anomaly_detection_param: BaseAnomalyDetectionParam { ejection_second: 3 },
-        };
-        let result = base_route
-            .trigger_http_anomaly_detection(
-                http_anomaly_detection_param.clone(),
-                liveness_status_lock.clone(),
-                true,
-                LivenessConfig {
-                    min_liveness_count: 3,
-                },
-            )
-            .await;
-        assert!(result.is_ok(),);
-        {
-            let anomaly_detection_status1 = base_route.anomaly_detection_status.clone();
-            assert_eq!(anomaly_detection_status1.consecutive_5xx, 2);
-            drop(anomaly_detection_status1);
-            let is_alive_option1 = base_route.is_alive;
-            assert!(is_alive_option1.unwrap(),);
-            drop(is_alive_option1);
-            let liveness_status1 = liveness_status_lock.read().await;
-            assert_eq!(liveness_status1.current_liveness_count, 4);
-            drop(liveness_status1);
-        }
-        {
-            let result2 = base_route
-                .trigger_http_anomaly_detection(
-                    http_anomaly_detection_param,
-                    liveness_status_lock.clone(),
-                    true,
-                    LivenessConfig {
-                        min_liveness_count: 3,
-                    },
-                )
-                .await;
-            assert!(result2.is_ok(),);
-            let anomaly_detection_status2 = base_route.anomaly_detection_status.clone();
-            assert_eq!(anomaly_detection_status2.consecutive_5xx, 2);
-            drop(anomaly_detection_status2);
-
-            let is_alive_option2 = base_route.is_alive;
-            assert!(!is_alive_option2.unwrap(),);
-            drop(is_alive_option2);
-
-            let liveness_status2 = liveness_status_lock.read().await;
-            assert_eq!(liveness_status2.current_liveness_count, 3);
-            drop(liveness_status2);
-        }
-        sleep(Duration::from_secs(4)).await;
-        {
-            let anomaly_detection_status3 = base_route.anomaly_detection_status;
-            assert_eq!(anomaly_detection_status3.consecutive_5xx, 0);
-            let is_alive_option3 = base_route.is_alive;
-            assert!(is_alive_option3.unwrap());
-            let liveness_status3 = liveness_status_lock.read().await;
-            assert_eq!(liveness_status3.current_liveness_count, 4);
-        }
     }
 }

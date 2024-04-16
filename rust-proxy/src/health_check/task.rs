@@ -241,7 +241,7 @@ async fn do_http_health_check(
             match response_result2 {
                 Ok(Ok(t)) => {
                     if t.status() == StatusCode::OK {
-                        update_status(
+                        let _ = update_status(
                             shared_config,
                             api_service_id,
                             route_id.clone(),
@@ -252,7 +252,7 @@ async fn do_http_health_check(
                     }
                 }
                 _ => {
-                    update_status(
+                    let _ = update_status(
                         shared_config,
                         api_service_id,
                         route_id,
@@ -278,39 +278,107 @@ async fn update_status(
         .api_service_config
         .get_mut(&api_service_id)
         .ok_or(AppError("Can not get the api service config".to_string()))?;
-    let cc = api_service
+    let routes = api_service
         .service_config
         .routes
         .iter_mut()
         .filter(|item| item.route_id == route_id)
         .next()
         .ok_or(AppError("Can not get the route config".to_string()))?;
-    let mut ss = cc.route_cluster.get_all_route()?;
+    let mut baseroutes = routes.route_cluster.get_all_route()?;
     // Modify one of the BaseRoute objects (assuming you have access to the original objects)
-    let tt = ss
+    let base_route = baseroutes
         .iter_mut()
         .filter(|route| route.base_route_id == base_route_id)
         .next()
         .ok_or(AppError("Can not get the route config".to_string()))?;
-    tt.is_alive = Some(status);
+    base_route.is_alive = Some(status);
     Ok(())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::TcpListener;
+    use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::LivenessConfig;
+    use crate::vojo::app_config::LivenessStatus;
+    use crate::vojo::app_config::Matcher;
+    use crate::vojo::app_config::ServiceConfig;
+    use crate::vojo::app_config::StaticConfig;
+    use crate::vojo::health_check::BaseHealthCheckParam;
+    use crate::vojo::route::AnomalyDetectionStatus;
+    use crate::vojo::route::LoadbalancerStrategy;
+    use crate::vojo::route::{BaseRoute, WeightBasedRoute, WeightRoute};
+    use std::sync::atomic::AtomicIsize;
+    use std::sync::Arc;
     use std::time::Duration;
-    use tokio::time::sleep;
+    use tokio::sync::mpsc;
+    use tokio::sync::RwLock;
+
+    use uuid::Uuid;
+
     #[tokio::test]
-    async fn pool_key_value_get_set() {
-        let mut vec = vec![];
-        vec.push(Some("a"));
-        vec.push(Some("b"));
-        let item = vec
-            .iter_mut()
-            .filter(|item| **item == Some("a"))
-            .next()
-            .unwrap();
-        *item = Some("c");
+    async fn test_submit_task_error1() {
+        let id = Uuid::new_v4();
+        let route = Route {
+            host_name: None,
+            route_id: id.to_string(),
+            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+                index: 0,
+                offset: 0,
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        base_route_id: String::from(""),
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                    weight: 100,
+                }],
+            }),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 0,
+            },
+            anomaly_detection: None,
+            health_check: None,
+            liveness_config: None,
+            allow_deny_list: None,
+            rewrite_headers: None,
+
+            authentication: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("ss"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let (sender, _) = mpsc::channel(1);
+        let api_service = ApiService {
+            listen_port: 9090,
+            api_service_id: String::from("0"),
+            sender: sender,
+            service_config: ServiceConfig {
+                server_type: crate::vojo::app_config::ServiceType::Http,
+                cert_str: None,
+                key_str: None,
+                routes: vec![route],
+            },
+        };
+        let mut hashmap = HashMap::new();
+        hashmap.insert(String::from("a"), api_service);
+        let app_config = AppConfig {
+            api_service_config: hashmap,
+            static_config: StaticConfig {
+                access_log: None,
+                database_url: None,
+                admin_port: String::from("9394"),
+                config_file_path: None,
+            },
+        };
+        let mut health_check = HealthCheck::new(Arc::new(Mutex::new(app_config)));
+        let res = health_check.do_health_check().await;
+        assert!(res.is_ok());
     }
 }

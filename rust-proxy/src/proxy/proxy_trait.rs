@@ -16,7 +16,7 @@ pub trait CheckTrait {
         &self,
         shared_config: Arc<Mutex<AppConfig>>,
 
-        mapping_key: String,
+        api_service_id: String,
         headers: HeaderMap,
         uri: Uri,
         peer_addr: SocketAddr,
@@ -41,7 +41,7 @@ impl CheckTrait for CommonCheckRequest {
         &self,
         shared_config: Arc<Mutex<AppConfig>>,
 
-        mapping_key: String,
+        api_service_id: String,
         headers: HeaderMap,
         uri: Uri,
         peer_addr: SocketAddr,
@@ -51,14 +51,13 @@ impl CheckTrait for CommonCheckRequest {
             .ok_or(AppError(String::from("")))?
             .to_string();
         let mut app_config = shared_config.lock().await;
-        let api_service_manager =
-            app_config
-                .api_service_config
-                .get_mut(&mapping_key)
-                .ok_or(AppError(format!(
-                    "Can not find the config mapping on the key {}!",
-                    mapping_key.clone()
-                )))?;
+        let api_service_manager = app_config
+            .api_service_config
+            .get_mut(&api_service_id)
+            .ok_or(AppError(format!(
+                "Can not find the config mapping on the key {}!",
+                api_service_id.clone()
+            )))?;
         let addr_string = peer_addr.ip().to_string();
         for item in api_service_manager.service_config.routes.iter_mut() {
             let back_path_clone = backend_path.clone();

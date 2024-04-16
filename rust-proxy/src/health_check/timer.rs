@@ -1,6 +1,5 @@
 use crate::vojo::app_error::AppError;
 use futures::Future;
-use std::pin::Pin;
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::oneshot;
 use tokio::time;
@@ -14,9 +13,9 @@ impl TaskPool {
         F: Future<Output = Result<(), AppError>> + Send + 'static,
     {
         let (sender, receiver) = oneshot::channel();
-        let mut hea = HealthCheckTimer::new(20, 20, receiver, task);
+        let mut timer = HealthCheckTimer::new(20, 20, receiver, task);
         tokio::spawn(async move {
-            hea.run().await;
+            timer.run().await;
         });
         self.data_map.insert(task_id, sender);
     }
