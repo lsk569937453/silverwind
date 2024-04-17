@@ -20,9 +20,10 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tokio::time::sleep;
+use tokio::time;
 use url::Url;
 #[derive(Clone)]
 pub struct HealthCheckClient {
@@ -79,6 +80,8 @@ impl HealthCheck {
         }
     }
     pub async fn start_health_check_loop(&mut self) {
+        let mut interval = time::interval(Duration::from_secs(5));
+
         loop {
             let async_result = std::panic::AssertUnwindSafe(self.do_health_check())
                 .catch_unwind()
@@ -86,7 +89,7 @@ impl HealthCheck {
             if async_result.is_err() {
                 error!("start_health_check_loop catch panic successfully!");
             }
-            sleep(std::time::Duration::from_secs(5)).await;
+            interval.tick().await;
         }
     }
 
@@ -134,7 +137,7 @@ impl HealthCheck {
         // For each route in route_list that is not in the old_map, submit a health check task
 
         for (key, value) in route_map {
-            if !old_map.contains(&key).clone() {
+            if !old_map.contains(&key) {
                 let task_id = value.clone().route_id;
                 let health_check_client = self.health_check_client.clone();
                 let health_check_type = value.health_check.clone().unwrap();
@@ -143,24 +146,33 @@ impl HealthCheck {
                 let api_service_id = key.api_service_id.clone();
                 let timeout_share = 20;
                 let health_check_client_shared = health_check_client.clone();
-                let health_check_type_shared = health_check_type.clone();
                 let shared_config = self.shared_config.clone();
-                let task = async move {
-                    match health_check_type_shared {
-                        HealthCheckType::HttpGet(http_health_check_param) => {
-                            do_http_health_check(
-                                http_health_check_param,
-                                route_list,
-                                route_id,
-                                timeout_share,
-                                health_check_client_shared,
-                                shared_config,
-                                api_service_id,
-                            )
-                            .await
-                        }
-                        HealthCheckType::Mysql(_) => Ok(()),
-                        HealthCheckType::Redis(_) => Ok(()),
+                let task = move || {
+                    let route_list = route_list.clone();
+                    let route_id = route_id.clone();
+                    let api_service_id = api_service_id.clone();
+                    let health_check_client_shared = health_check_client_shared.clone();
+                    let health_check_type_cloned = health_check_type.clone();
+
+                    let shared_config = shared_config.clone();
+
+                    async move {
+                        let cc = match health_check_type_cloned {
+                            HealthCheckType::HttpGet(http_health_check_param) => {
+                                do_http_health_check(
+                                    http_health_check_param,
+                                    route_list,
+                                    route_id,
+                                    timeout_share,
+                                    health_check_client_shared,
+                                    shared_config,
+                                    api_service_id,
+                                )
+                                .await
+                            }
+                            _ => Err(AppError("".to_string())),
+                        };
+                        cc
                     }
                 };
                 let _ = self.task_pool.submit_task(task_id, task).await;
@@ -308,14 +320,14 @@ mod tests {
     use crate::vojo::route::{BaseRoute, WeightBasedRoute, WeightRoute};
     use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
+    use std::thread::sleep;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::sync::RwLock;
 
     use uuid::Uuid;
 
-    #[tokio::test]
-    async fn test_submit_task_error1() {
+    fn creata_appconfig() -> AppConfig {
         let id = Uuid::new_v4();
         let route = Route {
             host_name: None,
@@ -340,8 +352,16 @@ mod tests {
                 current_liveness_count: 0,
             },
             anomaly_detection: None,
-            health_check: None,
-            liveness_config: None,
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 0,
+                    interval: 3,
+                },
+                path: String::from("/"),
+            })),
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 1,
+            }),
             allow_deny_list: None,
             rewrite_headers: None,
 
@@ -375,8 +395,30 @@ mod tests {
                 config_file_path: None,
             },
         };
+        app_config
+    }
+    #[tokio::test]
+    async fn test_submit_task_success1() {
+        let app_config = creata_appconfig();
         let mut health_check = HealthCheck::new(Arc::new(Mutex::new(app_config)));
         let res = health_check.do_health_check().await;
         assert!(res.is_ok());
+    }
+    #[tokio::test]
+    async fn test_submit_task_success2() {
+        let app_config = creata_appconfig();
+        let shared_app_config = Arc::new(Mutex::new(app_config));
+        let mut health_check = HealthCheck::new(shared_app_config.clone());
+        let res = health_check.do_health_check().await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(res.is_ok());
+        let mut shared_app_config_lock = shared_app_config.lock().await;
+        if let Some((_, value)) = shared_app_config_lock.api_service_config.iter_mut().next() {
+            if let Some(route) = value.service_config.routes.first_mut() {
+                route.liveness_config = Some(LivenessConfig {
+                    min_liveness_count: 3,
+                });
+            } // value.service_config.routes.first().
+        }
     }
 }
