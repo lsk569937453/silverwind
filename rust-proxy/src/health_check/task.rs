@@ -337,7 +337,7 @@ mod tests {
                 offset: 0,
                 routes: vec![WeightRoute {
                     base_route: BaseRoute {
-                        endpoint: String::from("/"),
+                        endpoint: String::from("http://www.937453.xyz"),
                         try_file: None,
                         base_route_id: String::from(""),
                         is_alive: None,
@@ -355,7 +355,7 @@ mod tests {
             health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
                 base_health_check_param: BaseHealthCheckParam {
                     timeout: 0,
-                    interval: 3,
+                    interval: 2,
                 },
                 path: String::from("/"),
             })),
@@ -409,7 +409,7 @@ mod tests {
         let app_config = creata_appconfig();
         let shared_app_config = Arc::new(Mutex::new(app_config));
         let mut health_check = HealthCheck::new(shared_app_config.clone());
-        let res = health_check.do_health_check().await;
+        let mut res = health_check.do_health_check().await;
         tokio::time::sleep(Duration::from_secs(5)).await;
         assert!(res.is_ok());
         let mut shared_app_config_lock = shared_app_config.lock().await;
@@ -420,5 +420,9 @@ mod tests {
                 });
             } // value.service_config.routes.first().
         }
+        drop(shared_app_config_lock);
+        res = health_check.do_health_check().await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(res.is_ok());
     }
 }
