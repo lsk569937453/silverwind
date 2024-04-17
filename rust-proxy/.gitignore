@@ -16,3 +16,4 @@ rust-proxy
 temporary
 .vscode
 log
+tarpaulin-report.*
