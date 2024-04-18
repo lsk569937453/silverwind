@@ -431,12 +431,12 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
-    use std::thread::sleep;
     use std::time::Duration;
     use std::{thread, time};
     use tokio::runtime::{Builder, Runtime};
     use tokio::sync::mpsc;
     use tokio::sync::RwLock;
+    use tokio::time::sleep;
     use uuid::Uuid;
     fn creata_appconfig() -> AppConfig {
         let id = Uuid::new_v4();
@@ -479,14 +479,14 @@ mod tests {
             authentication: None,
             ratelimit: None,
             matcher: Some(Matcher {
-                prefix: String::from("ss"),
-                prefix_rewrite: String::from("ssss"),
+                prefix: String::from("/"),
+                prefix_rewrite: String::from("/"),
             }),
         };
         let (sender, _) = mpsc::channel(1);
         let api_service = ApiService {
-            listen_port: 9090,
-            api_service_id: String::from("0"),
+            listen_port: 9987,
+            api_service_id: String::from("default_api_service"),
             sender: sender,
             service_config: ServiceConfig {
                 server_type: crate::vojo::app_config::ServiceType::Http,
@@ -496,7 +496,7 @@ mod tests {
             },
         };
         let mut hashmap = HashMap::new();
-        hashmap.insert(String::from("a"), api_service);
+        hashmap.insert(String::from("default_api_service"), api_service);
         let app_config = AppConfig {
             api_service_config: hashmap,
             static_config: StaticConfig {
@@ -546,21 +546,25 @@ mod tests {
     }
     #[tokio::test]
     async fn test_http_client_ok() {
-        tokio::spawn(async {
-            let (_, receiver) = tokio::sync::mpsc::channel(10);
+        let (sender, receiver) = tokio::sync::mpsc::channel(10);
 
+        tokio::spawn(async {
             let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
             let mut http_proxy = HttpProxy {
                 shared_config: shared_app_config,
                 port: 9987,
                 channel: receiver,
-                mapping_key: String::from("random key"),
+                mapping_key: String::from("default_api_service"),
             };
+            println!("start listening  port :{}", 9987);
             let _result = http_proxy.start_http_server().await;
+            if let Err(e) = _result {
+                println!("error is {}", e);
+            }
         });
         let sleep_time = time::Duration::from_millis(100);
-        thread::sleep(sleep_time);
-        tokio::spawn(async {
+        sleep(sleep_time).await;
+        let _ = tokio::spawn(async {
             let client = HttpClients::new();
             let request = Request::builder()
                 .uri("http://127.0.0.1:9987/get")
@@ -569,17 +573,13 @@ mod tests {
             let response_result = client.request_http(request, 5).await;
             assert!(response_result.is_ok());
             let response = response_result.unwrap().unwrap();
-            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            let body_bytes = response.collect().await.unwrap().to_bytes();
-            // let body_bytes = hyper::body::to_bytes(response.into_body()).await.unwrap();
-            let base_response: BaseResponse<String> = serde_json::from_slice(&body_bytes).unwrap();
-            assert_eq!(base_response.response_code, -1);
-        });
-        let sleep_time2 = time::Duration::from_millis(100);
-        thread::sleep(sleep_time2);
+            assert_eq!(response.status(), StatusCode::OK);
+        })
+        .await;
+        let _ = sender.send(()).await;
     }
-    #[test]
-    fn test_https_client_ok() {
+    #[tokio::test]
+    async fn test_https_client_ok() {
         let private_key_path = env::current_dir()
             .unwrap()
             .join("config")
@@ -626,8 +626,8 @@ mod tests {
         let sleep_time2 = time::Duration::from_millis(100);
         thread::sleep(sleep_time2);
     }
-    #[test]
-    fn test_proxy_adapter_error() {
+    #[tokio::test]
+    async fn test_proxy_adapter_error() {
         tokio::spawn(async {
             let client = HttpClients::new();
             let request = Request::builder()
@@ -641,8 +641,8 @@ mod tests {
             assert!(res.is_ok());
         });
     }
-    #[test]
-    fn test_proxy_error() {
+    #[tokio::test]
+    async fn test_proxy_error() {
         tokio::spawn(async {
             let client = HttpClients::new();
             let request = Request::builder()
@@ -665,8 +665,8 @@ mod tests {
             assert!(res.is_err());
         });
     }
-    #[test]
-    fn test_route_file_error() {
+    #[tokio::test]
+    async fn test_route_file_error() {
         tokio::spawn(async {
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
@@ -688,8 +688,8 @@ mod tests {
         let sleep_time = time::Duration::from_millis(100);
         thread::sleep(sleep_time);
     }
-    #[test]
-    fn test_route_file_ok() {
+    #[tokio::test]
+    async fn test_route_file_ok() {
         tokio::spawn(async {
             let request = Request::builder()
                 .uri("http://localhost:4450/app_config.yaml")
@@ -708,8 +708,8 @@ mod tests {
             assert!(res.is_ok());
         });
     }
-    #[test]
-    fn test_route_file_with_try_file_ok() {
+    #[tokio::test]
+    async fn test_route_file_with_try_file_ok() {
         tokio::spawn(async {
             let request = Request::builder()
                 .uri("http://localhost:4450/xxxxxx")
@@ -730,8 +730,8 @@ mod tests {
         });
     }
 
-    #[test]
-    fn test_proxy_allow_all() {
+    #[tokio::test]
+    async fn test_proxy_allow_all() {
         tokio::spawn(async {
             let route = LoadbalancerStrategy::RandomRoute(RandomRoute {
                 routes: vec![RandomBaseRoute {
@@ -798,8 +798,8 @@ mod tests {
             assert!(res.is_ok());
         });
     }
-    #[test]
-    fn test_proxy_deny_ip() {
+    #[tokio::test]
+    async fn test_proxy_deny_ip() {
         tokio::spawn(async {
             let route = LoadbalancerStrategy::RandomRoute(RandomRoute {
                 routes: vec![RandomBaseRoute {
@@ -867,8 +867,8 @@ mod tests {
             assert_eq!(response.status(), StatusCode::FORBIDDEN);
         });
     }
-    #[test]
-    fn test_proxy_turn_5xx() {
+    #[tokio::test]
+    async fn test_proxy_turn_5xx() {
         tokio::spawn(async {
             let route = LoadbalancerStrategy::RandomRoute(RandomRoute {
                 routes: vec![RandomBaseRoute {
