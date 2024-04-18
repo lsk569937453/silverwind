@@ -52,7 +52,7 @@ impl HttpProxy {
     pub async fn start_http_server(&mut self) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
-        let client = HttpClients::new();
+        let client = HttpClients::new(false);
         let mapping_key_clone1 = self.mapping_key.clone();
         let reveiver = &mut self.channel;
 
@@ -103,7 +103,7 @@ impl HttpProxy {
     ) -> Result<(), AppError> {
         let port_clone = self.port;
         let addr = SocketAddr::from(([0, 0, 0, 0], port_clone as u16));
-        let client = HttpClients::new();
+        let client = HttpClients::new(false);
         let mapping_key_clone1 = self.mapping_key.clone();
 
         let mut cer_reader = BufReader::new(pem_str.as_bytes());
@@ -438,7 +438,8 @@ mod tests {
     use tokio::sync::RwLock;
     use tokio::time::sleep;
     use uuid::Uuid;
-    fn creata_appconfig() -> AppConfig {
+
+    fn create_route() -> Route {
         let id = Uuid::new_v4();
         let route = Route {
             host_name: None,
@@ -483,17 +484,15 @@ mod tests {
                 prefix_rewrite: String::from("/"),
             }),
         };
+        route
+    }
+    fn creata_appconfig(service_config: ServiceConfig) -> AppConfig {
         let (sender, _) = mpsc::channel(1);
         let api_service = ApiService {
             listen_port: 9987,
             api_service_id: String::from("default_api_service"),
             sender: sender,
-            service_config: ServiceConfig {
-                server_type: crate::vojo::app_config::ServiceType::Http,
-                cert_str: None,
-                key_str: None,
-                routes: vec![route],
-            },
+            service_config: service_config,
         };
         let mut hashmap = HashMap::new();
         hashmap.insert(String::from("default_api_service"), api_service);
@@ -547,9 +546,15 @@ mod tests {
     #[tokio::test]
     async fn test_http_client_ok() {
         let (sender, receiver) = tokio::sync::mpsc::channel(10);
-
+        let route = create_route();
+        let service_config = ServiceConfig {
+            server_type: crate::vojo::app_config::ServiceType::Http,
+            cert_str: None,
+            key_str: None,
+            routes: vec![route],
+        };
         tokio::spawn(async {
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
             let mut http_proxy = HttpProxy {
                 shared_config: shared_app_config,
                 port: 9987,
@@ -565,7 +570,7 @@ mod tests {
         let sleep_time = time::Duration::from_millis(100);
         sleep(sleep_time).await;
         let _ = tokio::spawn(async {
-            let client = HttpClients::new();
+            let client = HttpClients::new(false);
             let request = Request::builder()
                 .uri("http://127.0.0.1:9987/get")
                 .body(Full::new(Bytes::from("value")).boxed())
@@ -589,52 +594,61 @@ mod tests {
         let ca_certificate_path = env::current_dir()
             .unwrap()
             .join("config")
-            .join("test_key.pem");
+            .join("test_cert.pem");
         let ca_certificate = std::fs::read_to_string(ca_certificate_path).unwrap();
-
+        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+        let route = create_route();
+        let service_config = ServiceConfig {
+            server_type: crate::vojo::app_config::ServiceType::Https,
+            cert_str: Some(ca_certificate.clone()),
+            key_str: Some(private_key.clone()),
+            routes: vec![route],
+        };
         tokio::spawn(async {
-            let (_, receiver) = tokio::sync::mpsc::channel(10);
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
 
             let mut http_proxy = HttpProxy {
                 shared_config: shared_app_config,
-                port: 4450,
+                port: 9987,
                 channel: receiver,
-                mapping_key: String::from("random key"),
+                mapping_key: String::from("default_api_service"),
             };
             let _result = http_proxy
                 .start_https_server(ca_certificate, private_key)
                 .await;
         });
-        let sleep_time = time::Duration::from_millis(100);
-        thread::sleep(sleep_time);
-        tokio::spawn(async {
-            let client = HttpClients::new();
+        let sleep_time = time::Duration::from_millis(100000);
+        sleep(sleep_time).await;
+        let _ = tokio::spawn(async {
+            let client = HttpClients::new(true);
             let request = Request::builder()
-                .uri("https://localhost:4450/get")
+                .uri("https://localhost:9987/get")
                 .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
             let response_result = client.request_https(request, 5).await;
             assert!(response_result.is_ok());
             let response = response_result.unwrap().unwrap();
-            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-            let body_bytes = response.collect().await.unwrap().to_bytes();
-            println!("{:?}", body_bytes);
-            let base_response: BaseResponse<String> = serde_json::from_slice(&body_bytes).unwrap();
-            assert_eq!(base_response.response_code, -1);
-        });
-        let sleep_time2 = time::Duration::from_millis(100);
-        thread::sleep(sleep_time2);
+            assert_eq!(response.status(), StatusCode::OK);
+        })
+        .await;
+        let _ = sender.send(()).await;
     }
     #[tokio::test]
     async fn test_proxy_adapter_error() {
         tokio::spawn(async {
-            let client = HttpClients::new();
+            let client = HttpClients::new(false);
             let request = Request::builder()
                 .uri("https://localhost:4450/get")
                 .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
+            let route = create_route();
+            let service_config = ServiceConfig {
+                server_type: crate::vojo::app_config::ServiceType::Http,
+                cert_str: None,
+                key_str: None,
+                routes: vec![route],
+            };
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
             let mapping_key = String::from("test");
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
             let res = proxy_adapter(shared_app_config, client, request, mapping_key, socket).await;
@@ -644,12 +658,19 @@ mod tests {
     #[tokio::test]
     async fn test_proxy_error() {
         tokio::spawn(async {
-            let client = HttpClients::new();
+            let client = HttpClients::new(false);
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
                 .body(Full::new(Bytes::new()).boxed())
                 .unwrap();
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
+            let route = create_route();
+            let service_config = ServiceConfig {
+                server_type: crate::vojo::app_config::ServiceType::Http,
+                cert_str: None,
+                key_str: None,
+                routes: vec![route],
+            };
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
 
             let mapping_key = String::from("test");
             let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
@@ -778,9 +799,15 @@ mod tests {
                     }],
                 },
             };
-
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
-            let client = HttpClients::new();
+            let route = create_route();
+            let service_config = ServiceConfig {
+                server_type: crate::vojo::app_config::ServiceType::Http,
+                cert_str: None,
+                key_str: None,
+                routes: vec![route],
+            };
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
+            let client = HttpClients::new(false);
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
                 .body(Full::new(Bytes::new()).boxed())
@@ -846,8 +873,15 @@ mod tests {
                     }],
                 },
             };
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
-            let client = HttpClients::new();
+            let route = create_route();
+            let service_config = ServiceConfig {
+                server_type: crate::vojo::app_config::ServiceType::Http,
+                cert_str: None,
+                key_str: None,
+                routes: vec![route],
+            };
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
+            let client = HttpClients::new(false);
             let request = Request::builder()
                 .uri("http://localhost:4450/get")
                 .body(Full::new(Bytes::new()).boxed())
@@ -922,8 +956,15 @@ mod tests {
                     }],
                 },
             };
-            let shared_app_config = Arc::new(Mutex::new(creata_appconfig()));
-            let client = HttpClients::new();
+            let route = create_route();
+            let service_config = ServiceConfig {
+                server_type: crate::vojo::app_config::ServiceType::Http,
+                cert_str: None,
+                key_str: None,
+                routes: vec![route],
+            };
+            let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
+            let client = HttpClients::new(false);
             let request = Request::builder()
                 .uri("http://localhost:10024/get")
                 .body(Full::new(Bytes::new()).boxed())

@@ -32,7 +32,7 @@ pub struct HealthCheckClient {
 impl HealthCheckClient {
     pub fn new() -> Self {
         HealthCheckClient {
-            http_clients: HttpClients::new(),
+            http_clients: HttpClients::new(false),
         }
     }
 }
