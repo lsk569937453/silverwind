@@ -410,7 +410,7 @@ mod tests {
         let shared_app_config = Arc::new(Mutex::new(app_config));
         let mut health_check = HealthCheck::new(shared_app_config.clone());
         let mut res = health_check.do_health_check().await;
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(res.is_ok());
         let mut shared_app_config_lock = shared_app_config.lock().await;
         if let Some((_, value)) = shared_app_config_lock.api_service_config.iter_mut().next() {
@@ -422,7 +422,7 @@ mod tests {
         }
         drop(shared_app_config_lock);
         res = health_check.do_health_check().await;
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(res.is_ok());
     }
 }

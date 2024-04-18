@@ -438,7 +438,9 @@ mod tests {
     use tokio::sync::RwLock;
     use tokio::time::sleep;
     use uuid::Uuid;
-
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
     fn create_route() -> Route {
         let id = Uuid::new_v4();
         let route = Route {
@@ -585,6 +587,8 @@ mod tests {
     }
     #[tokio::test]
     async fn test_https_client_ok() {
+        std::env::set_var("RUST_LOG", "debug");
+        init();
         let private_key_path = env::current_dir()
             .unwrap()
             .join("config")
@@ -632,6 +636,7 @@ mod tests {
         })
         .await;
         let _ = sender.send(()).await;
+        std::env::set_var("RUST_LOG", "info");
     }
     #[tokio::test]
     async fn test_proxy_adapter_error() {
