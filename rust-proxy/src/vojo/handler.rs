@@ -155,7 +155,7 @@ async fn init_app_service_config(
         res.insert(uuid.clone(), item.clone());
         let mut cloned_handler = handler.clone();
         tokio::spawn(async move {
-            cloned_handler
+            let _ = cloned_handler
                 .start_proxy(port, receiver, server_type, uuid)
                 .await;
         });

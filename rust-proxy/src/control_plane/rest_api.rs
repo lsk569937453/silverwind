@@ -118,18 +118,8 @@ async fn delete_route(
     axum::extract::Path(route_id): axum::extract::Path<String>,
     State(state): State<Handler>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
-    let mut rw_global_lock = state.shared_app_config.lock().await;
-    // let mut api_services = vec![];
-    // for mut api_service in rw_global_lock.clone().api_service_config {
-    //     api_service
-    //         .service_config
-    //         .routes
-    //         .retain(|route| route.route_id != route_id);
-    //     if !api_service.service_config.routes.is_empty() {
-    //         api_services.push(api_service);
-    //     }
-    // }
-    // rw_global_lock.api_service_config = api_services;
+    let rw_global_lock = state.shared_app_config.lock().await;
+
     let cloned_config = rw_global_lock.clone();
 
     tokio::spawn(async {
@@ -234,4 +224,268 @@ pub async fn start_control_plane(handler: Handler, port: i32) -> Result<(), AppE
         .await
         .map_err(|e| AppError(e.to_string()))?;
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vojo::handler::Handler;
+    use axum::http::StatusCode;
+    use axum::{
+        body::Body,
+        http::{self, Request},
+    };
+    use http_body_util::BodyExt;
+    use serde_json::json;
+    use std::env;
+    use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
+    #[tokio::test]
+    async fn test_api_post_response_error() {
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/appConfig")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!([1, 2, 3, 4])).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    #[tokio::test]
+    async fn test_api_post_response_ok() {
+        let req = r#"
+            {
+                "listen_port": 4486,
+                "service_config": {
+                    "server_type": "Http",
+                    "routes": [
+                        {
+                            "matcher": {
+                                "prefix": "/get",
+                                "prefix_rewrite": "ssss"
+                            },
+                            "route_cluster": {
+                                "type": "RandomRoute",
+                                "routes": [
+                                    {
+                                        "base_route": {
+                                            "endpoint": "http://localhost:8000",
+                                            "try_file": null
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        "#;
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/appConfig")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(req))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(base_response.response_code, 0);
+    }
+    #[test]
+    fn test_validate_tls_config_successfully() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_key.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_cert.pem");
+        let certificate = std::fs::read_to_string(certificate_path).unwrap();
+
+        let validation_res = validate_tls_config(Some(certificate), Some(private_key));
+        assert!(validation_res.is_ok());
+    }
+    #[test]
+    fn test_validate_tls_config_error_with_private_key() {
+        let certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_cert.pem");
+        let certificate = std::fs::read_to_string(certificate_path).unwrap();
+
+        let private_key = String::from("private key");
+        let validation_res = validate_tls_config(Some(certificate), Some(private_key));
+        assert!(validation_res.is_err());
+    }
+    #[test]
+    fn test_validate_tls_config_error_with_certificate() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_key.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+        let certificate = String::from("test");
+
+        let validation_res = validate_tls_config(Some(certificate), Some(private_key));
+        assert!(validation_res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_post_response_ok() {
+        let body = r#"
+            {
+                "listen_port": 4486,
+                "service_config": {
+                    "server_type": "Http",
+                    "routes": [
+                        {
+                            "matcher": {
+                                "prefix": "/get",
+                                "prefix_rewrite": "ssss"
+                            },
+                            "route_cluster": {
+                                "type": "RandomRoute",
+                                "routes": [
+                                    {
+                                        "base_route": {
+                                            "endpoint": "http://localhost:8000",
+                                            "try_file": null
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        "#;
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/appConfig")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(base_response.response_code, 0);
+    }
+    #[tokio::test]
+    async fn test_get_response_ok() {
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .uri("/appConfig")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    #[tokio::test]
+    async fn test_put_route_ok() {
+        let body = r#"{
+            "route_id": "90c66439-5c87-4902-aebb-1c2c9443c154",
+            "host_name": null,
+            "matcher": {
+                "prefix": "/",
+                "prefix_rewrite": "ssss"
+            },
+            "allow_deny_list": null,
+            "authentication": null,
+            "anomaly_detection": null,
+            "liveness_config": null,
+            "health_check": null,
+            "ratelimit": null,
+            "route_cluster": {
+                "type": "RandomRoute",
+                "routes": [
+                    {
+                        "base_route": {
+                            "endpoint": "http://127.0.0.1:10000",
+                            "try_file": null,
+                            "is_alive": null
+                        }
+                    }
+                ]
+            }
+        }"#;
+
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::PUT)
+                    .uri("/route")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    #[tokio::test]
+    async fn test_delete_route_ok() {
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::DELETE)
+                    .uri("/route/90c66439-5c87-4902-aebb-1c2c9443c154")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
