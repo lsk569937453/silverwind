@@ -617,7 +617,7 @@ mod tests {
                 .start_https_server(ca_certificate, private_key)
                 .await;
         });
-        let sleep_time = time::Duration::from_millis(100000);
+        let sleep_time = time::Duration::from_millis(100);
         sleep(sleep_time).await;
         let _ = tokio::spawn(async {
             let client = HttpClients::new(true);
