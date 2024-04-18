@@ -72,7 +72,7 @@ async fn post_app_config(
         )
             .into_response(),
     };
-    return Ok(t);
+    Ok(t)
 }
 async fn post_app_config_with_error(
     mut api_service: ApiService,
@@ -103,7 +103,7 @@ async fn post_app_config_with_error(
             error!("Save file error,the error is {}!", err);
         }
         drop(lock);
-        cloned_handler
+        let _ = cloned_handler
             .start_proxy(cloned_port, receiver, current_type, uuid)
             .await;
     });
@@ -156,46 +156,8 @@ async fn put_route(
     }
 }
 async fn put_route_with_error(route_vistor: Route, handler: Handler) -> Result<String, AppError> {
-    let mut rw_global_lock = handler.shared_app_config.lock().await;
+    let rw_global_lock = handler.shared_app_config.lock().await;
 
-    // let old_route = rw_global_lock
-    //     .api_service_config
-    //     .iter_mut()
-    //     .flat_map(|item| item.service_config.routes.clone())
-    //     .find(|item| item.route_id == route_vistor.route_id)
-    //     .ok_or(AppError(String::from(
-    //         "Can not find the route by route id!",
-    //     )))?;
-
-    // let mut new_route = route_vistor;
-
-    // let old_base_clusters = old_route.clone().route_cluster.get_all_route().await?;
-    // let hashmap = old_base_clusters
-    //     .iter()
-    //     .map(|item| (item.endpoint.clone(), item.clone()))
-    //     .collect::<HashMap<String, BaseRoute>>();
-    // let mut new_routes = new_route.route_cluster.get_all_route().await?;
-    // for new_base_route in new_routes.iter_mut() {
-    //     if hashmap.clone().contains_key(&new_base_route.endpoint) {
-    //         let old_base_route = hashmap.get(&new_base_route.endpoint).unwrap();
-    //         let mut alive = new_base_route.is_alive.write().await;
-    //         *alive = *old_base_route.is_alive.write().await;
-    //         let mut anomaly_detection_status =
-    //             new_base_route.anomaly_detection_status.write().await;
-    //         *anomaly_detection_status = old_base_route
-    //             .anomaly_detection_status
-    //             .write()
-    //             .await
-    //             .clone();
-    //     }
-    // }
-    // for api_service in rw_global_lock.api_service_config.iter_mut() {
-    //     for route in api_service.service_config.routes.iter_mut() {
-    //         if route.route_id == route_vistor.route_id {
-    //             *route = new_route.clone();
-    //         }
-    //     }
-    // }
     let cloned_config = rw_global_lock.clone();
     tokio::spawn(async {
         if let Err(err) = save_config_to_file(cloned_config).await {
