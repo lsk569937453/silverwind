@@ -237,6 +237,8 @@ mod tests {
     use http_body_util::BodyExt;
     use serde_json::json;
     use std::env;
+    use std::time::Duration;
+    use tokio::time::sleep;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
     #[tokio::test]
     async fn test_api_post_response_error() {
@@ -309,6 +311,7 @@ mod tests {
         let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
         let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(base_response.response_code, 0);
+        sleep(Duration::from_secs(1000)).await;
     }
     #[test]
     fn test_validate_tls_config_successfully() {
@@ -487,5 +490,31 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+    }
+    #[tokio::test]
+    async fn test_get_prometheus_metrics_ok() {
+        let handler = Handler {
+            shared_app_config: Arc::new(Mutex::new(Default::default())),
+        };
+        let app = get_router(handler);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .uri("/metrics")
+                    .header(http::header::CONTENT_TYPE, "application/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    #[tokio::test]
+    async fn test_save_config_to_file_ok() {
+        let app_config: AppConfig = Default::default();
+        let res = save_config_to_file(app_config).await;
+        assert!(res.is_ok());
     }
 }
