@@ -488,6 +488,53 @@ mod tests {
         };
         route
     }
+    fn create_error_route() -> Route {
+        let id = Uuid::new_v4();
+        let route = Route {
+            host_name: None,
+            route_id: id.to_string(),
+            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+                index: 0,
+                offset: 0,
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("http://www.937453.xyz"),
+                        try_file: None,
+                        base_route_id: String::from(""),
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                    weight: 100,
+                }],
+            }),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 0,
+            },
+            anomaly_detection: None,
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 0,
+                    interval: 2,
+                },
+                path: String::from("/"),
+            })),
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 1,
+            }),
+            allow_deny_list: None,
+            rewrite_headers: None,
+
+            authentication: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("/app"),
+                prefix_rewrite: String::from("/test"),
+            }),
+        };
+        route
+    }
     fn creata_appconfig(service_config: ServiceConfig) -> AppConfig {
         let (sender, _) = mpsc::channel(1);
         let api_service = ApiService {
@@ -643,10 +690,10 @@ mod tests {
     async fn test_proxy_error() {
         let client = HttpClients::new(false);
         let request = Request::builder()
-            .uri("http://localhost:4450/get")
+            .uri("http://localhost:9987/get")
             .body(Full::new(Bytes::new()).boxed())
             .unwrap();
-        let route = create_route();
+        let route = create_error_route();
         let service_config = ServiceConfig {
             server_type: crate::vojo::app_config::ServiceType::Http,
             cert_str: None,
@@ -655,7 +702,7 @@ mod tests {
         };
         let shared_app_config = Arc::new(Mutex::new(creata_appconfig(service_config)));
 
-        let mapping_key = String::from("test");
+        let mapping_key = String::from("default_api_service");
         let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
         let res = proxy(
             shared_app_config,
@@ -666,7 +713,9 @@ mod tests {
             CommonCheckRequest {},
         )
         .await;
-        assert!(res.is_err());
+        assert!(res.is_ok());
+        let response = res.unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
     #[tokio::test]
     async fn test_route_file_error() {

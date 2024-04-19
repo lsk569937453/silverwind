@@ -311,7 +311,7 @@ mod tests {
         let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
         let base_response: BaseResponse<i32> = serde_json::from_slice(&body_bytes).unwrap();
         assert_eq!(base_response.response_code, 0);
-        sleep(Duration::from_secs(1000)).await;
+        sleep(Duration::from_secs(1)).await;
     }
     #[test]
     fn test_validate_tls_config_successfully() {

@@ -8,13 +8,13 @@ pub struct TaskPool {
     pub data_map: HashMap<String, oneshot::Sender<()>>,
 }
 impl TaskPool {
-    pub async fn submit_task<Fut, F>(&mut self, task_id: String, task: F)
+    pub async fn submit_task<Fut, F>(&mut self, task_id: String, task: F, interval: u64)
     where
         Fut: Future<Output = Result<(), AppError>> + Send + 'static + Sync,
         F: FnMut() -> Fut + Send + 'static,
     {
         let (sender, receiver) = oneshot::channel();
-        let mut timer = HealthCheckTimer::new(20, 20, receiver, task);
+        let mut timer = HealthCheckTimer::new(interval, receiver, task);
         tokio::spawn(async move {
             timer.run().await;
         });
@@ -40,7 +40,6 @@ where
     F: FnMut() -> Fut + Send + 'static,
 {
     pub interval: u64,
-    pub timeout: u64,
     pub receiver: oneshot::Receiver<()>,
     pub task: F,
 }
@@ -50,14 +49,13 @@ where
     F: FnMut() -> Fut + Send + 'static,
 {
     pub async fn run(&mut self) {
-        let mut interval = time::interval(Duration::from_millis(self.interval.clone()));
+        let mut interval = time::interval(Duration::from_secs(self.interval.clone()));
         let task = &mut self.task;
-
         loop {
             // let task_cloned = task.clone();
             tokio::select! {
                 _ = interval.tick() => {
-                    task().await;
+                    let _=task().await;
                 },
                 _=&mut self.receiver => {
                     info!("Health check timer stop!");
@@ -67,10 +65,9 @@ where
             }
         }
     }
-    pub fn new(interval: u64, timeout: u64, receiver: oneshot::Receiver<()>, task: F) -> Self {
+    pub fn new(interval: u64, receiver: oneshot::Receiver<()>, task: F) -> Self {
         HealthCheckTimer {
             interval,
-            timeout,
             receiver,
             task,
         }

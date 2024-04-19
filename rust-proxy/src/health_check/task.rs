@@ -175,7 +175,7 @@ impl HealthCheck {
                         cc
                     }
                 };
-                let _ = self.task_pool.submit_task(task_id, task).await;
+                let _ = self.task_pool.submit_task(task_id, task, 5).await;
                 self.task_id_map.insert(key.clone());
             }
         }
@@ -226,7 +226,10 @@ async fn do_http_health_check(
         let shared_config_cloned = shared_config.clone();
         let api_service_id_cloned = api_service_id.clone();
         let base_route_id_cloned = base_route_id.clone();
-
+        info!(
+            "health check url:{}",
+            join_option.clone().unwrap().to_string()
+        );
         let req = Request::builder()
             .uri(join_option.unwrap().to_string())
             .method("GET")
@@ -253,6 +256,7 @@ async fn do_http_health_check(
             match response_result2 {
                 Ok(Ok(t)) => {
                     if t.status() == StatusCode::OK {
+                        info!("status is true");
                         let _ = update_status(
                             shared_config,
                             api_service_id,
@@ -261,19 +265,21 @@ async fn do_http_health_check(
                             true,
                         )
                         .await;
+                        continue;
                     }
                 }
-                _ => {
-                    let _ = update_status(
-                        shared_config,
-                        api_service_id,
-                        route_id,
-                        base_route_id,
-                        false,
-                    )
-                    .await;
-                }
-            }
+                _ => {}
+            };
+
+            info!("status is false");
+            let _ = update_status(
+                shared_config,
+                api_service_id,
+                route_id,
+                base_route_id,
+                false,
+            )
+            .await;
         }
     }
     Ok(())
@@ -397,6 +403,13 @@ mod tests {
         };
         app_config
     }
+
+    #[test]
+    fn test_serde() {
+        let app_config = creata_appconfig();
+        let str = serde_json::to_string(&app_config).unwrap();
+        println!("{}", str);
+    }
     #[tokio::test]
     async fn test_submit_task_success1() {
         let app_config = creata_appconfig();
@@ -424,5 +437,19 @@ mod tests {
         res = health_check.do_health_check().await;
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(res.is_ok());
+        let shared_app_config_lock = shared_app_config.lock().await;
+        let app_config = shared_app_config_lock.clone();
+        let mut apiservices = app_config
+            .api_service_config
+            .values()
+            .cloned()
+            .collect::<Vec<ApiService>>();
+        let first_element = apiservices.first_mut().unwrap();
+        let baseroutes = first_element.service_config.routes[0]
+            .route_cluster
+            .get_all_route()
+            .unwrap();
+        let baseroute = baseroutes.first().unwrap();
+        assert_eq!(baseroute.is_alive, Some(false));
     }
 }
