@@ -96,7 +96,7 @@ impl LetsEntrypt {
             error!("{}", request_result.unwrap_err());
         }
 
-        Err(AppError(format!("Request the lets_encrypt fails")))
+        Err(AppError("Request the lets_encrypt fails".to_string()))
     }
     pub fn request_cert(&mut self, directory_url: DirectoryUrl) -> Result<Certificate, Error> {
         let result: bool = Path::new(DEFAULT_TEMPORARY_DIR).is_dir();

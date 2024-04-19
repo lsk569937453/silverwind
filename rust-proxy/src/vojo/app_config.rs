@@ -195,3 +195,118 @@ pub struct AppConfig {
     pub static_config: StaticConfig,
     pub api_service_config: HashMap<String, ApiService>,
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::control_plane::rest_api::get_router;
+    use crate::utils::uuid::get_uuid;
+
+    use crate::vojo::health_check::{BaseHealthCheckParam, HttpHealthCheckParam};
+    use crate::vojo::rate_limit::*;
+    use crate::vojo::route::AnomalyDetectionStatus;
+    use crate::vojo::route::BaseRoute;
+
+    use crate::vojo::route::WeightBasedRoute;
+    use crate::vojo::route::WeightRoute;
+    use std::sync::atomic::AtomicIsize;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+    use tokio::sync::RwLock;
+    fn create_new_route_with_host_name(host_name: Option<String>) -> Route {
+        Route {
+            host_name,
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+                index: 0,
+                offset: 0,
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        base_route_id: "a".to_string(),
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                    weight: 100,
+                }],
+            }),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 0,
+            },
+            anomaly_detection: None,
+            health_check: None,
+            allow_deny_list: None,
+            authentication: None,
+            liveness_config: None,
+            rewrite_headers: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("/"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        }
+    }
+    #[test]
+    fn test_host_name_is_none_ok1() {
+        let route = create_new_route_with_host_name(None);
+        let mut headermap = HeaderMap::new();
+        headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_some());
+    }
+
+    #[test]
+    fn test_host_name_is_some_ok2() {
+        let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
+        let mut headermap = HeaderMap::new();
+        headermap.insert("x-client", "Basic bHNrOjEyMzQ=".parse().unwrap());
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_none());
+    }
+    #[test]
+    fn test_host_name_is_some_ok3() {
+        let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
+        let mut headermap = HeaderMap::new();
+        headermap.insert("Host", "Basic bHNrOjEyMzQ=".parse().unwrap());
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_none());
+    }
+    #[test]
+    fn test_host_name_is_some_ok4() {
+        let route = create_new_route_with_host_name(Some(String::from("www.test.com")));
+        let mut headermap = HeaderMap::new();
+        headermap.insert("Host", "www.test.com".parse().unwrap());
+        let allow_result = route.is_matched(String::from("/test"), Some(headermap));
+        assert!(allow_result.is_ok());
+        assert!(allow_result.unwrap().is_some());
+    }
+    #[test]
+    fn test_serde_output_health_check() {
+        let route = create_new_route_with_host_name(Some("http://httpbin.org".to_string()));
+        let yaml = serde_yaml::to_string(&route).unwrap();
+        println!("{}", yaml);
+    }
+
+    #[test]
+    fn test_regex() {
+        let src_path1 = "/api/test/book";
+        let dst1 = src_path1.strip_prefix("/api");
+        assert!(dst1.is_some());
+        assert_eq!(dst1.unwrap(), "/test/book");
+
+        let src_path2 = "/api/test/book";
+        let dst2 = src_path2.strip_prefix("api");
+        assert!(dst2.is_none());
+
+        let src_path3 = "/api/test/book";
+        let dst3 = src_path3.strip_prefix("/api/");
+        assert!(dst3.is_some());
+        assert_eq!(dst3.unwrap(), "test/book");
+    }
+}

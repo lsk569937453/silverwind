@@ -336,3 +336,172 @@ async fn request_outbound(
     });
     Ok(())
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proxy::http1::http_client::HttpClients;
+    use crate::proxy::proxy_trait::CheckResult;
+    use crate::vojo::app_config::AppConfig;
+    use crate::vojo::app_config::LivenessConfig;
+    use crate::vojo::app_config::LivenessStatus;
+    use crate::vojo::app_config::Matcher;
+    use crate::vojo::app_config::Route;
+    use crate::vojo::health_check::BaseHealthCheckParam;
+    use crate::vojo::health_check::HealthCheckType;
+    use crate::vojo::health_check::HttpHealthCheckParam;
+    use crate::vojo::route::AnomalyDetectionStatus;
+    use crate::vojo::route::BaseRoute;
+    use crate::vojo::route::LoadbalancerStrategy;
+    use crate::vojo::route::WeightBasedRoute;
+    use crate::vojo::route::WeightRoute;
+    use async_trait::async_trait;
+    use http_body_util::BodyExt;
+    use http_body_util::Full;
+    use hyper::HeaderMap;
+    use hyper::StatusCode;
+    use hyper::Uri;
+    use std::env;
+    use std::time::Duration;
+    use tokio::runtime::{Builder, Runtime};
+    use tokio::time::sleep;
+    use uuid::Uuid;
+    fn create_route() -> Route {
+        let id = Uuid::new_v4();
+        let route = Route {
+            host_name: None,
+            route_id: id.to_string(),
+            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+                index: 0,
+                offset: 0,
+                routes: vec![WeightRoute {
+                    base_route: BaseRoute {
+                        endpoint: String::from("http://www.937453.xyz"),
+                        try_file: None,
+                        base_route_id: String::from(""),
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                    weight: 100,
+                }],
+            }),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 0,
+            },
+            anomaly_detection: None,
+            health_check: Some(HealthCheckType::HttpGet(HttpHealthCheckParam {
+                base_health_check_param: BaseHealthCheckParam {
+                    timeout: 0,
+                    interval: 2,
+                },
+                path: String::from("/"),
+            })),
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 1,
+            }),
+            allow_deny_list: None,
+            rewrite_headers: None,
+
+            authentication: None,
+            ratelimit: None,
+            matcher: Some(Matcher {
+                prefix: String::from("/"),
+                prefix_rewrite: String::from("/"),
+            }),
+        };
+        route
+    }
+    struct MockProvider();
+    #[async_trait]
+    impl CheckTrait for MockProvider {
+        async fn check_before_request(
+            &self,
+            shared_config: Arc<Mutex<AppConfig>>,
+            _mapping_key: String,
+            _headers: HeaderMap,
+            _uri: Uri,
+            _peer_addr: SocketAddr,
+        ) -> Result<Option<CheckResult>, AppError> {
+            let route = create_route();
+            Ok(Some(CheckResult {
+                request_path: String::from("http://127.0.0.1:50051"),
+                route,
+                base_route: Default::default(),
+            }))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_grpc_ok() {
+        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+
+        tokio::spawn(async {
+            let mut http_proxy = GrpcProxy {
+                port: 3257,
+                channel: receiver,
+                mapping_key: String::from("random key"),
+            };
+            let _result = http_proxy.start_proxy().await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .version(Version::HTTP_2)
+            .uri("http://127.0.0.1:3527")
+            .header("content-type", "application/grpc")
+            .header("te", "trailers")
+            .body(Full::new(Bytes::new()).boxed())
+            .unwrap();
+        let http_clients = HttpClients::new(false);
+        let outbound_res = http_clients.request_http(request, 3).await;
+
+        if let Ok(Ok(response)) = outbound_res {
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        sender.send(()).await;
+    }
+    #[tokio::test]
+    async fn test_grpc_tls_ok() {
+        let private_key_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_key.pem");
+        let private_key = std::fs::read_to_string(private_key_path).unwrap();
+
+        let ca_certificate_path = env::current_dir()
+            .unwrap()
+            .join("config")
+            .join("test_key.pem");
+        let ca_certificate = std::fs::read_to_string(ca_certificate_path).unwrap();
+        let (sender, receiver) = tokio::sync::mpsc::channel(10);
+
+        tokio::spawn(async {
+            let mut http_proxy = GrpcProxy {
+                port: 5746,
+                channel: receiver,
+                mapping_key: String::from("random key"),
+            };
+            let _result = http_proxy
+                .start_tls_proxy(ca_certificate, private_key)
+                .await;
+        });
+        sleep(Duration::from_millis(100)).await;
+
+        let request = Request::builder()
+            .method(Method::POST)
+            .version(Version::HTTP_2)
+            .uri("https://127.0.0.1:5746")
+            .header("content-type", "application/grpc")
+            .header("te", "trailers")
+            .body(Full::new(Bytes::new()).boxed())
+            .unwrap();
+        let http_clients = HttpClients::new(false);
+        let outbound_res = http_clients.request_http(request, 3).await;
+        if let Ok(Ok(response)) = outbound_res {
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        sender.send(()).await;
+    }
+}
