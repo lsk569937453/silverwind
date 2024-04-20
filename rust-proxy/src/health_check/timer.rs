@@ -49,7 +49,7 @@ where
     F: FnMut() -> Fut + Send + 'static,
 {
     pub async fn run(&mut self) {
-        let mut interval = time::interval(Duration::from_secs(self.interval.clone()));
+        let mut interval = time::interval(Duration::from_secs(self.interval));
         let task = &mut self.task;
         loop {
             // let task_cloned = task.clone();

@@ -234,13 +234,15 @@ mod tests {
                 }],
             }),
             liveness_status: LivenessStatus {
-                current_liveness_count: 0,
+                current_liveness_count: 1,
             },
             anomaly_detection: None,
             health_check: None,
             allow_deny_list: None,
             authentication: None,
-            liveness_config: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 1,
+            }),
             rewrite_headers: None,
             ratelimit: None,
             matcher: Some(Matcher {

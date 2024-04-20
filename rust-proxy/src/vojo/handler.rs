@@ -32,14 +32,13 @@ impl Handler {
         lock.api_service_config = map;
         lock.static_config = static_config;
         drop(lock);
-        let _ = start_control_plane(self.clone(), admin_port).await;
+        let handler = self.clone();
         let _ = self.start_health_check().await;
-
+        let _ = start_control_plane(handler, admin_port).await;
         Ok(())
     }
     async fn start_health_check(&mut self) {
         let cloned_appconfig = self.shared_app_config.clone();
-        info!("Healthcheck start.");
         tokio::spawn(async move {
             let mut health_check = HealthCheck::new(cloned_appconfig);
             health_check.start_health_check_loop().await;

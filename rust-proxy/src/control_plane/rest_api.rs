@@ -223,6 +223,8 @@ pub async fn start_control_plane(handler: Handler, port: i32) -> Result<(), AppE
     axum::serve(listener, app)
         .await
         .map_err(|e| AppError(e.to_string()))?;
+    info!("The admin port is {}", port);
+    println!("Listening on http://{}", addr);
     Ok(())
 }
 #[cfg(test)]

@@ -62,8 +62,6 @@ pub fn start_logger() {
         .unwrap();
 
     let _handle = log4rs::init_config(config);
-
-    // use handle to change logger configuration at runtime
 }
 #[cfg(test)]
 mod tests {

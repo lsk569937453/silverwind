@@ -138,6 +138,7 @@ impl HealthCheck {
 
         for (key, value) in route_map {
             if !old_map.contains(&key) {
+                let interval = key.health_check_type.get_base_param().interval;
                 let task_id = value.clone().route_id;
                 let health_check_client = self.health_check_client.clone();
                 let health_check_type = value.health_check.clone().unwrap();
@@ -157,7 +158,7 @@ impl HealthCheck {
                     let shared_config = shared_config.clone();
 
                     async move {
-                        let cc = match health_check_type_cloned {
+                        match health_check_type_cloned {
                             HealthCheckType::HttpGet(http_health_check_param) => {
                                 do_http_health_check(
                                     http_health_check_param,
@@ -171,11 +172,13 @@ impl HealthCheck {
                                 .await
                             }
                             _ => Err(AppError("".to_string())),
-                        };
-                        cc
+                        }
                     }
                 };
-                let _ = self.task_pool.submit_task(task_id, task, 5).await;
+                let _ = self
+                    .task_pool
+                    .submit_task(task_id, task, interval as u64)
+                    .await;
                 self.task_id_map.insert(key.clone());
             }
         }
@@ -184,7 +187,7 @@ impl HealthCheck {
 }
 fn get_endpoint_list(mut route: Route) -> Vec<(String, String)> {
     let mut result = vec![];
-    let base_route_list = route.route_cluster.get_all_route().unwrap_or(vec![]);
+    let base_route_list = route.route_cluster.get_all_route().unwrap_or_default();
     for item in base_route_list {
         result.push((item.endpoint.clone(), item.base_route_id.clone()));
     }
@@ -253,23 +256,20 @@ async fn do_http_health_check(
         if let Ok((response_result2, route_id, shared_config, api_service_id, base_route_id)) =
             response_result1
         {
-            match response_result2 {
-                Ok(Ok(t)) => {
-                    if t.status() == StatusCode::OK {
-                        info!("status is true");
-                        let _ = update_status(
-                            shared_config,
-                            api_service_id,
-                            route_id.clone(),
-                            base_route_id,
-                            true,
-                        )
-                        .await;
-                        continue;
-                    }
+            if let Ok(Ok(t)) = response_result2 {
+                if t.status() == StatusCode::OK {
+                    info!("status is true");
+                    let _ = update_status(
+                        shared_config,
+                        api_service_id,
+                        route_id.clone(),
+                        base_route_id,
+                        true,
+                    )
+                    .await;
+                    continue;
                 }
-                _ => {}
-            };
+            }
 
             info!("status is false");
             let _ = update_status(
