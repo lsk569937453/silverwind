@@ -422,7 +422,7 @@ mod tests {
     use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::LoadbalancerStrategy;
     use crate::vojo::route::{BaseRoute, RandomBaseRoute, RandomRoute};
-    use crate::vojo::route::{WeightBasedRoute, WeightRoute};
+    use crate::vojo::route::{WeightRoute, WeightRouteNestedItem};
     use regex::Regex;
     use std::collections::HashMap;
     use std::env;
@@ -446,10 +446,10 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
                 index: 0,
                 offset: 0,
-                routes: vec![WeightRoute {
+                routes: vec![WeightRouteNestedItem {
                     base_route: BaseRoute {
                         endpoint: String::from("http://www.937453.xyz"),
                         try_file: None,
@@ -493,10 +493,10 @@ mod tests {
         let route = Route {
             host_name: None,
             route_id: id.to_string(),
-            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
                 index: 0,
                 offset: 0,
-                routes: vec![WeightRoute {
+                routes: vec![WeightRouteNestedItem {
                     base_route: BaseRoute {
                         endpoint: String::from("http://www.937453.xyz"),
                         try_file: None,

@@ -206,8 +206,8 @@ mod tests {
     use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::BaseRoute;
 
-    use crate::vojo::route::WeightBasedRoute;
     use crate::vojo::route::WeightRoute;
+    use crate::vojo::route::WeightRouteNestedItem;
     use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -217,10 +217,10 @@ mod tests {
         Route {
             host_name,
             route_id: get_uuid(),
-            route_cluster: LoadbalancerStrategy::WeightBasedRoute(WeightBasedRoute {
+            route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
                 index: 0,
                 offset: 0,
-                routes: vec![WeightRoute {
+                routes: vec![WeightRouteNestedItem {
                     base_route: BaseRoute {
                         base_route_id: "a".to_string(),
                         endpoint: String::from("/"),

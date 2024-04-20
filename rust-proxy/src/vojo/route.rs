@@ -20,9 +20,9 @@ use uuid::Uuid;
 #[serde(tag = "type")]
 pub enum LoadbalancerStrategy {
     PollRoute(PollRoute),
-    HeaderBasedRoute(HeaderBasedRoute),
+    HeaderRoute(HeaderRoute),
     RandomRoute(RandomRoute),
-    WeightBasedRoute(WeightBasedRoute),
+    WeightRoute(WeightRoute),
 }
 
 impl LoadbalancerStrategy {
@@ -33,25 +33,21 @@ impl LoadbalancerStrategy {
         match self {
             LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_route(headers).await,
 
-            LoadbalancerStrategy::HeaderBasedRoute(poll_route) => {
-                poll_route.get_route(headers).await
-            }
+            LoadbalancerStrategy::HeaderRoute(poll_route) => poll_route.get_route(headers).await,
 
             LoadbalancerStrategy::RandomRoute(poll_route) => poll_route.get_route(headers).await,
 
-            LoadbalancerStrategy::WeightBasedRoute(poll_route) => {
-                poll_route.get_route(headers).await
-            }
+            LoadbalancerStrategy::WeightRoute(poll_route) => poll_route.get_route(headers).await,
         }
     }
     pub fn get_all_route(&mut self) -> Result<Vec<&mut BaseRoute>, AppError> {
         match self {
             LoadbalancerStrategy::PollRoute(poll_route) => poll_route.get_all_route(),
-            LoadbalancerStrategy::HeaderBasedRoute(poll_route) => poll_route.get_all_route(),
+            LoadbalancerStrategy::HeaderRoute(poll_route) => poll_route.get_all_route(),
 
             LoadbalancerStrategy::RandomRoute(poll_route) => poll_route.get_all_route(),
 
-            LoadbalancerStrategy::WeightBasedRoute(poll_route) => poll_route.get_all_route(),
+            LoadbalancerStrategy::WeightRoute(poll_route) => poll_route.get_all_route(),
         }
     }
 }
@@ -76,7 +72,7 @@ fn default_base_route_id() -> String {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct WeightRoute {
+pub struct WeightRouteNestedItem {
     pub base_route: BaseRoute,
     pub weight: u64,
 }
@@ -108,20 +104,18 @@ pub enum HeaderValueMappingType {
     Split(SplitSegment),
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HeaderRoute {
+pub struct HeaderRouteNestedItem {
     pub base_route: BaseRoute,
     pub header_key: String,
     pub header_value_mapping_type: HeaderValueMappingType,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct HeaderBasedRoute {
-    pub routes: Vec<HeaderRoute>,
+pub struct HeaderRoute {
+    pub routes: Vec<HeaderRouteNestedItem>,
 }
 
-// #[typetag::serde]
-// #[async_trait]
-impl HeaderBasedRoute {
+impl HeaderRoute {
     fn get_all_route(&mut self) -> Result<Vec<&mut BaseRoute>, AppError> {
         let vecs = self
             .routes
@@ -132,10 +126,9 @@ impl HeaderBasedRoute {
     }
 
     async fn get_route(&mut self, headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
-        let mut alive_cluster: Vec<HeaderRoute> = vec![];
+        let mut alive_cluster: Vec<HeaderRouteNestedItem> = vec![];
         for item in self.routes.clone() {
             let is_alve_result = item.base_route.is_alive;
-            // let is_alive_option = is_alve_result.unwrap();
             let is_alive = is_alve_result.unwrap_or(true);
             if is_alive {
                 alive_cluster.push(item.clone());
@@ -276,13 +269,13 @@ impl PollRoute {
     }
 }
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct WeightBasedRoute {
-    pub routes: Vec<WeightRoute>,
+pub struct WeightRoute {
+    pub routes: Vec<WeightRouteNestedItem>,
     pub index: u64,
     pub offset: u64,
 }
 
-impl WeightBasedRoute {
+impl WeightRoute {
     fn get_all_route(&mut self) -> Result<Vec<&mut BaseRoute>, AppError> {
         let vecs = self
             .routes
@@ -317,19 +310,6 @@ impl WeightBasedRoute {
             }
         }
 
-        // for (pos, e) in cluster_read_lock2.iter_mut().enumerate() {
-        //     let is_alive_option_lock = e.base_route.is_alive;
-        //     let is_alive = is_alive_option_lock.unwrap_or(true);
-        //     if is_alive {
-        //         let old_value = e.index;
-        //         if old_value > 0 {
-        //             if log_enabled!(Level::Debug) {
-        //                 debug!("WeightRoute current index:{}", pos as i32);
-        //             }
-        //             return Ok(e.base_route.clone());
-        //         }
-        //     }
-        // }
         Err(AppError(String::from("WeightRoute get route error")))
     }
 }
@@ -449,9 +429,9 @@ mod tests {
             },
         ]
     }
-    fn get_weight_routes() -> Vec<WeightRoute> {
+    fn get_weight_routes() -> Vec<WeightRouteNestedItem> {
         vec![
-            WeightRoute {
+            WeightRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
@@ -464,7 +444,7 @@ mod tests {
                 },
                 weight: 100,
             },
-            WeightRoute {
+            WeightRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
                     anomaly_detection_status: AnomalyDetectionStatus {
@@ -477,7 +457,7 @@ mod tests {
                 },
                 weight: 100,
             },
-            WeightRoute {
+            WeightRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:6666"),
                     try_file: None,
@@ -492,9 +472,9 @@ mod tests {
             },
         ]
     }
-    fn get_header_based_routes() -> Vec<HeaderRoute> {
+    fn get_header_based_routes() -> Vec<HeaderRouteNestedItem> {
         vec![
-            HeaderRoute {
+            HeaderRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:4444"),
                     try_file: None,
@@ -510,7 +490,7 @@ mod tests {
                     value: String::from("^100*"),
                 }),
             },
-            HeaderRoute {
+            HeaderRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:5555"),
                     try_file: None,
@@ -531,7 +511,7 @@ mod tests {
                     ],
                 }),
             },
-            HeaderRoute {
+            HeaderRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:7777"),
                     try_file: None,
@@ -552,7 +532,7 @@ mod tests {
                     ],
                 }),
             },
-            HeaderRoute {
+            HeaderRouteNestedItem {
                 base_route: BaseRoute {
                     endpoint: String::from("http://localhost:8888"),
                     try_file: None,
@@ -596,7 +576,7 @@ mod tests {
     #[tokio::test]
     async fn test_weight_route_successfully() {
         let routes = get_weight_routes();
-        let mut weight_route = WeightBasedRoute {
+        let mut weight_route = WeightRoute {
             routes: routes.clone(),
             index: 0,
             offset: 0,
@@ -637,8 +617,8 @@ mod tests {
     #[tokio::test]
     async fn test_header_based_route_successfully() {
         let routes = get_header_based_routes();
-        let header_route = HeaderBasedRoute { routes };
-        let mut header_route = LoadbalancerStrategy::HeaderBasedRoute(header_route);
+        let header_route = HeaderRoute { routes };
+        let mut header_route = LoadbalancerStrategy::HeaderRoute(header_route);
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("x-client", "100zh-CN,zh;q=0.9,en;q=0.8".parse().unwrap());
         let result1 = header_route.get_route(headermap1.clone()).await;
@@ -662,5 +642,50 @@ mod tests {
         let result4 = header_route.get_route(headermap4.clone()).await;
         assert!(result4.is_ok());
         assert_eq!(result4.unwrap().endpoint, "http://localhost:8888");
+    }
+
+    #[tokio::test]
+    async fn test_all_route_successfully() {
+        {
+            let header_route = get_header_based_routes();
+            let mut header_wrapper = LoadbalancerStrategy::HeaderRoute(HeaderRoute {
+                routes: header_route,
+            });
+            let routes = header_wrapper.get_all_route();
+            assert!(routes.is_ok());
+            assert_eq!(routes.unwrap().len(), 4);
+        }
+        {
+            let vecs = get_random_routes();
+            let random_route = RandomRoute { routes: vecs };
+            let mut header_wrapper = LoadbalancerStrategy::RandomRoute(random_route);
+            let routes = header_wrapper.get_all_route();
+            assert!(routes.is_ok());
+            assert_eq!(routes.unwrap().len(), 3);
+        }
+        {
+            let vecs: Vec<PollBaseRoute> = get_poll_routes();
+            let poll_route = PollRoute {
+                routes: vecs,
+                current_index: 0,
+            };
+            let mut header_wrapper = LoadbalancerStrategy::PollRoute(poll_route);
+            let routes = header_wrapper.get_all_route();
+            assert!(routes.is_ok());
+            assert_eq!(routes.unwrap().len(), 3);
+        }
+        {
+            let weight_route = get_weight_routes();
+            let vecs: Vec<PollBaseRoute> = get_poll_routes();
+            let weight_route = WeightRoute {
+                routes: weight_route,
+                index: 0,
+                offset: 0,
+            };
+            let mut header_wrapper = LoadbalancerStrategy::WeightRoute(weight_route);
+            let routes = header_wrapper.get_all_route();
+            assert!(routes.is_ok());
+            assert_eq!(routes.unwrap().len(), 3);
+        }
     }
 }

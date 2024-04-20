@@ -39,6 +39,7 @@ impl Handler {
     }
     async fn start_health_check(&mut self) {
         let cloned_appconfig = self.shared_app_config.clone();
+        info!("Healthcheck start.");
         tokio::spawn(async move {
             let mut health_check = HealthCheck::new(cloned_appconfig);
             health_check.start_health_check_loop().await;
