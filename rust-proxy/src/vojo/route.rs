@@ -2,11 +2,9 @@ use super::app_config::LivenessConfig;
 use super::app_config::LivenessStatus;
 use super::app_error::AppError;
 use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
-
 use core::fmt::Debug;
 use http::HeaderMap;
 use http::HeaderValue;
-use log::Level;
 use rand::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -14,6 +12,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, Duration};
+use tracing::metadata::LevelFilter;
 use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::enum_variant_names)]
@@ -259,7 +258,9 @@ impl PollRoute {
         let current_index = (older + 1) % len as i64;
         self.current_index = current_index;
         let dst = alive_cluster[current_index as usize].clone();
-        if log_enabled!(Level::Debug) {
+        let level_filter = tracing_subscriber::filter::LevelFilter::current();
+
+        if level_filter == LevelFilter::DEBUG {
             debug!(
                 "PollRoute current index:{},cluter len:{},older index:{}",
                 current_index as i32, len, older

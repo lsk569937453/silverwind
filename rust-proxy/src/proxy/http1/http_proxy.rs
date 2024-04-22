@@ -13,6 +13,7 @@ use http::Uri;
 use hyper::body::Incoming;
 use hyper::header::{CONNECTION, SEC_WEBSOCKET_KEY};
 use hyper::StatusCode;
+use tracing::level_filters::LevelFilter;
 
 use crate::proxy::http1::websocket_proxy::server_upgrade;
 use crate::proxy::proxy_trait::CheckTrait;
@@ -25,7 +26,6 @@ use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_staticfile::Static;
 use hyper_util::rt::TokioIo;
-use log::Level;
 use prometheus::HistogramTimer;
 use rustls_pki_types::CertificateDer;
 use serde_json::json;
@@ -243,8 +243,9 @@ async fn proxy_adapter_with_error(
         .into_iter()
         .for_each(|item| item.observe_duration());
     inc(mapping_key.clone(), path.clone(), status);
+    let level_filter = tracing_subscriber::filter::LevelFilter::current();
 
-    if log_enabled!(Level::Debug) {
+    if level_filter == LevelFilter::DEBUG {
         let (parts, body) = res.into_parts();
         let response_bytes = body
             .collect()
@@ -439,7 +440,7 @@ mod tests {
     use tokio::time::sleep;
     use uuid::Uuid;
     fn init() {
-        let _ = env_logger::builder().is_test(true).try_init();
+        // let _ = env_logger::builder().is_test(true).try_init();
     }
     fn create_route() -> Route {
         let id = Uuid::new_v4();

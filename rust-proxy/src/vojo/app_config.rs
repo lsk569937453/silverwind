@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
+use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
     pub prefix: String,
@@ -31,7 +32,7 @@ pub struct LivenessStatus {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Route {
-    #[serde(skip)]
+    #[serde(default = "default_route_id")]
     pub route_id: String,
     pub host_name: Option<String>,
     pub matcher: Option<Matcher>,
@@ -46,7 +47,10 @@ pub struct Route {
     pub ratelimit: Option<Box<dyn RatelimitStrategy>>,
     pub route_cluster: LoadbalancerStrategy,
 }
-
+fn default_route_id() -> String {
+    let uid = Uuid::new_v4();
+    uid.to_string()
+}
 impl Route {
     pub fn is_matched(
         &self,

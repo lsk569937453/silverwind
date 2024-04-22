@@ -1,3 +1,4 @@
+use configuration_service::logger::start_logger;
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
 use tokio::sync::mpsc;
@@ -24,13 +25,12 @@ use futures::Future;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 use tokio::runtime;
 fn main() {
-    let fut = async move { start().await };
+    let fut = async move { block_start().await };
     if let Err(e) = main_with_error(fut) {
         error!("main error,the error is {}!", e)
     }
@@ -48,7 +48,8 @@ where
     rt.block_on(fut);
     Ok(())
 }
-async fn start() {
+async fn block_start() {
+    let _work_guard = start_logger();
     let admin_port: i32 = env::var(ENV_ADMIN_PORT)
         .unwrap_or(String::from(DEFAULT_ADMIN_PORT))
         .parse()
@@ -67,7 +68,7 @@ mod tests {
     use tokio::time::sleep;
     #[tokio::test]
     async fn pool_key_value_get_set() {
-        tokio::spawn(async move { start().await });
+        tokio::spawn(async move { block_start().await });
         sleep(Duration::from_millis(1000)).await;
         let listener = TcpListener::bind("0.0.0.0:5402");
         assert!(listener.is_ok());

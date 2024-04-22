@@ -117,8 +117,6 @@ async fn init_static_config() -> StaticConfig {
     }
     static_config.admin_port = api_port.clone();
 
-    logger::start_logger();
-
     if let Ok(access_log) = access_log_result {
         static_config.access_log = Some(access_log);
     }

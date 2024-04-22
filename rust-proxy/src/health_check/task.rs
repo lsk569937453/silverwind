@@ -1,6 +1,5 @@
 use crate::health_check::timer::TaskPool;
 use crate::proxy::http1::http_client::HttpClients;
-use crate::vojo::app_config::ApiService;
 use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_config::Route;
 use crate::vojo::app_error::AppError;
@@ -8,17 +7,14 @@ use crate::vojo::health_check::HealthCheckType;
 use crate::vojo::health_check::HttpHealthCheckParam;
 use bytes::Bytes;
 use futures;
-use futures::future::join_all;
 use futures::FutureExt;
-use futures::Stream;
 use http::Request;
 use http::StatusCode;
 use http_body_util::BodyExt;
 use http_body_util::Full;
-use openssl::sha;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -139,11 +135,11 @@ impl HealthCheck {
         for (key, value) in route_map {
             if !old_map.contains(&key) {
                 let interval = key.health_check_type.get_base_param().interval;
-                let task_id = value.clone().route_id;
                 let health_check_client = self.health_check_client.clone();
                 let health_check_type = value.health_check.clone().unwrap();
                 let route_list = get_endpoint_list(value.clone());
                 let route_id = value.route_id.clone();
+                let route_id_clone = route_id.clone();
                 let api_service_id = key.api_service_id.clone();
                 let timeout_share = 20;
                 let health_check_client_shared = health_check_client.clone();
@@ -177,7 +173,7 @@ impl HealthCheck {
                 };
                 let _ = self
                     .task_pool
-                    .submit_task(task_id, task, interval as u64)
+                    .submit_task(route_id_clone, task, interval as u64)
                     .await;
                 self.task_id_map.insert(key.clone());
             }
@@ -315,6 +311,7 @@ async fn update_status(
 mod tests {
     use super::*;
     use crate::vojo::api_service_manager::ApiServiceManager;
+    use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::LivenessConfig;
     use crate::vojo::app_config::LivenessStatus;
     use crate::vojo::app_config::Matcher;
@@ -324,13 +321,9 @@ mod tests {
     use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::LoadbalancerStrategy;
     use crate::vojo::route::{BaseRoute, WeightRoute, WeightRouteNestedItem};
-    use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
-    use std::thread::sleep;
     use std::time::Duration;
     use tokio::sync::mpsc;
-    use tokio::sync::RwLock;
-
     use uuid::Uuid;
 
     fn creata_appconfig() -> AppConfig {
