@@ -1,0 +1,51 @@
+version: '3.9'
+
+services:
+  test:
+    image: demisto/rakyll-hey:1.0.0.44140
+    container_name: hey
+    tty: true
+    deploy:
+      resources:
+        limits:
+          cpus: "12.0"
+          memory: 8192M
+  backend:
+    image: ghcr.io/lsk569937453/echo-server:0.0.3
+    container_name: backend
+    ports:
+    - "9394:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M
+  backend-delay:
+    image: lsk569937453/echo-server-delay:0.0.1
+    container_name: backend-delay
+    ports:
+    - "9395:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M
+  silverwind:
+    image: ghcr.io/lsk569937453/silverwind:0.0.20
+    # image: lsk569937453/silverwind:test
+    container_name: silverwind
+    environment:
+      CONFIG_FILE_PATH: /data/app/app_config.yaml
+      RUST_BACKTRACE: 1
+      JEMALLOC_SYS_WITH_MALLOC_CONF: background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true
+    volumes:
+    - ./app_config.yaml:/data/app/app_config.yaml
+    restart: unless-stopped
+    ports:
+      - 6667:6667
+      - 8870:8870
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8192M

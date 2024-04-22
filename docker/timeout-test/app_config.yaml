@@ -1,0 +1,22 @@
+- listen_port: 6667
+  service_config:
+    server_type: Http
+    routes:
+    - matcher:
+        prefix: /normal
+        prefix_rewrite: ssss
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - base_route:
+            endpoint: http://backend:8080/
+            try_file: null
+    - matcher:
+        prefix: /delay
+        prefix_rewrite: ssss
+      route_cluster:
+        type: RandomRoute
+        routes:
+        - base_route:
+            endpoint: http://backend-delay:8080/
+            try_file: null
