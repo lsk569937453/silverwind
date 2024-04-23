@@ -14,12 +14,12 @@ pub fn start_logger() -> WorkerGuard {
         .with_writer(non_blocking_appender)
         .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
 
-    let console_layer = tracing_subscriber::fmt::Layer::new()
-        .with_target(true)
-        .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
+    // let console_layer = tracing_subscriber::fmt::Layer::new()
+    //     .with_target(true)
+    //     .with_filter(tracing_subscriber::filter::LevelFilter::INFO);
     tracing_subscriber::registry()
         .with(file_layer)
-        .with(console_layer)
+        // .with(console_layer)
         .with(tracing_subscriber::filter::LevelFilter::TRACE)
         .init();
     guard
