@@ -1,14 +1,9 @@
 use configuration_service::logger::start_logger;
-#[cfg(not(target_env = "msvc"))]
-use jemallocator::Jemalloc;
+
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use vojo::app_error::AppError;
 use vojo::handler::Handler;
-
-#[cfg(not(target_env = "msvc"))]
-#[global_allocator]
-static GLOBAL: Jemalloc = Jemalloc;
 
 extern crate derive_builder;
 mod configuration_service;
@@ -28,7 +23,11 @@ use tokio::sync::Mutex;
 #[macro_use]
 extern crate tracing;
 
+use mimalloc::MiMalloc;
 use tokio::runtime;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
     let fut = async move { block_start().await };
     if let Err(e) = main_with_error(fut) {
