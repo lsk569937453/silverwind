@@ -298,6 +298,56 @@ mod tests {
         let yaml = serde_yaml::to_string(&route).unwrap();
         println!("{}", yaml);
     }
+    #[test]
+    fn test_serde_output_rate_limit() {
+        let route = Route {
+            host_name: Some("".to_string()),
+            route_id: get_uuid(),
+            route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
+                index: 0,
+                offset: 0,
+                routes: vec![WeightRouteNestedItem {
+                    base_route: BaseRoute {
+                        base_route_id: "a".to_string(),
+                        endpoint: String::from("/"),
+                        try_file: None,
+                        is_alive: None,
+                        anomaly_detection_status: AnomalyDetectionStatus {
+                            consecutive_5xx: 100,
+                        },
+                    },
+                    weight: 100,
+                }],
+            }),
+            liveness_status: LivenessStatus {
+                current_liveness_count: 1,
+            },
+            anomaly_detection: None,
+            health_check: None,
+            allow_deny_list: None,
+            authentication: None,
+            liveness_config: Some(LivenessConfig {
+                min_liveness_count: 1,
+            }),
+            rewrite_headers: None,
+            ratelimit: Some(Box::new(FixedWindowRateLimit {
+                rate_per_unit: 10000,
+                unit: TimeUnit::MillionSecond,
+                limit_location: LimitLocation::Header(HeaderBasedRatelimit {
+                    key: "a".to_string(),
+                    value: "a".to_string(),
+                }),
+                count_map: HashMap::new(),
+                lock: 0,
+            })),
+            matcher: Some(Matcher {
+                prefix: String::from("/"),
+                prefix_rewrite: String::from("ssss"),
+            }),
+        };
+        let yaml = serde_yaml::to_string(&route).unwrap();
+        println!("{}", yaml);
+    }
 
     #[test]
     fn test_regex() {

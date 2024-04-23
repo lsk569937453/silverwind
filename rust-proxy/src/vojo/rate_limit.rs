@@ -558,10 +558,10 @@ mod tests {
             .should_limit(headermap1.clone(), String::from("192.168.0.0"))
             .await;
         if let Err(e) = &res4 {
-            println!("{}", e);
+            error!("{}", e);
         }
         if let Ok(e) = &res4 {
-            println!("ok:{}", e);
+            error!("ok:{}", e);
         }
         assert!(res4.unwrap());
     }

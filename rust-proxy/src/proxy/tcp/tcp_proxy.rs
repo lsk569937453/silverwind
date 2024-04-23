@@ -28,7 +28,7 @@ impl TcpProxy {
                    check(mapping_key_clone.clone(),socket_addr).await?;
                    let transfer = transfer(inbound, mapping_key_clone.clone()).map(|r| {
                         if let Err(e) = r {
-                            println!("Failed to transfer,error is {}", e);
+                            error!("Failed to transfer,error is {}", e);
                         }
                     });
                     tokio::spawn(transfer);
