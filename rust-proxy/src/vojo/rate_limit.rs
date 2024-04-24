@@ -99,18 +99,18 @@ impl TimeUnit {
 pub struct TokenBucketRateLimit {
     pub rate_per_unit: u128,
     pub unit: TimeUnit,
-    pub capacity: i32,
+    pub capacity: u128,
     pub limit_location: LimitLocation,
     #[serde(skip_serializing, skip_deserializing)]
-    pub current_count: Arc<RwLock<AtomicIsize>>,
+    pub current_count: u128,
     #[serde(skip_serializing, skip_deserializing)]
-    pub lock: Arc<Mutex<i32>>,
+    pub lock: u128,
     #[serde(skip_serializing, skip_deserializing, default = "default_time")]
-    pub last_update_time: Arc<RwLock<SystemTime>>,
+    pub last_update_time: SystemTime,
 }
 
-fn default_time() -> Arc<RwLock<SystemTime>> {
-    Arc::new(RwLock::new(SystemTime::now()))
+fn default_time() -> SystemTime {
+    SystemTime::now()
 }
 fn get_time_key(time_unit: TimeUnit) -> Result<String, AppError> {
     let current_time = SystemTime::now();
@@ -174,13 +174,12 @@ impl RatelimitStrategy for TokenBucketRateLimit {
         if !match_or_not {
             return Ok(false);
         }
-        let read_lock = self.current_count.read().await;
-        let current_value = read_lock.fetch_sub(1, Ordering::SeqCst);
+        let mut read_lock = self.current_count;
+        let current_value = read_lock.clone();
+        read_lock += 1;
         if current_value <= 0 {
             let elapsed = self
                 .last_update_time
-                .read()
-                .await
                 .elapsed()
                 .map_err(|err| AppError(err.to_string()))?;
             let elapsed_millis = elapsed.as_millis();
@@ -191,21 +190,18 @@ impl RatelimitStrategy for TokenBucketRateLimit {
                 return Ok(true);
             }
             drop(read_lock);
-            let mut write_lock = self.current_count.write().await;
-            if (write_lock.load(Ordering::SeqCst) as i32) < 0 {
-                if added_count > (self.capacity as u128) {
-                    added_count = self.capacity as u128;
+            let mut write_lock = self.current_count;
+            if write_lock < 0 {
+                if added_count > self.capacity {
+                    added_count = self.capacity;
                 }
-                *write_lock = AtomicIsize::new(added_count as isize);
-                let mut write_timestamp = self.last_update_time.write().await;
-                *write_timestamp = SystemTime::now();
+                write_lock = added_count;
+                let mut write_timestamp = self.last_update_time;
+                write_timestamp = SystemTime::now();
             }
             drop(write_lock);
-            let current_value = self
-                .current_count
-                .read()
-                .await
-                .fetch_sub(1, Ordering::SeqCst);
+            let current_value = self.current_count;
+            self.current_count += 1;
             if current_value <= 0 {
                 return Ok(true);
             }
@@ -289,9 +285,9 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -322,9 +318,9 @@ mod tests {
             limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("245.168.0.0/8"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -357,9 +353,9 @@ mod tests {
                 key: String::from("lsk"),
                 value: String::from("test"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("lsk", "test".parse().unwrap());
@@ -391,9 +387,9 @@ mod tests {
                 key: String::from("lsk"),
                 value: String::from("test"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("lsk", "test1".parse().unwrap());
@@ -424,9 +420,9 @@ mod tests {
             limit_location: LimitLocation::Iprange(IpRangeBasedRatelimit {
                 value: String::from("245.168.0.0/8"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -456,9 +452,9 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -489,9 +485,9 @@ mod tests {
             limit_location: LimitLocation::IP(IPBasedRatelimit {
                 value: String::from("192.168.0.0"),
             }),
-            current_count: Arc::new(RwLock::new(AtomicIsize::new(3))),
-            lock: Arc::new(Mutex::new(0)),
-            last_update_time: Arc::new(RwLock::new(SystemTime::now())),
+            current_count: 3,
+            lock: 0,
+            last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
