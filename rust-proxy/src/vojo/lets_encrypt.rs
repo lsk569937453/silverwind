@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc::{self, Receiver};
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -91,7 +90,7 @@ impl LetsEntrypt {
                     send_result.unwrap_err()
                 );
             }
-            return request_result.map_err(|e| AppError(format!("{}", e.to_string())));
+            return request_result.map_err(|e| AppError(format!("Error is {}", e)));
         } else {
             error!("{}", request_result.unwrap_err());
         }

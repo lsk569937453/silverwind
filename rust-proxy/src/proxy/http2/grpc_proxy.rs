@@ -362,12 +362,11 @@ mod tests {
     use hyper::Uri;
     use std::env;
     use std::time::Duration;
-    use tokio::runtime::{Builder, Runtime};
     use tokio::time::sleep;
     use uuid::Uuid;
     fn create_route() -> Route {
         let id = Uuid::new_v4();
-        let route = Route {
+        Route {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
@@ -409,15 +408,14 @@ mod tests {
                 prefix: String::from("/"),
                 prefix_rewrite: String::from("/"),
             }),
-        };
-        route
+        }
     }
     struct MockProvider();
     #[async_trait]
     impl CheckTrait for MockProvider {
         async fn check_before_request(
             &self,
-            shared_config: Arc<Mutex<AppConfig>>,
+            _shared_config: Arc<Mutex<AppConfig>>,
             _mapping_key: String,
             _headers: HeaderMap,
             _uri: Uri,
@@ -460,7 +458,7 @@ mod tests {
         if let Ok(Ok(response)) = outbound_res {
             assert_eq!(response.status(), StatusCode::OK);
         }
-        sender.send(()).await;
+        let _ = sender.send(()).await;
     }
     #[tokio::test]
     async fn test_grpc_tls_ok() {
@@ -502,6 +500,6 @@ mod tests {
         if let Ok(Ok(response)) = outbound_res {
             assert_eq!(response.status(), StatusCode::OK);
         }
-        sender.send(()).await;
+        let _ = sender.send(()).await;
     }
 }

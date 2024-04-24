@@ -13,9 +13,7 @@ use http::HeaderValue;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Matcher {
@@ -172,13 +170,13 @@ pub struct ApiService {
     pub sender: mpsc::Sender<()>,
 }
 fn default_sender() -> mpsc::Sender<()> {
-    let (sender, receiver) = mpsc::channel(1);
+    let (sender, _receiver) = mpsc::channel(1);
     sender
 }
 
 impl Default for ApiService {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel(1);
+        let (sender, _receiver) = mpsc::channel(1);
         Self {
             listen_port: 0, // Provide default values for each field
             api_service_id: String::default(),
@@ -202,21 +200,15 @@ pub struct AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::control_plane::rest_api::get_router;
     use crate::utils::uuid::get_uuid;
 
-    use crate::vojo::health_check::{BaseHealthCheckParam, HttpHealthCheckParam};
     use crate::vojo::rate_limit::*;
     use crate::vojo::route::AnomalyDetectionStatus;
     use crate::vojo::route::BaseRoute;
 
     use crate::vojo::route::WeightRoute;
     use crate::vojo::route::WeightRouteNestedItem;
-    use std::sync::atomic::AtomicIsize;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-    use std::time::SystemTime;
-    use tokio::sync::RwLock;
+
     fn create_new_route_with_host_name(host_name: Option<String>) -> Route {
         Route {
             host_name,

@@ -3,8 +3,6 @@ use crate::constants::common_constants::DEFAULT_HTTP_TIMEOUT;
 use crate::monitor::prometheus_exporter::{get_timer_list, inc};
 use crate::proxy::http1::http_client::HttpClients;
 
-use crate::vojo::anomaly_detection::AnomalyDetectionType;
-use crate::vojo::app_config::{LivenessConfig, LivenessStatus};
 use crate::vojo::app_error::AppError;
 use crate::vojo::route::BaseRoute;
 use bytes::Bytes;
@@ -38,7 +36,6 @@ use std::time::SystemTime;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
-use tokio::sync::RwLock;
 use tokio_rustls::TlsAcceptor;
 #[derive(Debug)]
 pub struct HttpProxy {
@@ -311,7 +308,7 @@ async fn proxy(
     if let Some(check_request) = check_result {
         let request_path = check_request.request_path;
         let base_route = check_request.base_route;
-        let route = check_request.route;
+        let _route = check_request.route;
         if !request_path.clone().contains("http") {
             let mut parts = req.uri().clone().into_parts();
             parts.path_and_query = Some(request_path.try_into().unwrap());
@@ -327,7 +324,7 @@ async fn proxy(
             client.request_http(req, DEFAULT_HTTP_TIMEOUT)
         };
         let response_result = match request_future.await {
-            Ok(response) => response.map_err(|e| AppError(String::from(e.to_string()))),
+            Ok(response) => response.map_err(|e| AppError(e.to_string())),
             _ => {
                 return Err(AppError(format!(
                     "Request time out,the uri is {}",
@@ -402,13 +399,7 @@ async fn route_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::allow_deny_ip::AllowDenyObject;
-    use crate::vojo::allow_deny_ip::AllowType;
 
-    use crate::utils::uuid::get_uuid;
-    use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
-    use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
-    use crate::vojo::api_service_manager::ApiServiceManager;
     use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::LivenessConfig;
     use crate::vojo::app_config::LivenessStatus;
@@ -416,13 +407,12 @@ mod tests {
     use crate::vojo::app_config::Route;
     use crate::vojo::app_config::ServiceConfig;
     use crate::vojo::app_config::StaticConfig;
-    use crate::vojo::base_response::BaseResponse;
     use crate::vojo::health_check::BaseHealthCheckParam;
     use crate::vojo::health_check::HealthCheckType;
     use crate::vojo::health_check::HttpHealthCheckParam;
     use crate::vojo::route::AnomalyDetectionStatus;
+    use crate::vojo::route::BaseRoute;
     use crate::vojo::route::LoadbalancerStrategy;
-    use crate::vojo::route::{BaseRoute, RandomBaseRoute, RandomRoute};
     use crate::vojo::route::{WeightRoute, WeightRouteNestedItem};
     use regex::Regex;
     use std::collections::HashMap;
@@ -430,13 +420,9 @@ mod tests {
     use std::fs::File;
     use std::io::BufReader;
     use std::net::{IpAddr, Ipv4Addr};
-    use std::sync::atomic::AtomicIsize;
     use std::sync::Arc;
-    use std::time::Duration;
-    use std::{thread, time};
-    use tokio::runtime::{Builder, Runtime};
+    use std::time;
     use tokio::sync::mpsc;
-    use tokio::sync::RwLock;
     use tokio::time::sleep;
     use uuid::Uuid;
     fn init() {
@@ -444,7 +430,7 @@ mod tests {
     }
     fn create_route() -> Route {
         let id = Uuid::new_v4();
-        let route = Route {
+        Route {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
@@ -486,12 +472,11 @@ mod tests {
                 prefix: String::from("/"),
                 prefix_rewrite: String::from("/"),
             }),
-        };
-        route
+        }
     }
     fn create_error_route() -> Route {
         let id = Uuid::new_v4();
-        let route = Route {
+        Route {
             host_name: None,
             route_id: id.to_string(),
             route_cluster: LoadbalancerStrategy::WeightRoute(WeightRoute {
@@ -533,20 +518,19 @@ mod tests {
                 prefix: String::from("/app"),
                 prefix_rewrite: String::from("/test"),
             }),
-        };
-        route
+        }
     }
     fn creata_appconfig(service_config: ServiceConfig) -> AppConfig {
         let (sender, _) = mpsc::channel(1);
         let api_service = ApiService {
             listen_port: 9987,
             api_service_id: String::from("default_api_service"),
-            sender: sender,
-            service_config: service_config,
+            sender,
+            service_config,
         };
         let mut hashmap = HashMap::new();
         hashmap.insert(String::from("default_api_service"), api_service);
-        let app_config = AppConfig {
+        AppConfig {
             api_service_config: hashmap,
             static_config: StaticConfig {
                 access_log: None,
@@ -554,8 +538,7 @@ mod tests {
                 admin_port: String::from("9394"),
                 config_file_path: None,
             },
-        };
-        app_config
+        }
     }
     #[test]
     fn test_output_serde() {

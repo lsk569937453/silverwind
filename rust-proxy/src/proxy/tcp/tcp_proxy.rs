@@ -1,6 +1,5 @@
 use crate::vojo::app_error::AppError;
 use futures::FutureExt;
-use http::HeaderMap;
 use std::net::SocketAddr;
 use tokio::io;
 use tokio::io::AsyncWriteExt;
@@ -69,9 +68,9 @@ async fn transfer(mut inbound: TcpStream, mapping_key: String) -> Result<(), App
 
     Ok(())
 }
-async fn check(mapping_key: String, remote_addr: SocketAddr) -> Result<bool, AppError> {
+async fn check(_mapping_key: String, _remote_addr: SocketAddr) -> Result<bool, AppError> {
     Err(AppError(String::from("not impl")))
 }
-async fn get_route_cluster(mapping_key: String) -> Result<String, AppError> {
+async fn get_route_cluster(_mapping_key: String) -> Result<String, AppError> {
     Err(AppError(String::from("not impl")))
 }

@@ -8,23 +8,18 @@ use crate::vojo::app_config::AppConfig;
 use crate::vojo::app_error::AppError;
 use crate::vojo::base_response::BaseResponse;
 use crate::vojo::handler::Handler;
-use crate::vojo::route::BaseRoute;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::delete;
 use axum::routing::{get, post, put};
 use axum::Router;
-use http::header;
 use prometheus::{Encoder, TextEncoder};
-use std::collections::HashMap;
 use std::convert::Infallible;
 use std::env;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
-use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
@@ -86,7 +81,7 @@ async fn post_app_config_with_error(
         )?;
     }
     let uuid = Uuid::new_v4().to_string();
-    let cloned_port = api_service.listen_port.clone();
+    let cloned_port = api_service.listen_port;
     let (sender, receiver) = mpsc::channel::<()>(1);
     api_service.api_service_id = uuid.clone();
     api_service.sender = sender;
@@ -115,7 +110,7 @@ async fn post_app_config_with_error(
     Ok((axum::http::StatusCode::OK, json_str))
 }
 async fn delete_route(
-    axum::extract::Path(route_id): axum::extract::Path<String>,
+    axum::extract::Path(_route_id): axum::extract::Path<String>,
     State(state): State<Handler>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
     let rw_global_lock = state.shared_app_config.lock().await;
@@ -145,7 +140,7 @@ async fn put_route(
         Err(e) => Ok((axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
     }
 }
-async fn put_route_with_error(route_vistor: Route, handler: Handler) -> Result<String, AppError> {
+async fn put_route_with_error(_route_vistor: Route, handler: Handler) -> Result<String, AppError> {
     let rw_global_lock = handler.shared_app_config.lock().await;
 
     let cloned_config = rw_global_lock.clone();
@@ -239,7 +234,9 @@ mod tests {
     use http_body_util::BodyExt;
     use serde_json::json;
     use std::env;
+    use std::sync::Arc;
     use std::time::Duration;
+    use tokio::sync::Mutex;
     use tokio::time::sleep;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
     #[tokio::test]

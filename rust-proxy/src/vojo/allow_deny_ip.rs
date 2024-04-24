@@ -39,17 +39,14 @@ impl AllowDenyObject {
             )));
         }
         let config_ip = self.value.clone().unwrap();
-        let value_mapped_ip;
-        if config_ip.contains('/') {
+        let value_mapped_ip = if config_ip.contains('/') {
             let ip_range: IpRange<Ipv4Net> =
                 [config_ip].iter().map(|s| s.parse().unwrap()).collect();
             let source_ip = client_ip.parse::<Ipv4Addr>().unwrap();
-            value_mapped_ip = ip_range.contains(&source_ip);
-        } else if self.value.clone().unwrap() == client_ip {
-            value_mapped_ip = true;
+            ip_range.contains(&source_ip)
         } else {
-            value_mapped_ip = false;
-        }
+            self.value.clone().unwrap() == client_ip
+        };
         if value_mapped_ip && self.limit_type == AllowType::Allow {
             return Ok(AllowResult::Allow);
         }

@@ -1,6 +1,5 @@
 use super::app_config::AppConfig;
 use super::app_config::StaticConfig;
-use crate::configuration_service::logger;
 use crate::constants;
 use crate::constants::common_constants::ENV_ACCESS_LOG;
 use crate::constants::common_constants::ENV_ADMIN_PORT;
@@ -60,8 +59,6 @@ impl Handler {
             };
             http_proxy.start_http_server().await
         } else if server_type == ServiceType::Https {
-            let key_clone = mapping_key.clone();
-
             let pem_str = String::from("");
             let key_str = String::from("");
             let mut http_proxy = HttpProxy {
@@ -86,7 +83,6 @@ impl Handler {
             };
             grpc_proxy.start_proxy().await
         } else {
-            let key_clone = mapping_key.clone();
             // let service_config = GLOBAL_CONFIG_MAPPING
             //     .get(&key_clone)
             //     .unwrap()

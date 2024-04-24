@@ -1,8 +1,8 @@
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_appender::rolling;
+use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
-use tracing_subscriber::{fmt, layer::SubscriberExt};
 pub fn start_logger() -> WorkerGuard {
     let app_file = rolling::daily("./log", "app");
     let (non_blocking_appender, guard) = NonBlockingBuilder::default()

@@ -12,10 +12,6 @@ use iprange::IpRange;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicIsize, Ordering};
-use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::sync::RwLock;
 
 use super::app_error::AppError;
 
@@ -174,10 +170,9 @@ impl RatelimitStrategy for TokenBucketRateLimit {
         if !match_or_not {
             return Ok(false);
         }
-        let mut read_lock = self.current_count;
-        let current_value = read_lock.clone();
-        read_lock += 1;
-        if current_value <= 0 {
+        let current_value = self.current_count;
+        self.current_count += 1;
+        if current_value == 0 {
             let elapsed = self
                 .last_update_time
                 .elapsed()
@@ -189,20 +184,17 @@ impl RatelimitStrategy for TokenBucketRateLimit {
             if added_count == 0 {
                 return Ok(true);
             }
-            drop(read_lock);
             let mut write_lock = self.current_count;
-            if write_lock < 0 {
+            if write_lock == 0 {
                 if added_count > self.capacity {
                     added_count = self.capacity;
                 }
-                write_lock = added_count;
-                let mut write_timestamp = self.last_update_time;
-                write_timestamp = SystemTime::now();
+                self.current_count = added_count;
+                self.last_update_time = SystemTime::now();
             }
-            drop(write_lock);
             let current_value = self.current_count;
             self.current_count += 1;
-            if current_value <= 0 {
+            if current_value == 0 {
                 return Ok(true);
             }
         }

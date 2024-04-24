@@ -1,7 +1,5 @@
 use configuration_service::logger::start_logger;
 
-use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use vojo::app_error::AppError;
 use vojo::handler::Handler;
 
@@ -75,7 +73,8 @@ mod tests {
     #[test]
     fn test_main_success() {
         let res = main_with_error(async move {
-            let a = 1;
+            let mut _a: i32 = 1;
+            _a = 2;
         });
         assert!(res.is_ok());
     }

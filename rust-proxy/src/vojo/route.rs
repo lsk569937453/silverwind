@@ -1,7 +1,5 @@
-use super::app_config::LivenessConfig;
-use super::app_config::LivenessStatus;
 use super::app_error::AppError;
-use crate::vojo::anomaly_detection::HttpAnomalyDetectionParam;
+
 use core::fmt::Debug;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -9,9 +7,7 @@ use rand::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio::time::{sleep, Duration};
+
 use tracing::metadata::LevelFilter;
 use uuid::Uuid;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -209,7 +205,6 @@ impl RandomRoute {
             if is_alive {
                 alive_cluster.push(item.base_route.clone());
             }
-            drop(is_alve_result);
         }
         let mut rng = thread_rng();
         let index = rng.gen_range(0..alive_cluster.len());
@@ -289,8 +284,8 @@ impl WeightRoute {
     async fn get_route(&mut self, _headers: HeaderMap<HeaderValue>) -> Result<BaseRoute, AppError> {
         let cluster_read_lock2 = self.routes.clone();
         loop {
-            let currnet_index = self.index.clone();
-            let offset = self.offset.clone();
+            let currnet_index = self.index;
+            let offset = self.offset;
             let current_weight = cluster_read_lock2
                 .get(currnet_index as usize)
                 .ok_or(AppError(String::from("")))?;
@@ -317,7 +312,6 @@ impl WeightRoute {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::anomaly_detection::BaseAnomalyDetectionParam;
     use std::vec;
     #[derive(PartialEq, Eq, Debug)]
     pub struct BaseRouteWithoutLock {

@@ -310,7 +310,6 @@ async fn update_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vojo::api_service_manager::ApiServiceManager;
     use crate::vojo::app_config::ApiService;
     use crate::vojo::app_config::LivenessConfig;
     use crate::vojo::app_config::LivenessStatus;
@@ -375,7 +374,7 @@ mod tests {
         let api_service = ApiService {
             listen_port: 9090,
             api_service_id: String::from("0"),
-            sender: sender,
+            sender,
             service_config: ServiceConfig {
                 server_type: crate::vojo::app_config::ServiceType::Http,
                 cert_str: None,
@@ -385,7 +384,7 @@ mod tests {
         };
         let mut hashmap = HashMap::new();
         hashmap.insert(String::from("a"), api_service);
-        let app_config = AppConfig {
+        AppConfig {
             api_service_config: hashmap,
             static_config: StaticConfig {
                 access_log: None,
@@ -393,8 +392,7 @@ mod tests {
                 admin_port: String::from("9394"),
                 config_file_path: None,
             },
-        };
-        app_config
+        }
     }
 
     #[test]
