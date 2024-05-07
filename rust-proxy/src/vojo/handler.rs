@@ -83,13 +83,20 @@ impl Handler {
             };
             grpc_proxy.start_proxy().await
         } else {
-            // let service_config = GLOBAL_CONFIG_MAPPING
-            //     .get(&key_clone)
-            //     .unwrap()
-            //     .service_config
-            //     .clone();
-            let pem_str = String::from("");
-            let key_str = String::from("");
+            let shared_app_config_lock = self.shared_app_config.lock().await;
+            let service_config = shared_app_config_lock
+                .api_service_config
+                .get(&mapping_key)
+                .ok_or(AppError(String::from("Can not get the service config")))?
+                .service_config
+                .clone();
+            drop(shared_app_config_lock);
+            let pem_str = service_config
+                .cert_str
+                .ok_or(AppError(String::from("Can not get the pem_str")))?;
+            let key_str = service_config
+                .key_str
+                .ok_or(AppError(String::from("Can not get the key_str")))?;
             let mut grpc_proxy = GrpcProxy {
                 port,
                 mapping_key,

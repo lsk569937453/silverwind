@@ -16,6 +16,7 @@ use crate::constants::common_constants::DEFAULT_ADMIN_PORT;
 use crate::constants::common_constants::ENV_ADMIN_PORT;
 use futures::Future;
 use std::env;
+use std::num::ParseIntError;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 #[macro_use]
@@ -27,14 +28,14 @@ use tokio::runtime;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 fn main() {
-    let fut = async move { block_start().await };
+    let fut = async move { block_start_with_error().await };
     if let Err(e) = main_with_error(fut) {
         error!("main error,the error is {}!", e)
     }
 }
 fn main_with_error<Fut>(fut: Fut) -> Result<(), AppError>
 where
-    Fut: Future<Output = ()> + Send + 'static,
+    Fut: Future<Output = Result<(), AppError>> + Send + 'static,
 {
     let num = num_cpus::get();
     let rt = runtime::Builder::new_multi_thread()
@@ -42,19 +43,20 @@ where
         .enable_all()
         .build()
         .map_err(|e| AppError(e.to_string()))?;
-    rt.block_on(fut);
+    rt.block_on(fut)?;
     Ok(())
 }
-async fn block_start() {
+async fn block_start_with_error() -> Result<(), AppError> {
     let _work_guard = start_logger();
     let admin_port: i32 = env::var(ENV_ADMIN_PORT)
         .unwrap_or(String::from(DEFAULT_ADMIN_PORT))
         .parse()
-        .unwrap();
+        .map_err(|e: ParseIntError| AppError(e.to_string()))?;
     let mut handler = Handler {
         shared_app_config: Arc::new(Mutex::new(Default::default())),
     };
     let _ = handler.run(admin_port).await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -65,7 +67,7 @@ mod tests {
     use tokio::time::sleep;
     #[tokio::test]
     async fn pool_key_value_get_set() {
-        tokio::spawn(async move { block_start().await });
+        tokio::spawn(async move { block_start_with_error().await });
         sleep(Duration::from_millis(1000)).await;
         let listener = TcpListener::bind("0.0.0.0:5402");
         assert!(listener.is_ok());
@@ -75,6 +77,7 @@ mod tests {
         let res = main_with_error(async move {
             let mut _a: i32 = 1;
             _a = 2;
+            Ok(())
         });
         assert!(res.is_ok());
     }
