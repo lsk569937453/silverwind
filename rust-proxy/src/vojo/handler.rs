@@ -59,8 +59,20 @@ impl Handler {
             };
             http_proxy.start_http_server().await
         } else if server_type == ServiceType::Https {
-            let pem_str = String::from("");
-            let key_str = String::from("");
+            let shared_app_config_lock = self.shared_app_config.lock().await;
+            let service_config = shared_app_config_lock
+                .api_service_config
+                .get(&mapping_key)
+                .ok_or(AppError(String::from("Can not get the service config")))?
+                .service_config
+                .clone();
+            drop(shared_app_config_lock);
+            let pem_str = service_config
+                .cert_str
+                .ok_or(AppError(String::from("Can not get the pem_str")))?;
+            let key_str = service_config
+                .key_str
+                .ok_or(AppError(String::from("Can not get the key_str")))?;
             let mut http_proxy = HttpProxy {
                 port,
                 channel,
@@ -118,8 +130,7 @@ async fn init_static_config() -> StaticConfig {
     if let Ok(database_url) = database_url_result {
         static_config.database_url = Some(database_url);
     }
-    static_config.admin_port = api_port.clone();
-
+    static_config.admin_port.clone_from(&api_port);
     if let Ok(access_log) = access_log_result {
         static_config.access_log = Some(access_log);
     }

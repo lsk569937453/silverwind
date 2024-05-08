@@ -184,7 +184,7 @@ impl RatelimitStrategy for TokenBucketRateLimit {
             if added_count == 0 {
                 return Ok(true);
             }
-            let mut write_lock = self.current_count;
+            let write_lock = self.current_count;
             if write_lock == 0 {
                 if added_count > self.capacity {
                     added_count = self.capacity;

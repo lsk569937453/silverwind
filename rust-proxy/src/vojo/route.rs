@@ -306,7 +306,7 @@ impl WeightRoute {
             }
         }
 
-        Err(AppError(String::from("WeightRoute get route error")))
+        // Err(AppError(String::from("WeightRoute get route error")))
     }
 }
 #[cfg(test)]
@@ -671,7 +671,6 @@ mod tests {
         }
         {
             let weight_route = get_weight_routes();
-            let vecs: Vec<PollBaseRoute> = get_poll_routes();
             let weight_route = WeightRoute {
                 routes: weight_route,
                 index: 0,

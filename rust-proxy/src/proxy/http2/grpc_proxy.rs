@@ -410,7 +410,7 @@ mod tests {
             }),
         }
     }
-    struct MockProvider();
+    struct MockProvider;
     #[async_trait]
     impl CheckTrait for MockProvider {
         async fn check_before_request(

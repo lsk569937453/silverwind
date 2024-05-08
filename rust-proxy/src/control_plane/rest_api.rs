@@ -24,8 +24,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 static INTERNAL_SERVER_ERROR: &str = "Internal Server Error";
-#[derive(Debug)]
-struct MethodError;
+
 async fn get_app_config(
     State(state): State<Handler>,
 ) -> Result<impl axum::response::IntoResponse, Infallible> {
@@ -83,7 +82,7 @@ async fn post_app_config_with_error(
     let uuid = Uuid::new_v4().to_string();
     let cloned_port = api_service.listen_port;
     let (sender, receiver) = mpsc::channel::<()>(1);
-    api_service.api_service_id = uuid.clone();
+    api_service.api_service_id.clone_from(&uuid);
     api_service.sender = sender;
     let mut rw_global_lock = handler.shared_app_config.lock().await;
     rw_global_lock
