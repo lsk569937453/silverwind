@@ -8,13 +8,32 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "12.0"
+          cpus: "20.0"
+          memory: 8192M
+
+  kt:
+    image: ghcr.io/lsk569937453/kt:0.0.7
+    container_name: kt
+    tty: true
+    deploy:
+      resources:
+        limits:
+          cpus: "20.0"
+          memory: 8192M
+  rcurl:
+    image: ghcr.io/lsk569937453/rcurl:0.0.25
+    container_name: rcurl
+    tty: true
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
           memory: 8192M
   backend:
     image: ghcr.io/lsk569937453/echo-server:0.0.3
     container_name: backend
     ports:
-    - "9394:8080"
+      - "9394:8080"
     deploy:
       resources:
         limits:
@@ -29,7 +48,7 @@ services:
       RUST_BACKTRACE: 1
       JEMALLOC_SYS_WITH_MALLOC_CONF: background_thread:true,narenas:1,tcache:false,dirty_decay_ms:0,muzzy_decay_ms:0,abort_conf:true
     volumes:
-    - ./app_config.yaml:/data/app/app_config.yaml
+      - ./app_config.yaml:/data/app/app_config.yaml
     restart: unless-stopped
     ports:
       - 6667:6667
