@@ -99,8 +99,7 @@ pub struct TokenBucketRateLimit {
     pub limit_location: LimitLocation,
     #[serde(skip_serializing, skip_deserializing)]
     pub current_count: u128,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub lock: u128,
+
     #[serde(skip_serializing, skip_deserializing, default = "default_time")]
     pub last_update_time: SystemTime,
 }
@@ -212,8 +211,6 @@ pub struct FixedWindowRateLimit {
     pub limit_location: LimitLocation,
     #[serde(skip_serializing, skip_deserializing)]
     pub count_map: HashMap<String, i64>,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub lock: i32,
 }
 #[typetag::serde]
 #[async_trait]
@@ -278,7 +275,6 @@ mod tests {
                 value: String::from("192.168.0.0"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -311,7 +307,6 @@ mod tests {
                 value: String::from("245.168.0.0/8"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -346,7 +341,6 @@ mod tests {
                 value: String::from("test"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -380,7 +374,6 @@ mod tests {
                 value: String::from("test"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -413,7 +406,6 @@ mod tests {
                 value: String::from("245.168.0.0/8"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -445,7 +437,6 @@ mod tests {
                 value: String::from("192.168.0.0"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -478,7 +469,6 @@ mod tests {
                 value: String::from("192.168.0.0"),
             }),
             current_count: 3,
-            lock: 0,
             last_update_time: SystemTime::now(),
         };
         let mut headermap1 = HeaderMap::new();
@@ -525,7 +515,6 @@ mod tests {
                 value: String::from("192.168.0.0"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -563,7 +552,6 @@ mod tests {
                 value: String::from("192.168.0.0"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -610,7 +598,6 @@ mod tests {
                 value: String::from("test2"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -641,7 +628,6 @@ mod tests {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -672,7 +658,6 @@ mod tests {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -703,7 +688,6 @@ mod tests {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -734,7 +718,6 @@ mod tests {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -765,7 +748,6 @@ mod tests {
                 value: String::from("192.168.0.1/8"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let mut headermap1 = HeaderMap::new();
         headermap1.insert("api_key", "test2".parse().unwrap());
@@ -801,7 +783,6 @@ mod tests {
                 value: String::from("192.168.0.0"),
             }),
             count_map: HashMap::new(),
-            lock: 0,
         };
         let weight_route: Box<dyn RatelimitStrategy> = Box::new(fixed_window_ratelimit);
         assert_eq!(format!("{:?}", weight_route), "{debug}");

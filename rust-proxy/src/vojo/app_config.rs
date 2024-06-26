@@ -330,7 +330,6 @@ mod tests {
                     value: "a".to_string(),
                 }),
                 count_map: HashMap::new(),
-                lock: 0,
             })),
             matcher: Some(Matcher {
                 prefix: String::from("/"),

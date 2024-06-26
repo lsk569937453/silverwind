@@ -12,7 +12,7 @@ services:
           memory: 8192M
 
   kt:
-    image: ghcr.io/lsk569937453/kt:0.0.7
+    image: lsk569937453/kt:test
     container_name: kt
     tty: true
     deploy:
