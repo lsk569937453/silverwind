@@ -128,7 +128,7 @@ uuid = { version = "=1.20.0", features = [
     "fast-rng",
     "macro-diagnostics",
 ] }
-webpki-roots = "=1.0.5"
+webpki-roots = "=1.0.10"
 x509-parser = "=0.18.0"
 zstd = "=0.13.3"
 # native-tls = "0.2.11"
