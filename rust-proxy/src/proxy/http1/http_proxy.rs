@@ -1,5 +1,6 @@
 use crate::control_plane::cert_loader::load_tls_config_multi;
 use crate::control_plane::cert_loader::watch_for_certificate_changes;
+use crate::middleware::middlewares::MiddleWares;
 use crate::monitor::prometheus_exporter::metrics;
 use crate::proxy::http1::app_clients::AppClients;
 use crate::proxy::http1::websocket_proxy::server_upgrade;
@@ -9,7 +10,7 @@ use crate::proxy::proxy_trait::{CommonCheckRequest, RouterDestination};
 use crate::vojo::app_error::AppError;
 use crate::vojo::cli::SharedConfig;
 use bytes::Bytes;
-use http::{HeaderValue, Uri};
+use http::{HeaderMap, HeaderValue, Uri};
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::Method;
 use hyper::StatusCode;
@@ -328,10 +329,17 @@ where
             return chain_trait.handle_preflight(cors_config, "");
         }
     }
-    if inbound_headers.clone().contains_key(CONNECTION)
-        && inbound_headers.contains_key(SEC_WEBSOCKET_KEY)
-    {
+    let is_websocket_upgrade = inbound_headers.contains_key(CONNECTION)
+        && inbound_headers.contains_key(SEC_WEBSOCKET_KEY);
+    if is_websocket_upgrade {
         debug!("The request has been updated to websocket,the req is {req:?}!");
+        apply_request_middlewares(
+            &chain_trait,
+            spire_context.middlewares.clone(),
+            remote_addr,
+            req.headers_mut(),
+        )
+        .await?;
         return server_upgrade(req, handling_result, client.http).await;
     }
 
@@ -363,13 +371,13 @@ where
                 .to_string();
             req.headers_mut()
                 .insert(http::header::HOST, HeaderValue::from_str(&host)?);
-            if let Some(mut middlewares) = spire_context.middlewares.clone() {
-                if !middlewares.is_empty() {
-                    chain_trait
-                        .handle_before_request(&mut middlewares, remote_addr, req.headers_mut())
-                        .await?;
-                }
-            }
+            apply_request_middlewares(
+                &chain_trait,
+                spire_context.middlewares.clone(),
+                remote_addr,
+                req.headers_mut(),
+            )
+            .await?;
             let timeout = check_request.timeout;
             let req = req.map(|b| b.map_err(|e| AppError::from(e)).boxed());
             let request_future = if request_path.contains("https") {
@@ -439,6 +447,25 @@ where
     res
 }
 
+/// Runs the request-phase middlewares that rewrite/forward headers
+/// (`forward_headers`, `request_headers`). Shared by the regular HTTP and the
+/// WebSocket upgrade paths so both forward the same client information.
+async fn apply_request_middlewares(
+    chain_trait: &impl ChainTrait,
+    middlewares: Option<Vec<MiddleWares>>,
+    peer_addr: SocketAddr,
+    headers: &mut HeaderMap,
+) -> Result<(), AppError> {
+    if let Some(mut middlewares) = middlewares {
+        if !middlewares.is_empty() {
+            chain_trait
+                .handle_before_request(&mut middlewares, peer_addr, headers)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 async fn route_file<B>(
     router_destination: RouterDestination,
     req: Request<B>,
@@ -462,15 +489,19 @@ mod tests {
     use super::*;
 
     use crate::middleware::authentication::BasicAuth;
+    use crate::middleware::forward_header::ForwardHeader;
     use crate::middleware::middlewares::MiddleWares;
+    use crate::middleware::request_headers::RequestHeaders;
     use crate::proxy::proxy_trait::{HandlingResult, MockChainTrait};
     use crate::vojo::app_config::AppConfig;
     use crate::vojo::app_config::{ApiService, RouteConfig};
     use crate::vojo::matcher::MatcherRule;
+    use crate::vojo::matcher::PathMatchType;
     use crate::vojo::router::StaticFileRoute;
     use crate::vojo::router::{BaseRoute, RandomRoute, Router};
     use http::HeaderMap;
     use std::collections::HashMap;
+    use std::convert::Infallible;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::sync::Arc;
@@ -761,5 +792,158 @@ mod tests {
 
         let result = route_file(router_destination, req).await;
         assert!(result.is_ok());
+    }
+
+    type RecordedRequests = Arc<Mutex<Vec<(String, HeaderMap)>>>;
+
+    /// Minimal upstream that records the request line path and headers, then
+    /// answers 200. Used to observe what Spire actually forwards.
+    async fn spawn_recording_upstream() -> (SocketAddr, RecordedRequests) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let recorded: RecordedRequests = Arc::new(Mutex::new(Vec::new()));
+        let recorded_for_server = recorded.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let recorded = recorded_for_server.clone();
+                tokio::spawn(async move {
+                    let service = service_fn(move |req: Request<Incoming>| {
+                        let recorded = recorded.clone();
+                        async move {
+                            recorded
+                                .lock()
+                                .unwrap()
+                                .push((req.uri().path().to_string(), req.headers().clone()));
+                            Ok::<_, Infallible>(Response::new(Full::new(Bytes::new())))
+                        }
+                    });
+                    let io = TokioIo::new(stream);
+                    if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+                        error!("recording upstream connection error: {err:?}");
+                    }
+                });
+            }
+        });
+        (addr, recorded)
+    }
+
+    fn forward_header_config(upstream: SocketAddr) -> SharedConfig {
+        let route = RouteConfig {
+            matchers: vec![MatcherRule::Path {
+                value: "/tungate".to_string(),
+                match_type: PathMatchType::Prefix,
+                regex: None,
+            }],
+            router: Router::Random(RandomRoute::new(vec![format!("http://{upstream}")])),
+            middlewares: Some(vec![
+                MiddleWares::ForwardHeader(ForwardHeader {}),
+                MiddleWares::RequestHeaders(RequestHeaders {
+                    add: HashMap::from([(
+                        "X-Forwarded-Host".to_string(),
+                        "www.937453.xyz".to_string(),
+                    )]),
+                    remove: Vec::new(),
+                }),
+            ]),
+            ..Default::default()
+        };
+        let mut app_config = AppConfig::default();
+        app_config.api_service_config.insert(
+            8080,
+            ApiService {
+                listen_port: 8080,
+                route_configs: vec![route],
+                ..Default::default()
+            },
+        );
+        SharedConfig::from_app_config(app_config)
+    }
+
+    fn upgrade_request() -> Request<BoxBody<Bytes, AppError>> {
+        Request::builder()
+            .method(Method::GET)
+            .uri("/tungate/tunnel/ws")
+            .header(CONNECTION, "upgrade")
+            .header(header::UPGRADE, "websocket")
+            .header(SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==")
+            .header(header::SEC_WEBSOCKET_VERSION, "13")
+            .header(header::HOST, "www.937453.xyz")
+            .body(Full::new(Bytes::new()).map_err(AppError::from).boxed())
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_websocket_upgrade_applies_forward_headers() {
+        let (upstream_addr, recorded) = spawn_recording_upstream().await;
+        let shared_config = forward_header_config(upstream_addr);
+        let client = AppClients::new(shared_config.clone(), 8080).await.unwrap();
+
+        // A non-loopback peer proves the address comes from the connection, not
+        // from the upstream socket.
+        let remote_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9)), 54321);
+
+        let result = proxy(
+            8080,
+            shared_config,
+            client,
+            upgrade_request(),
+            "test".to_string(),
+            remote_addr,
+            CommonCheckRequest {},
+        )
+        .await
+        .expect("websocket upgrade request should be proxied");
+        assert_eq!(result.status(), StatusCode::OK);
+
+        let recorded = recorded.lock().unwrap();
+        let (path, headers) = recorded
+            .last()
+            .expect("upstream should receive the websocket upgrade request");
+        assert_eq!(path, "/tungate/tunnel/ws");
+        assert_eq!(headers.get("x-real-ip").unwrap(), "203.0.113.9");
+        assert_eq!(headers.get("x-forwarded-for").unwrap(), "203.0.113.9");
+        assert_eq!(headers.get("x-forwarded-host").unwrap(), "www.937453.xyz");
+        assert_eq!(headers.get(header::UPGRADE).unwrap(), "websocket");
+    }
+
+    #[tokio::test]
+    async fn test_http_request_applies_forward_headers() {
+        let (upstream_addr, recorded) = spawn_recording_upstream().await;
+        let shared_config = forward_header_config(upstream_addr);
+        let client = AppClients::new(shared_config.clone(), 8080).await.unwrap();
+
+        let remote_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9)), 54321);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/tungate/ping")
+            .header(header::HOST, "www.937453.xyz")
+            .body(Full::new(Bytes::new()).map_err(AppError::from).boxed())
+            .unwrap();
+
+        let result = proxy(
+            8080,
+            shared_config,
+            client,
+            req,
+            "test".to_string(),
+            remote_addr,
+            CommonCheckRequest {},
+        )
+        .await
+        .expect("plain http request should be proxied");
+        assert_eq!(result.status(), StatusCode::OK);
+
+        let recorded = recorded.lock().unwrap();
+        let (path, headers) = recorded
+            .last()
+            .expect("upstream should receive the plain http request");
+        assert_eq!(path, "/tungate/ping");
+        assert_eq!(headers.get("x-real-ip").unwrap(), "203.0.113.9");
+        assert_eq!(headers.get("x-forwarded-for").unwrap(), "203.0.113.9");
+        assert_eq!(headers.get("x-forwarded-host").unwrap(), "www.937453.xyz");
     }
 }

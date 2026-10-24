@@ -221,11 +221,12 @@ mod tests {
             "spire-test-does-not-exist-b.com".to_string(),
         ];
 
-        let config = load_tls_config_multi(&domains).unwrap();
-
-        // Both domains have no stored certificate, so the resolver must be
-        // built from self-signed fallbacks (and must exist at all).
-        assert!(config.cert_resolver.is_some());
+        // Building the config must succeed even when none of the domains has a
+        // stored certificate: rustls then installs the self-signed fallback
+        // resolver. In rustls 0.23 the resolver is a non-optional field
+        // (`Arc<dyn ResolvesServerCert>`), so a successful build is the
+        // assertion here.
+        load_tls_config_multi(&domains).unwrap();
     }
 
     #[test]

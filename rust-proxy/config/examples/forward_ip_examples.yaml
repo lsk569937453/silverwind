@@ -6,6 +6,7 @@
 # The forward_headers middleware automatically adds:
 # - X-Real-IP: The client's real IP address
 # - X-Forwarded-For: The client's IP (appended if already exists)
+# It applies to regular HTTP requests and to WebSocket upgrade requests alike.
 
 log_level: info
 
